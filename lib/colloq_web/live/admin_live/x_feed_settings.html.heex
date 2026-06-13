@@ -1,0 +1,42 @@
+<section class="space-y-6 max-w-2xl">
+  <h1 class="text-2xl font-bold text-white">Configuración de X Feed</h1>
+  <p class="text-sm text-gray-400">
+    Configurá la integración con X (Twitter) vía Nitter para monitorear cuentas y palabras clave
+    y publicar automáticamente en un tema del foro.
+  </p>
+
+  <.card>
+    <form phx-submit="save" class="space-y-4">
+      <.input
+        label="URL de la instancia Nitter"
+        name="nitter_url"
+        value={@form.nitter_url}
+        placeholder="https://nitter.net"
+      />
+
+      <.textarea
+        label="Cuentas a monitorear (separadas por coma)"
+        name="accounts"
+        value={@form.accounts}
+        placeholder="RacingClub, pelotaRC, ..."
+      />
+
+      <.textarea
+        label="Palabras clave (separadas por coma)"
+        name="keywords"
+        value={@form.keywords}
+        placeholder="#Racing, #VamosRacing, Academia, ..."
+      />
+
+      <.input
+        label="ID del tema destino"
+        name="target_topic_id"
+        value={@form.target_topic_id}
+        type="number"
+        placeholder="ID del topic donde se publicarán los tweets"
+      />
+
+      <.button type="submit">Guardar</.button>
+    </form>
+  </.card>
+</section>

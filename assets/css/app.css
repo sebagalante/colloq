@@ -1,0 +1,289 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+/* =========================================================================
+   Forum Cards (.post-card)
+   Tarjetas de post en el foro con hover y bordes suaves.
+   ========================================================================= */
+@layer components {
+  .post-card {
+    @apply bg-gray-800 border border-gray-700 rounded-lg p-4 mb-4
+           transition-shadow duration-200 ease-in-out;
+  }
+  .post-card:hover {
+    @apply shadow-lg shadow-blue-500/10 border-gray-600;
+  }
+}
+
+/* =========================================================================
+   Match Score Pin (.match-score-pin)
+   Marcador sticky en hilos de partido, queda fijo en el top.
+   ========================================================================= */
+.match-score-pin {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: linear-gradient(180deg, #1e293b 0%, #1e293b 85%, transparent 100%);
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #334155;
+  backdrop-filter: blur(12px);
+}
+
+/* =========================================================================
+   Goal Alert (.goal-alert)
+   Banner fijo verde para anunciar goles en vivo.
+   ========================================================================= */
+.goal-alert {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  color: #fff;
+  text-align: center;
+  padding: 1rem;
+  font-weight: 700;
+  font-size: 1.125rem;
+  letter-spacing: 0.025em;
+  animation: goalSlideIn 0.4s ease-out;
+}
+
+@keyframes goalSlideIn {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* =========================================================================
+   Balloon Shower (.balloon-shower)
+   SVG animation para festejo de goles.
+   ========================================================================= */
+.balloon-shower {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.balloon-shower svg {
+  width: 100%;
+  height: 100%;
+}
+
+.balloon-shower .balloon {
+  animation: balloonRise 3s ease-out forwards;
+  opacity: 0;
+}
+
+.balloon-shower .balloon:nth-child(1) { animation-delay: 0s; }
+.balloon-shower .balloon:nth-child(2) { animation-delay: 0.15s; }
+.balloon-shower .balloon:nth-child(3) { animation-delay: 0.3s; }
+.balloon-shower .balloon:nth-child(4) { animation-delay: 0.45s; }
+.balloon-shower .balloon:nth-child(5) { animation-delay: 0.6s; }
+
+@keyframes balloonRise {
+  0% {
+    transform: translateY(100vh) rotate(0deg) scale(0.5);
+    opacity: 1;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100vh) rotate(360deg) scale(1.2);
+    opacity: 0;
+  }
+}
+
+/* =========================================================================
+   Typing Dots (.typing-dots)
+   Animación de tres puntos para indicador "escribiendo...".
+   ========================================================================= */
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0.5rem 0;
+}
+
+.typing-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #94a3b8;
+  animation: typingDot 1.4s infinite ease-in-out both;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: 0s; }
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typingDot {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* =========================================================================
+   Radio Bar (.radio-bar)
+   Tira de audio estilo reproductor minimalista para VoiceRoom.
+   ========================================================================= */
+.radio-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 0.5rem;
+  min-height: 48px;
+}
+
+.radio-bar .radio-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: radioPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes radioPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+  }
+}
+
+.radio-bar .speaker-indicator {
+  width: 40px;
+  height: 8px;
+  background: #334155;
+  border-radius: 4px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.radio-bar .speaker-indicator .level {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e, #eab308, #ef4444);
+  border-radius: 4px;
+  transition: width 0.1s ease-out;
+}
+
+/* =========================================================================
+   Lineup Pitch (.lineup-pitch)
+   Cancha 3D con perspectiva CSS para mostrar formaciones.
+   ========================================================================= */
+.lineup-pitch {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  height: 640px;
+  margin: 0 auto;
+  transform: rotateX(42deg);
+  transform-style: preserve-3d;
+  perspective: 800px;
+  background: linear-gradient(180deg,
+    #15803d 0%,
+    #22c55e 20%,
+    #22c55e 80%,
+    #15803d 100%
+  );
+  border-radius: 12px;
+  box-shadow:
+    inset 0 0 80px rgba(0, 0, 0, 0.3),
+    0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.lineup-pitch::before {
+  content: "";
+  position: absolute;
+  inset: 5%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 4px;
+}
+
+.lineup-pitch::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 5%;
+  right: 5%;
+  border-top: 2px solid rgba(255, 255, 255, 0.4);
+}
+
+.lineup-pitch .center-circle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 120px;
+  height: 120px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+}
+
+.lineup-pitch .center-spot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+}
+
+.lineup-pitch .player-dot {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  background: #1e293b;
+  border: 2px solid #fbbf24;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #f1f5f9;
+  font-weight: 700;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* =========================================================================
+   Utility: Continuation Notice
+   ========================================================================= */
+.continuation-notice {
+  @apply bg-blue-900/30 border border-blue-500/50 rounded-lg p-4 my-4;
+}
+
+.continuation-notice a {
+  @apply text-blue-400 underline;
+}
+
+/* =========================================================================
+   Utility: X Feed Quote
+   ========================================================================= */
+.x-feed-quote {
+  @apply border-l-4 border-sky-500 pl-4 py-2 my-2 italic bg-gray-800/50 rounded-r-lg;
+}
+
+.x-feed-quote footer {
+  @apply text-gray-400 text-sm mt-2 not-italic;
+}

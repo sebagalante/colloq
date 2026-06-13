@@ -1,0 +1,128 @@
+<div class="max-w-2xl mx-auto px-4 py-6">
+  <h1 class="text-2xl font-bold text-white mb-6">Configuración</h1>
+
+  <form phx-submit="save">
+    <%!-- Perfil --%>
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold text-white mb-4 border-b border-[#1a2035] pb-2">Perfil</h2>
+
+      <.input
+        id="settings-display-name"
+        name="display_name"
+        label="Nombre visible"
+        value={@form_data["display_name"]}
+        placeholder={@current_user.username}
+      />
+
+      <.input
+        id="settings-bio"
+        name="bio"
+        label="Biografía"
+        value={@form_data["bio"]}
+        placeholder="Contanos un poco sobre vos..."
+      />
+
+      <.input
+        id="settings-location"
+        name="location"
+        label="Ubicación"
+        value={@form_data["location"]}
+        placeholder="Buenos Aires, Argentina"
+      />
+
+      <.input
+        id="settings-website"
+        name="website"
+        label="Sitio web"
+        value={@form_data["website"]}
+        placeholder="https://tusitio.com"
+      />
+    </section>
+
+    <%!-- Preferencias --%>
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold text-white mb-4 border-b border-[#1a2035] pb-2">Preferencias</h2>
+
+      <div class="mb-4">
+        <label for="settings-theme" class="block text-sm font-medium text-gray-300 mb-1">Tema</label>
+        <select
+          id="settings-theme"
+          name="theme"
+          class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="dark" selected={@form_data["theme"] == "dark"}>Oscuro</option>
+          <option value="light" selected={@form_data["theme"] == "light"}>Claro</option>
+        </select>
+      </div>
+
+      <div class="mb-4">
+        <label for="settings-locale" class="block text-sm font-medium text-gray-300 mb-1">Idioma</label>
+        <select
+          id="settings-locale"
+          name="locale"
+          class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="es" selected={@form_data["locale"] == "es"}>Español</option>
+          <option value="en" selected={@form_data["locale"] == "en"}>English</option>
+        </select>
+      </div>
+
+      <div class="mb-4 flex items-center justify-between">
+        <div>
+          <label for="settings-notifications" class="text-sm font-medium text-gray-300">
+            Notificaciones
+          </label>
+          <p class="text-xs text-gray-500">Recibir notificaciones por email</p>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            id="settings-notifications"
+            name="notifications_enabled"
+            value="true"
+            checked={@form_data["notifications_enabled"]}
+            class="sr-only peer"
+          >
+          <div class="w-9 h-5 bg-gray-700 peer-checked:bg-blue-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+        </label>
+      </div>
+    </section>
+
+    <%!-- Apariencia --%>
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold text-white mb-4 border-b border-[#1a2035] pb-2">Apariencia</h2>
+      <div :if={@form_data["theme"] == "dark"} class="rounded-xl bg-[#0f1420] border border-[#1a2035] p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-3 h-3 rounded-full bg-red-500"></div>
+          <div class="w-3 h-3 rounded-full bg-amber-500"></div>
+          <div class="w-3 h-3 rounded-full bg-green-500"></div>
+        </div>
+        <div class="space-y-2">
+          <div class="h-2 bg-[#1a2035] rounded w-3/4"></div>
+          <div class="h-2 bg-[#1a2035] rounded w-1/2"></div>
+          <div class="h-2 bg-[#1a2035] rounded w-5/6"></div>
+        </div>
+      </div>
+      <div :if={@form_data["theme"] == "light"} class="rounded-xl bg-white border border-gray-200 p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-3 h-3 rounded-full bg-red-400"></div>
+          <div class="w-3 h-3 rounded-full bg-amber-400"></div>
+          <div class="w-3 h-3 rounded-full bg-green-400"></div>
+        </div>
+        <div class="space-y-2">
+          <div class="h-2 bg-gray-200 rounded w-3/4"></div>
+          <div class="h-2 bg-gray-200 rounded w-1/2"></div>
+          <div class="h-2 bg-gray-200 rounded w-5/6"></div>
+        </div>
+      </div>
+    </section>
+
+    <%!-- Save button --%>
+    <div class="flex items-center gap-4">
+      <.button type="submit">Guardar cambios</.button>
+      <a href={~p"/u/#{@current_user.username}"} class="text-sm text-gray-400 hover:text-white transition-colors">
+        Volver al perfil
+      </a>
+    </div>
+  </form>
+</div>

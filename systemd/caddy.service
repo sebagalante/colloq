@@ -1,0 +1,13 @@
+[Unit]
+Description=Caddy Reverse Proxy
+After=network.target
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/caddy run --config /etc/caddy/Caddyfile
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

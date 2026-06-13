@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es" class="[color-scheme:dark]">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <.live_title suffix=" · Colloq">
+      <%= assigns[:page_title] || "Colloq" %>
+    </.live_title>
+
+    <link phx-track-static rel="stylesheet" href={~p"/assets/app.css"} />
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/app.js"}>
+    </script>
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#1d4ed8" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+    <!-- Open Graph defaults -->
+    <meta property="og:site_name" content="Colloq" />
+    <meta property="og:locale" content="es_AR" />
+  </head>
+  <body class="bg-[#080c14] text-[#e2e5ed] antialiased">
+    <%= @inner_content %>
+  </body>
+</html>

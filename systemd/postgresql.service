@@ -1,0 +1,15 @@
+[Unit]
+Description=PostgreSQL 17 con ParadeDB
+After=network.target
+
+[Service]
+Type=exec
+User=postgres
+Group=postgres
+ExecStart=/usr/lib/postgresql/17/bin/postgres -D /var/lib/postgresql/17/main
+Restart=always
+RestartSec=5
+Environment=PGDATA=/var/lib/postgresql/17/main
+
+[Install]
+WantedBy=multi-user.target

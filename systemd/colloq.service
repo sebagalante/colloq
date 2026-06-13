@@ -1,0 +1,21 @@
+[Unit]
+Description=Colloq Phoenix Application
+After=network.target postgresql.service
+
+[Service]
+Type=exec
+User=colloq
+Group=colloq
+WorkingDirectory=/opt/colloq
+Environment=MIX_ENV=prod
+Environment=HOME=/opt/colloq
+ExecStart=/usr/local/bin/infisical run -- /opt/colloq/bin/colloq start
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=colloq
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,99 @@
+<div :if={@profile_user} class="max-w-3xl mx-auto px-4 py-6">
+  <%!-- Profile header --%>
+  <div class="flex items-start gap-6 mb-8">
+    <div class="flex-shrink-0">
+      <div class="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center text-2xl font-bold text-white">
+        <%= initials(@profile_user) %>
+      </div>
+    </div>
+
+    <div class="flex-1">
+      <h1 class="text-2xl font-bold text-white">
+        <%= @profile_user.display_name || @profile_user.username %>
+      </h1>
+      <p class="text-gray-400 text-sm">
+        @<%= @profile_user.username %>
+      </p>
+      <div class="flex items-center gap-2 mt-2">
+        <.badge color={trust_level_badge_color(@profile_user.trust_level)}>
+          TL<%= @profile_user.trust_level %>
+        </.badge>
+        <.badge :if={@profile_user.is_admin} color="red">Admin</.badge>
+      </div>
+    </div>
+  </div>
+
+  <%!-- Bio --%>
+  <div :if={@profile_user.bio} class="mb-6">
+    <p class="text-gray-300 text-sm leading-relaxed"><%= @profile_user.bio %></p>
+  </div>
+
+  <%!-- Location & Website --%>
+  <div class="flex flex-wrap gap-4 mb-6 text-sm">
+    <span :if={@profile_user.location} class="text-gray-400">
+      📍 <%= @profile_user.location %>
+    </span>
+    <a
+      :if={@profile_user.website}
+      href={@profile_user.website}
+      target="_blank"
+      rel="noopener noreferrer"
+      class="text-blue-400 hover:underline"
+    >
+      🔗 <%= @profile_user.website %>
+    </a>
+  </div>
+
+  <%!-- Stats row --%>
+  <.card class="mb-8">
+    <div class="flex justify-around text-center">
+      <div>
+        <p class="text-2xl font-bold text-white"><%= @profile_user.posts_count %></p>
+        <p class="text-xs text-gray-500 mt-1">Publicaciones</p>
+      </div>
+      <div class="border-l border-[#1a2035]"></div>
+      <div>
+        <p class="text-2xl font-bold text-white"><%= member_since(@profile_user) %></p>
+        <p class="text-xs text-gray-500 mt-1">Miembro desde</p>
+      </div>
+    </div>
+  </.card>
+
+  <%!-- Recent posts --%>
+  <div>
+    <h2 class="text-lg font-semibold text-white mb-4">Publicaciones recientes</h2>
+
+    <div :if={@posts != []} class="space-y-3">
+      <div :for={post <- @posts} class="group py-3 border-b border-[#1a2035] last:border-b-0">
+        <div class="flex items-center justify-between mb-1">
+          <a
+            href={~p"/t/#{post.topic_id}"}
+            class="text-sm text-blue-400 hover:underline truncate max-w-md"
+          >
+            <%= post.topic.title %>
+          </a>
+          <span class="text-xs text-gray-500 flex-shrink-0 ml-2">
+            <%= es_locale(post.inserted_at) %>
+          </span>
+        </div>
+        <p class="text-sm text-gray-400 line-clamp-2">
+          <%= body_excerpt(post.body, 200) %>
+        </p>
+        <div class="flex items-center gap-1 mt-1">
+          <span :for={%{emoji: emoji, count: count} <- Map.get(@post_reactions, post.id, %{}) |> Enum.map(fn {e, c} -> %{emoji: e, count: c} end)} class="text-xs text-gray-600">
+            <%= emoji %> <%= count %>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div :if={@posts == []} class="text-center py-8">
+      <p class="text-gray-500 text-sm">Todavía no publicó nada.</p>
+    </div>
+  </div>
+</div>
+
+<div :if={@profile_user == nil} class="max-w-3xl mx-auto px-4 py-16 text-center">
+  <h1 class="text-2xl font-bold text-white mb-2">Usuario no encontrado</h1>
+  <p class="text-gray-400">El usuario que buscás no existe.</p>
+</div>

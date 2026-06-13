@@ -1,0 +1,56 @@
+# https://git-scm.com/docs/gitignore
+
+# Elixir / Mix
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+elixir_ls
+*.beam
+/config/*.secret.exs
+*.ez
+
+# Environment
+.env
+*.pem
+*.key
+
+# Generated files
+/node_modules/
+/assets/node_modules/
+priv/static/assets/
+priv/static/cache_manifest.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+*.dump
+*.sql
+
+# Temporary
+/tmp/
+/.elixir_ls/
+/.sobelow
+
+# Release artifacts (kept in systemd/ but not built here)
+/rel/
+
+# Docker volumes
+pgdata/
+
+# Local uploads (dev/test)
+/tmp/colloq_uploads/
+
+# E2E trace artifacts
+test/e2e/traces/
+test/e2e/screenshots/

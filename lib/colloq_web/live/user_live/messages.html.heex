@@ -1,0 +1,111 @@
+<div class="max-w-5xl mx-auto px-4 py-6">
+  <div class="flex h-[calc(100vh-140px)] border border-[#1a2035] rounded-xl overflow-hidden bg-[#0f1420]">
+    <%!-- Conversation list sidebar --%>
+    <div class="w-80 border-r border-[#1a2035] flex flex-col flex-shrink-0">
+      <div class="px-4 py-3 border-b border-[#1a2035]">
+        <h2 class="text-lg font-semibold text-white">Conversaciones</h2>
+      </div>
+
+      <div class="flex-1 overflow-y-auto">
+        <div :if={@conversations == []} class="px-4 py-8 text-center">
+          <p class="text-gray-500 text-sm">No tenés conversaciones.</p>
+        </div>
+
+        <div :for={conv <- @conversations} class="border-b border-[#1a2035] last:border-b-0">
+          <button
+            phx-click="select_conversation"
+            phx-value-id={conv.id}
+            class={[
+              "w-full px-4 py-3 text-left hover:bg-[#1a2035] transition-colors flex items-start gap-3",
+              @active_conversation && @active_conversation.id == conv.id && "bg-[#1a2035]"
+            ]}
+          >
+            <div class="flex-shrink-0">
+              <div class="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-sm font-bold text-white">
+                <%= String.slice(other_user(conv, @current_user).display_name || other_user(conv, @current_user).username, 0..0) |> String.upcase() %>
+              </div>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-semibold text-white truncate">
+                  <%= other_user(conv, @current_user).display_name || other_user(conv, @current_user).username %>
+                </span>
+                <span :if={conv.last_message} class="text-xs text-gray-500 flex-shrink-0 ml-2">
+                  <%= es_locale(conv.last_message.inserted_at) %>
+                </span>
+              </div>
+              <p class="text-xs text-gray-500 truncate mt-0.5">
+                <%= last_message_preview(conv) %>
+              </p>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Message thread --%>
+    <div :if={@active_conversation} class="flex-1 flex flex-col">
+      <%!-- Header --%>
+      <div class="px-4 py-3 border-b border-[#1a2035] flex items-center gap-3">
+        <div class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white">
+          <%= String.slice(other_user(@active_conversation, @current_user).display_name || other_user(@active_conversation, @current_user).username, 0..0) |> String.upcase() %>
+        </div>
+        <div>
+          <p class="text-sm font-semibold text-white">
+            <%= other_user(@active_conversation, @current_user).display_name || other_user(@active_conversation, @current_user).username %>
+          </p>
+          <p class="text-xs text-gray-500">
+            @<%= other_user(@active_conversation, @current_user).username %>
+          </p>
+        </div>
+      </div>
+
+      <%!-- Messages --%>
+      <div id="messages-container" phx-hook="AutoScroll" class="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        <div :for={msg <- @messages} class={["flex", msg.user_id == @current_user.id && "justify-end", msg.user_id != @current_user.id && "justify-start"]}>
+          <div class={[
+            "max-w-[70%] rounded-2xl px-4 py-2 text-sm",
+            msg.user_id == @current_user.id && "bg-blue-600 text-white rounded-br-md",
+            msg.user_id != @current_user.id && "bg-[#1a2035] text-gray-200 rounded-bl-md"
+          ]}>
+            <p class="whitespace-pre-wrap break-words"><%= msg.body %></p>
+            <p class={[
+              "text-xs mt-1",
+              msg.user_id == @current_user.id && "text-blue-300",
+              msg.user_id != @current_user.id && "text-gray-600"
+            ]}>
+              <%= es_locale(msg.inserted_at) %>
+            </p>
+          </div>
+        </div>
+
+        <div :if={@messages == []} class="flex items-center justify-center h-full">
+          <p class="text-gray-500 text-sm">No hay mensajes todavía. ¡Escribí el primero!</p>
+        </div>
+      </div>
+
+      <%!-- Input --%>
+      <div class="px-4 py-3 border-t border-[#1a2035]">
+        <form phx-submit="send" class="flex items-end gap-2">
+          <textarea
+            name="body"
+            value={@message_body}
+            placeholder="Escribí un mensaje..."
+            class="flex-1 rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            rows="1"
+            phx-keyup="js:if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); this.form.dispatchEvent(new Event('submit', {bubbles: true})); }"
+          ><%= @message_body %></textarea>
+          <.button type="submit" class="flex-shrink-0">Enviar</.button>
+        </form>
+      </div>
+    </div>
+
+    <%!-- Empty state (no conversation selected) --%>
+    <div :if={!@active_conversation} class="flex-1 flex items-center justify-center">
+      <div class="text-center">
+        <p class="text-gray-500 text-lg mb-2">Seleccioná una conversación</p>
+        <p class="text-gray-600 text-sm">Elegí un contacto de la lista para empezar a chatear.</p>
+      </div>
+    </div>
+  </div>
+</div>

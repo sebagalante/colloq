@@ -1,0 +1,119 @@
+<section class="space-y-6">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-bold text-white">Automatizaciones</h1>
+    <.button phx-click="open-new">Nueva Automatización</.button>
+  </div>
+
+  <%= if @automations == [] do %>
+    <.card>
+      <p class="text-sm text-gray-400">No hay automatizaciones configuradas. Creá una para empezar.</p>
+    </.card>
+  <% else %>
+    <div class="space-y-3">
+      <%= for auto <- @automations do %>
+        <.card class="flex items-center justify-between">
+          <div class="flex items-center gap-4">
+            <button
+              phx-click="toggle"
+              phx-value-id={auto.id}
+              class={[
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                auto.enabled && "bg-blue-600",
+                !auto.enabled && "bg-gray-700"
+              ]}
+            >
+              <span class={[
+                "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                auto.enabled && "translate-x-6",
+                !auto.enabled && "translate-x-1"
+              ]}></span>
+            </button>
+
+            <div>
+              <p class="text-sm font-semibold text-white"><%= auto.name %></p>
+              <p class="text-xs text-gray-500">
+                Trigger: <%= auto.trigger %> ·
+                Script: <%= auto.script %>
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <.badge color={if auto.enabled, do: "green", else: "gray"}>
+              <%= if auto.enabled, do: "Activo", else: "Inactivo" %>
+            </.badge>
+            <button phx-click="edit" phx-value-id={auto.id} class="text-gray-400 hover:text-white text-sm">
+              Editar
+            </button>
+            <button
+              phx-click="delete"
+              phx-value-id={auto.id}
+              data-confirm="¿Eliminar esta automatización?"
+              class="text-red-400 hover:text-red-300 text-sm"
+            >
+              Eliminar
+            </button>
+          </div>
+        </.card>
+      <% end %>
+    </div>
+  <% end %>
+
+  <.modal id="automation-modal" show={@show_modal} on_cancel={JS.push("close-modal")}>
+    <:title><%= if @editing, do: "Editar Automatización", else: "Nueva Automatización" %></:title>
+
+    <form phx-submit="save" class="space-y-4">
+      <input type="hidden" name="automation[enabled]" value="true" />
+
+      <.input
+        label="Nombre"
+        name="automation[name]"
+        value={@form.name}
+        required
+      />
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-300 mb-1">Trigger</label>
+        <select
+          name="automation[trigger]"
+          class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <%= for {label, value} <- ~w(Periódica recurring Usuario\ Registrado user_registered Usuario\ Promovido user_promoted Post\ Creado post_created Tema\ Estancado stalled_topic Punto\ en\ el\ Tiempo point_in_time Llamada\ API api_call) |> Enum.chunk_every(2) do %>
+            <% [label, value] = [Enum.at(label, 0), Enum.at(value, 0)] %>
+            <option value={value} selected={@form.trigger == value}><%= label %></option>
+          <% end %>
+        </select>
+      </div>
+
+      <.textarea
+        label="Configuración del Trigger (JSON)"
+        name="automation[trigger_config]"
+        value={@form.trigger_config}
+      />
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-300 mb-1">Script</label>
+        <select
+          name="automation[script]"
+          class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <%= for {label, value} <- ~w(Enviar\ MP send_pm Crear\ Post create_post Responder\ con\ LLM llm_respond Cerrar\ Tema close_topic Fijar\ Tema pin_topic Reportar\ Post flag_post Auto\ Etiquetar auto_tag) |> Enum.chunk_every(2) do %>
+            <% [label, value] = [Enum.at(label, 0), Enum.at(value, 0)] %>
+            <option value={value} selected={@form.script == value}><%= label %></option>
+          <% end %>
+        </select>
+      </div>
+
+      <.textarea
+        label="Configuración del Script (JSON)"
+        name="automation[script_config]"
+        value={@form.script_config}
+      />
+
+      <div class="flex items-center gap-3 pt-2">
+        <.button type="submit">Guardar</.button>
+        <.button type="button" class="bg-gray-700 hover:bg-gray-600" phx-click="close-modal">Cancelar</.button>
+      </div>
+    </form>
+  </.modal>
+</section>

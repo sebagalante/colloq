@@ -1,0 +1,40 @@
+<div class="min-h-screen flex items-center justify-center px-4">
+  <div class="bg-[#0f1420] border border-[#1a2035] rounded-xl p-8 w-full max-w-md">
+    <h1 class="text-2xl font-bold text-white mb-6 text-center">Iniciar sesión</h1>
+
+    <.simple_form for={@form} phx-change="validate" phx-submit="save" class="space-y-4">
+      <.input
+        field={@form[:email]}
+        type="email"
+        label="Email"
+        placeholder="tu@email.com"
+        required
+      />
+      <.input
+        field={@form[:password]}
+        type="password"
+        label="Contraseña"
+        placeholder="••••••••"
+        required
+      />
+
+      <.button type="submit" class="w-full mt-2">
+        Entrar
+      </.button>
+    </.simple_form>
+
+    <div class="mt-6 text-center text-sm text-gray-400 space-y-2">
+      <p>
+        <.link navigate="/forgot-password" class="text-blue-400 hover:text-blue-300 underline">
+          ¿Olvidaste tu contraseña?
+        </.link>
+      </p>
+      <p>
+        ¿No tenés cuenta?{" "}
+        <.link navigate="/register" class="text-blue-400 hover:text-blue-300 underline">
+          Registrate
+        </.link>
+      </p>
+    </div>
+  </div>
+</div>

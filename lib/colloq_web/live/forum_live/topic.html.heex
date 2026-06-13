@@ -1,0 +1,131 @@
+<div class="max-w-3xl mx-auto px-4 py-6">
+  <%!-- Closed / Archived banner --%>
+  <div :if={@topic.closed || @topic.archived} class="mb-6">
+    <.flash kind={:info}>
+      <%= cond do %>
+        <% @topic.archived -> %>
+          Este tema fue archivado. No se pueden agregar nuevas respuestas.
+        <% @topic.closed && @topic.closed_reason -> %>
+          Este tema está cerrado: <%= @topic.closed_reason %>.
+        <% true -> %>
+          Este tema está cerrado. No se pueden agregar nuevas respuestas.
+      <% end %>
+    </.flash>
+  </div>
+
+  <%!-- Match score pin --%>
+  <div :if={@topic.is_match_thread && @match_mode} class="mb-6">
+    <.match_score_pin
+      home_team={@topic.home_team || "Local"}
+      away_team={@topic.away_team || "Visitante"}
+      home_score={assigns[:home_score] || 0}
+      away_score={assigns[:away_score] || 0}
+      minute={assigns[:match_minute] || 0}
+    />
+  </div>
+
+  <%!-- Topic header --%>
+  <div class="mb-6">
+    <div class="flex items-center gap-2 mb-2">
+      <.badge color={@topic.category.color || "blue"}>
+        <%= @topic.category.name %>
+      </.badge>
+      <.badge :if={@topic.is_match_thread} color="green">Partido</.badge>
+    </div>
+    <h1 class="text-2xl font-bold text-white">
+      <%= @topic.title %>
+    </h1>
+    <p class="text-sm text-gray-500 mt-1">
+      Creado por <%= @topic.user.display_name || @topic.user.username %> —
+      <%= es_locale(@topic.inserted_at) %>
+      ·
+      <%= @topic.posts_count %> respuestas
+    </p>
+  </div>
+
+  <%!-- Post list --%>
+  <div id="posts-container" phx-hook="AutoScroll" class="space-y-0">
+    <div :for={post <- @posts} id={"post-#{post.id}"} class="group py-4 border-b border-[#1a2035] last:border-b-0">
+      <div class="flex gap-4">
+        <%!-- Avatar --%>
+        <div class="flex-shrink-0">
+          <div class={["w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white", avatar_class(post.user)]}>
+            <%= initials(post.user) %>
+          </div>
+        </div>
+
+        <%!-- Post content --%>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-1">
+            <a href={~p"/u/#{post.user.username}"} class="font-semibold text-white hover:underline text-sm">
+              <%= post.user.display_name || post.user.username %>
+            </a>
+            <span class="text-xs text-gray-500">@<%= post.user.username %></span>
+            <.badge color={trust_badge_color(post.user.trust_level)}>
+              TL<%= post.user.trust_level %>
+            </.badge>
+            <span :if={post.is_system} class="text-xs text-gray-500 ml-auto">Sistema</span>
+            <span :if={!post.is_system} class="text-xs text-gray-500 ml-auto">
+              <%= es_locale(post.inserted_at) %>
+            </span>
+          </div>
+
+          <div class={[
+            "prose prose-invert max-w-none text-sm text-gray-300",
+            post.is_system && "italic text-gray-500 border-l-2 border-[#1a2035] pl-3"
+          ]}>
+            <%= render_body(post.body) %>
+          </div>
+
+          <%!-- Goal alert for system goal posts --%>
+          <.goal_alert :if={post.system_type == "goal" && post.event_data}
+            player={post.event_data[:player] || post.event_data["player"] || "Jugador"}
+            minute={post.event_data[:minute] || post.event_data["minute"] || 0}
+          />
+
+          <%!-- Reaction bar --%>
+          <div :if={!post.is_system}>
+            <.reaction_bar
+              post_id={post.id}
+              reactions={Map.get(@reaction_data, post.id, %{}) |> Enum.map(fn {emoji, count} -> %{emoji: emoji, count: count} end)}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <%!-- Reply form --%>
+  <div :if={can_reply?(assigns)} class="mt-8 pt-6 border-t border-[#1a2035]">
+    <h3 class="text-lg font-semibold text-white mb-4">Responder</h3>
+    <form phx-submit="reply">
+      <.textarea
+        id="reply-body"
+        name="body"
+        label="Tu respuesta"
+        value={@reply_body}
+        placeholder="Escribí tu respuesta..."
+        phx-keyup="typing"
+        phx-blur="stopped_typing"
+      />
+      <.button type="submit" class="w-full sm:w-auto">
+        Publicar respuesta
+      </.button>
+    </form>
+  </div>
+
+  <%!-- Login prompt for anonymous users --%>
+  <div :if={!@current_user} class="mt-8 pt-6 border-t border-[#1a2035]">
+    <div class="text-center py-4">
+      <p class="text-gray-400 mb-3">Iniciá sesión para participar en la conversación.</p>
+      <a href="/login" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors">
+        Iniciar sesión
+      </a>
+    </div>
+  </div>
+
+  <%!-- Typing indicator --%>
+  <div :if={@typing_users != []} class="mt-4 text-sm text-gray-500 italic">
+    <%= typing_text(@typing_users) %>
+  </div>
+</div>

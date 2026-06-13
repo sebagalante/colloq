@@ -1,0 +1,55 @@
+<div class="min-h-screen flex items-center justify-center px-4">
+  <div class="bg-[#0f1420] border border-[#1a2035] rounded-xl p-8 w-full max-w-md">
+    <h1 class="text-2xl font-bold text-white mb-6 text-center">Crear cuenta</h1>
+
+    <.simple_form for={@form} phx-change="validate" phx-submit="save" class="space-y-4">
+      <.input
+        field={@form[:email]}
+        type="email"
+        label="Email"
+        placeholder="tu@email.com"
+        required
+      />
+      <.input
+        field={@form[:username]}
+        type="text"
+        label="Nombre de usuario"
+        placeholder="solo letras, números y _"
+        required
+      />
+      <.input
+        field={@form[:display_name]}
+        type="text"
+        label="Nombre visible"
+        placeholder="Tu nombre en el foro"
+      />
+      <.input
+        field={@form[:password]}
+        type="password"
+        label="Contraseña"
+        placeholder="mínimo 8 caracteres"
+        required
+      />
+      <.input
+        field={@form[:password_confirmation]}
+        type="password"
+        label="Repetir contraseña"
+        placeholder="••••••••"
+        required
+      />
+
+      <.button type="submit" class="w-full mt-2" phx-disable-with="Creando cuenta...">
+        Registrarse
+      </.button>
+    </.simple_form>
+
+    <div class="mt-6 text-center text-sm text-gray-400">
+      <p>
+        ¿Ya tenés cuenta?{" "}
+        <.link navigate="/login" class="text-blue-400 hover:text-blue-300 underline">
+          Iniciá sesión
+        </.link>
+      </p>
+    </div>
+  </div>
+</div>

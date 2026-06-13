@@ -1,0 +1,33 @@
+{
+  "name": "Colloq — Racing Club",
+  "short_name": "Colloq",
+  "description": "Comunidad de Racing Club de Avellaneda",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080c14",
+  "theme_color": "#1d4ed8",
+  "orientation": "portrait-primary",
+  "lang": "es-AR",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/forum/new",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "body"
+    }
+  }
+}

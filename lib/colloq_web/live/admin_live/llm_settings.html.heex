@@ -1,0 +1,67 @@
+<section class="space-y-6">
+  <h1 class="text-2xl font-bold text-white">Configuración LLM</h1>
+  <p class="text-sm text-gray-400">Gestioná las API keys de los proveedores LLM. Las claves se almacenan encriptadas.</p>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <%= for provider <- @providers do %>
+      <.card>
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-lg font-semibold text-white"><%= provider.name %></h3>
+          <div class="flex items-center gap-2">
+            <span class={[
+              "inline-block w-2 h-2 rounded-full",
+              provider.configured && "bg-green-500",
+              !provider.configured && "bg-gray-600"
+            ]}></span>
+            <span class="text-xs <%= if provider.configured, do: "text-green-400", else: "text-gray-500" %>">
+              <%= if provider.configured, do: "Configurado", else: "No configurado" %>
+            </span>
+          </div>
+        </div>
+
+        <form phx-submit="save" class="space-y-3">
+          <input type="hidden" name="key" value={provider.key} />
+
+          <.input
+            label="API Key"
+            name="value"
+            type="password"
+            placeholder={if provider.configured, do: "••••••••••••", else: "Ingresá la API key"}
+          />
+
+          <div class="flex items-center gap-2">
+            <.button type="submit">Guardar</.button>
+            <button
+              type="button"
+              phx-click="test"
+              phx-value-key={provider.key}
+              phx-value-provider={provider.slug}
+              class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold bg-gray-700 hover:bg-gray-600 text-white transition-colors"
+            >
+              Probar conexión
+            </button>
+          </div>
+        </form>
+
+        <%= if provider.tested_at do %>
+          <div class="mt-3 pt-3 border-t border-[#1a2035]">
+            <p class="text-xs text-gray-500">
+              Última prueba: <%= Calendar.strftime(provider.tested_at, "%d/%m/%Y %H:%M") %>
+            </p>
+            <p class={[
+              "text-xs mt-1",
+              match?({:ok, _}, provider.test_result) && "text-green-400",
+              match?({:error, _}, provider.test_result) && "text-red-400"
+            ]}>
+              <%= case provider.test_result do %>
+                <% {:ok, _} -> %>✓ Conexión exitosa
+                <% {:error, reason} -> %>✕ Error: <%= inspect(reason) %>
+                <% _ -> %>
+              <% end %>
+            </p>
+          </div>
+        <% end %>
+      </.card>
+    <% end %>
+  </div>
+</section>
