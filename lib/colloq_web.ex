@@ -5,7 +5,7 @@ defmodule ColloqWeb do
   """
 
   def static_paths do
-    ~w(assets fonts images favicon.ico robots.txt manifest.json sw.js icons)
+    ~w(assets fonts images favicon.ico favicon.svg robots.txt manifest.json sw.js icons emojis uploads)
   end
 
   def router do
@@ -27,6 +27,8 @@ defmodule ColloqWeb do
       import Plug.Conn
       import ColloqWeb.Gettext
 
+      unquote(verified_routes())
+
       alias ColloqWeb.Router.Helpers, as: Routes
     end
   end
@@ -35,6 +37,8 @@ defmodule ColloqWeb do
     quote do
       use Phoenix.LiveView,
         layout: {ColloqWeb.Layouts, :app}
+
+      on_mount {ColloqWeb.UserAuth, :default}
 
       unquote(html_helpers())
     end
@@ -66,7 +70,10 @@ defmodule ColloqWeb do
       use PhoenixHTMLHelpers
 
       import ColloqWeb.CoreComponents
+      import ColloqWeb.Components.Lucide, only: [icon: 1]
       import ColloqWeb.Gettext
+
+      unquote(verified_routes())
 
       alias Phoenix.LiveView.JS
 
@@ -89,6 +96,15 @@ defmodule ColloqWeb do
     quote do
       use Phoenix.Channel
       import ColloqWeb.Gettext
+    end
+  end
+
+  def verified_routes do
+    quote do
+      use Phoenix.VerifiedRoutes,
+        endpoint: ColloqWeb.Endpoint,
+        router: ColloqWeb.Router,
+        statics: ColloqWeb.static_paths()
     end
   end
 

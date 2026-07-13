@@ -9,7 +9,7 @@ defmodule Colloq.Workers.DigestWorker do
   alias Colloq.Forum
   alias Colloq.Mailer
   import Ecto.Query
-  import Swoosh.Email
+  import Swoosh.Email, except: [from: 2]
 
   @impl Oban.Worker
   def perform(_job) do
@@ -27,7 +27,7 @@ defmodule Colloq.Workers.DigestWorker do
     yesterday = DateTime.utc_now() |> DateTime.add(-24, :hour)
 
     %{
-      topics: Forum.list_topics(per_page: 10) |> elem(0),
+      topics: Forum.list_topics(per_page: 10).entries,
       date: Date.utc_today() |> Date.add(-1)
     }
   end
@@ -36,7 +36,7 @@ defmodule Colloq.Workers.DigestWorker do
     email =
       new()
       |> to({user.display_name || user.username, user.email})
-      |> from({"Colloq", "notificaciones@colloq.local"})
+      |> Swoosh.Email.from({"Colloq", "notificaciones@colloq.local"})
       |> subject("Resumen diario de Colloq — #{stats.date}")
       |> html_body(digest_html(user, stats))
       |> text_body(digest_text(user, stats))

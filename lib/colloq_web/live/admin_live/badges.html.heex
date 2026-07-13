@@ -1,0 +1,99 @@
+<div class="max-w-4xl mx-auto px-4 py-6">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-heading"><%= gettext("Badges") %></h1>
+    <.button phx-click="open-new" class="text-sm">
+      <.icon name="plus" class="w-4 h-4 mr-1" /><%= gettext("New Badge") %>
+    </.button>
+  </div>
+
+  <div class="space-y-2">
+    <div
+      :for={badge <- @badges}
+      class="flex items-center gap-4 p-4 rounded-lg bg-surface border border-border"
+    >
+      <div class="flex items-center justify-center w-10 h-10 rounded-lg text-xl" style={"background-color: #{badge.color}20"}>
+        <%= badge.icon %>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="font-semibold text-heading"><%= badge.name %></span>
+          <span class="text-xs text-muted">/<%= badge.slug %></span>
+        </div>
+        <p :if={badge.description} class="text-xs text-muted mt-1 truncate">
+          <%= badge.description %>
+        </p>
+      </div>
+      <div class="flex items-center gap-1">
+        <button
+          phx-click="open-grant"
+          phx-value-badge_id={badge.id}
+          class="px-2 py-1 text-xs text-green-400 hover:text-green-300 transition-colors"
+          title={gettext("Grant to user")}
+        >
+          <.icon name="plus" class="w-3.5 h-3.5" />
+        </button>
+        <button
+          phx-click="edit"
+          phx-value-id={badge.id}
+          class="px-2 py-1 text-xs text-muted hover:text-heading transition-colors"
+        >
+          <.icon name="edit" class="w-3.5 h-3.5" />
+        </button>
+        <button
+          phx-click="delete"
+          phx-value-id={badge.id}
+          data-confirm={gettext("Delete this badge?")}
+          class="px-2 py-1 text-xs text-muted hover:text-danger transition-colors"
+        >
+          <.icon name="trash-2" class="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <p :if={@badges == []} class="text-muted text-center py-8">
+    <%= gettext("No badges yet.") %>
+  </p>
+
+  <%!-- Create/Edit modal --%>
+  <.modal :if={@show_modal} id="badge-modal" show on_cancel={JS.push("close-modal")}>
+    <h2 class="text-lg font-bold text-heading mb-4">
+      <%= if @editing, do: gettext("Edit Badge"), else: gettext("New Badge") %>
+    </h2>
+
+    <.form for={@form} phx-submit="save" class="space-y-4">
+      <.input field={@form[:name]} type="text" label={gettext("Name")} placeholder={gettext("Badge name")} required />
+      <.input field={@form[:slug]} type="text" label="Slug" placeholder="badge-slug" />
+      <.input field={@form[:description]} type="textarea" label={gettext("Description")} placeholder={gettext("Short description...")} />
+      <div class="grid grid-cols-2 gap-4">
+        <.input field={@form[:icon]} type="text" label={gettext("Icon (emoji)")} placeholder="🏅" />
+        <.input field={@form[:color]} type="color" label={gettext("Color")} />
+      </div>
+      <.input field={@form[:position]} type="number" label={gettext("Position")} />
+      <div class="flex gap-2 pt-2">
+        <.button type="submit" class="text-sm"><%= gettext("Save") %></.button>
+        <button type="button" phx-click="close-modal" class="text-sm text-muted hover:text-heading transition-colors"><%= gettext("Cancel") %></button>
+      </div>
+    </.form>
+  </.modal>
+
+  <%!-- Grant badge modal --%>
+  <.modal :if={@show_grant_modal} id="grant-modal" show on_cancel={JS.push("close-grant")}>
+    <h2 class="text-lg font-bold text-heading mb-4"><%= gettext("Grant badge to user") %></h2>
+
+    <form phx-submit="grant-badge" class="space-y-4">
+      <.input
+        name="username"
+        type="text"
+        label={gettext("Username")}
+        placeholder={gettext("Enter username...")}
+        value={@grant_username}
+        required
+      />
+      <div class="flex gap-2 pt-2">
+        <.button type="submit" class="text-sm"><%= gettext("Grant") %></.button>
+        <button type="button" phx-click="close-grant" class="text-sm text-muted hover:text-heading transition-colors"><%= gettext("Cancel") %></button>
+      </div>
+    </form>
+  </.modal>
+</div>

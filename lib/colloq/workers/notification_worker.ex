@@ -1,10 +1,10 @@
 defmodule Colloq.Workers.NotificationWorker do
   @moduledoc """
-  Worker de envío de emails de notificación.
+  Notification email delivery worker.
 
-  Se encola cada vez que se crea una notificación.
-  Carga la notificación y el usuario destinatario.
-  Si el usuario tiene notificaciones habilitadas, envía el email vía Swoosh.
+  Enqueued whenever a notification is created.
+  Loads the notification and recipient user.
+  Sends the email via Swoosh if the user has notifications enabled.
   """
   use Oban.Worker, queue: :notifications, max_attempts: 3
 
@@ -38,7 +38,7 @@ defmodule Colloq.Workers.NotificationWorker do
     |> from({"Colloq", "no-reply@colloq.ar"})
     |> subject("[Colloq] #{notification.title}")
     |> html_body(email_body(notification))
-    |> text_body(notification.body)
+    |> text_body(notification.body || "")
   end
 
   defp email_body(notification) do

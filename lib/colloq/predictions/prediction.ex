@@ -1,10 +1,10 @@
 defmodule Colloq.Predictions.Prediction do
   @moduledoc """
-  Esquema de predicción de partido.
+  Match prediction schema.
 
-  Un usuario predice el resultado de un fixture (partido).
-  Cada [user_id, fixture_id] es único: un usuario solo puede
-  predecir una vez por partido.
+  A user predicts the outcome of a fixture (match).
+  Each [user_id, fixture_id] is unique: a user can only
+  predict once per match.
   """
   use Ecto.Schema
   import Ecto.Changeset

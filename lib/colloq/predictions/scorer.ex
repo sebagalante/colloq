@@ -1,21 +1,21 @@
 defmodule Colloq.Predictions.Scorer do
   @moduledoc """
-  Módulo puro de puntuación de predicciones.
+  Pure prediction scoring module.
 
-  Calcula los puntos que un usuario obtiene por una predicción
-  comparándola con el resultado real del partido.
+  Calculates points a user earns for a prediction
+  by comparing it against the actual match result.
 
-  Sistema de puntuación:
-    - 3 puntos: resultado exacto (acertó ambos marcadores)
-    - 2 puntos: resultado correcto + marcador cercano (dif ≤ 1 gol)
-    - 1 punto: resultado correcto (local/empate/visitante)
-    - 0 puntos: resultado incorrecto
+  Scoring system:
+    - 3 points: exact result (correct both scores)
+    - 2 points: correct result + close score (diff ≤ 1 goal)
+    - 1 point: correct outcome (home/draw/away)
+    - 0 points: incorrect result
   """
 
   @doc """
-  Compara una predicción contra el resultado real y devuelve los puntos.
+  Compares a prediction against the actual result and returns the points.
 
-  ## Ejemplos
+  ## Examples
       iex> score(%{prediction: %{home_score: 2, away_score: 0}, result: %{home_score: 2, away_score: 0}})
       3
 
@@ -44,21 +44,21 @@ defmodule Colloq.Predictions.Scorer do
   end
 
   @doc """
-  Verifica si la predicción coincide exactamente con el resultado.
+  Checks if the prediction exactly matches the result.
   """
   def exact_score?({h, a}, {h, a}), do: true
   def exact_score?(_, _), do: false
 
   @doc """
-  Verifica si la predicción acierta el resultado (local/empate/visitante).
+  Checks if the prediction gets the outcome (home/draw/away) right.
   """
   def right_result?({h1, a1}, {h2, a2}) do
     sign({h1, a1}) == sign({h2, a2})
   end
 
   @doc """
-  Verifica si la predicción acierta el resultado y además la diferencia
-  de goles es ≤ 1. Esto otorga 2 puntos.
+  Checks if the prediction gets the result right and additionally
+  the goal difference is ≤ 1. This awards 2 points.
   """
   def close_score?({h1, a1}, {h2, a2}) do
     right_result?({h1, a1}, {h2, a2}) and abs(h1 - h2) <= 1 and abs(a1 - a2) <= 1

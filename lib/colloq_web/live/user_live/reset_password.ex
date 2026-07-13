@@ -4,19 +4,22 @@ defmodule ColloqWeb.UserLive.ResetPassword do
   alias Colloq.Accounts
   alias Colloq.Repo
 
+  @token_max_age :timer.hours(1)
+
   def mount(params, _session, socket) do
     token = params["token"]
 
     user =
       if token do
-        case Base.url_decode64(token) do
-          {:ok, email} -> Accounts.get_user_by_email(email)
-          :error -> nil
+        case Phoenix.Token.verify(ColloqWeb.Endpoint, "reset_password", token, max_age: @token_max_age) do
+          {:ok, user_id} -> Accounts.get_user(user_id)
+          {:error, _reason} -> nil
         end
       end
 
     form =
       to_form(%{"password" => "", "password_confirmation" => ""},
+        as: :user,
         errors: [],
         action: nil
       )
@@ -32,7 +35,7 @@ defmodule ColloqWeb.UserLive.ResetPassword do
 
   def handle_event("validate", %{"user" => params}, socket) do
     errors = validate_password(params)
-    form = to_form(params, errors: errors, action: :validate)
+    form = to_form(params, as: :user, errors: errors, action: :validate)
     {:noreply, assign(socket, form: form)}
   end
 
@@ -49,6 +52,7 @@ defmodule ColloqWeb.UserLive.ResetPassword do
       password != confirmation ->
         form =
           to_form(%{"password" => "", "password_confirmation" => ""},
+            as: :user,
             errors: [{"password_confirmation", "Las contraseñas no coinciden"}],
             action: :validate
           )
@@ -60,6 +64,7 @@ defmodule ColloqWeb.UserLive.ResetPassword do
       String.length(password) < 8 ->
         form =
           to_form(%{"password" => password, "password_confirmation" => confirmation},
+            as: :user,
             errors: [{"password", "La contraseña debe tener al menos 8 caracteres"}],
             action: :validate
           )

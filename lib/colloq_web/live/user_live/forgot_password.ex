@@ -4,13 +4,13 @@ defmodule ColloqWeb.UserLive.ForgotPassword do
   alias Colloq.Accounts
 
   def mount(_params, _session, socket) do
-    form = to_form(%{"email" => ""}, errors: [])
+    form = to_form(%{"email" => ""}, as: :user, errors: [])
     {:ok, assign(socket, form: form, sent: false)}
   end
 
   def handle_event("validate", %{"user" => params}, socket) do
     errors = validate_email(params)
-    form = to_form(params, errors: errors)
+    form = to_form(params, as: :user, errors: errors)
     {:noreply, assign(socket, form: form)}
   end
 
@@ -18,9 +18,15 @@ defmodule ColloqWeb.UserLive.ForgotPassword do
     user = Accounts.get_user_by_email(email)
 
     if user do
-      # In production: generate token, send email.
-      # For now we simulate success.
-      :ok
+      token = Phoenix.Token.sign(ColloqWeb.Endpoint, "reset_password", user.id)
+
+      %{
+        "user_id" => user.id,
+        "email" => user.email,
+        "token" => token
+      }
+      |> Colloq.Workers.PasswordResetWorker.new()
+      |> Oban.insert()
     end
 
     {:noreply,

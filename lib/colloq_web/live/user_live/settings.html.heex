@@ -1,15 +1,49 @@
 <div class="max-w-2xl mx-auto px-4 py-6">
-  <h1 class="text-2xl font-bold text-white mb-6">Configuración</h1>
+  <h1 class="text-2xl font-bold text-heading mb-6"><%= gettext("Settings") %></h1>
 
-  <form phx-submit="save">
-    <%!-- Perfil --%>
+  <form phx-submit="save" phx-change="validate">
+    <%!-- Avatar --%>
     <section class="mb-8">
-      <h2 class="text-lg font-semibold text-white mb-4 border-b border-[#1a2035] pb-2">Perfil</h2>
+      <h2 class="text-lg font-semibold text-heading mb-4 border-b border-border pb-2"><%= gettext("Profile picture") %></h2>
+
+      <div class="flex items-center gap-6">
+        <div class="flex-shrink-0">
+          <%= if @current_user.avatar_url do %>
+            <img src={@current_user.avatar_url} alt="" class="w-20 h-20 rounded-full object-cover" />
+          <% else %>
+            <div class="w-20 h-20 rounded-full bg-accent flex items-center justify-center text-2xl font-bold text-white">
+              <%= String.slice(@current_user.display_name || @current_user.username, 0..0) |> String.upcase() %>
+            </div>
+          <% end %>
+        </div>
+
+        <div class="flex-1">
+          <label class="block text-sm font-medium text-muted mb-2"><%= gettext("Upload photo") %></label>
+          <.live_file_input upload={@uploads.avatar} class="block w-full text-sm text-muted file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-accent file:text-white hover:file:bg-accent-hover file:cursor-pointer" />
+          <p class="text-xs text-muted mt-1"><%= gettext("JPG, PNG, GIF or WebP. Max 2MB.") %></p>
+
+          <div :if={@current_user.avatar_url} class="mt-2">
+            <button type="button" phx-click="remove-avatar" class="text-xs text-danger hover:text-danger transition-colors">
+              <%= gettext("Remove photo") %>
+            </button>
+          </div>
+
+          <%!-- Upload errors --%>
+          <%= for err <- upload_errors(@uploads.avatar) do %>
+            <p class="text-xs text-danger mt-1"><%= upload_error_to_string(err) %></p>
+          <% end %>
+        </div>
+      </div>
+    </section>
+
+    <%!-- Profile --%>
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold text-heading mb-4 border-b border-border pb-2"><%= gettext("Profile") %></h2>
 
       <.input
         id="settings-display-name"
         name="display_name"
-        label="Nombre visible"
+        label={gettext("Display name")}
         value={@form_data["display_name"]}
         placeholder={@current_user.username}
       />
@@ -17,15 +51,15 @@
       <.input
         id="settings-bio"
         name="bio"
-        label="Biografía"
+        label={gettext("Bio")}
         value={@form_data["bio"]}
-        placeholder="Contanos un poco sobre vos..."
+        placeholder={gettext("Tell us about yourself...")}
       />
 
       <.input
         id="settings-location"
         name="location"
-        label="Ubicación"
+        label={gettext("Location")}
         value={@form_data["location"]}
         placeholder="Buenos Aires, Argentina"
       />
@@ -33,46 +67,60 @@
       <.input
         id="settings-website"
         name="website"
-        label="Sitio web"
+        label={gettext("Website")}
         value={@form_data["website"]}
         placeholder="https://tusitio.com"
       />
+
+      <.input
+        id="settings-flair"
+        name="flair"
+        label={gettext("Flair")}
+        value={@form_data["flair"]}
+        placeholder="⚽"
+        maxlength={20}
+      />
+      <p class="text-xs text-muted -mt-2 mb-4"><%= gettext("Short text or emoji shown next to your name") %></p>
     </section>
 
-    <%!-- Preferencias --%>
+    <%!-- Preferences --%>
     <section class="mb-8">
-      <h2 class="text-lg font-semibold text-white mb-4 border-b border-[#1a2035] pb-2">Preferencias</h2>
+      <h2 class="text-lg font-semibold text-heading mb-4 border-b border-border pb-2"><%= gettext("Preferences") %></h2>
 
       <div class="mb-4">
-        <label for="settings-theme" class="block text-sm font-medium text-gray-300 mb-1">Tema</label>
+        <label for="settings-theme" class="block text-sm font-medium text-muted mb-1"><%= gettext("Theme") %></label>
         <select
           id="settings-theme"
           name="theme"
-          class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          phx-hook="ThemePreview"
+          class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
         >
-          <option value="dark" selected={@form_data["theme"] == "dark"}>Oscuro</option>
-          <option value="light" selected={@form_data["theme"] == "light"}>Claro</option>
+          <option value="dark" selected={@form_data["theme"] == "dark"}><%= gettext("Dark") %></option>
+          <option value="light" selected={@form_data["theme"] == "light"}><%= gettext("Light") %></option>
+          <option value="racing_light" selected={@form_data["theme"] in ["racing_light"]}>Racing Light</option>
+          <option value="racing_celeste" selected={@form_data["theme"] in ["racing_celeste"]}>Racing Celeste</option>
+          <option value="racing_navy" selected={@form_data["theme"] in ["racing_navy", "racing"]}>Racing Navy</option>
         </select>
       </div>
 
       <div class="mb-4">
-        <label for="settings-locale" class="block text-sm font-medium text-gray-300 mb-1">Idioma</label>
+        <label for="settings-locale" class="block text-sm font-medium text-muted mb-1"><%= gettext("Language") %></label>
         <select
           id="settings-locale"
           name="locale"
-          class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
         >
-          <option value="es" selected={@form_data["locale"] == "es"}>Español</option>
-          <option value="en" selected={@form_data["locale"] == "en"}>English</option>
+          <option value="es" selected={@form_data["locale"] == "es"}><%= gettext("Spanish") %></option>
+          <option value="en" selected={@form_data["locale"] == "en"}><%= gettext("English") %></option>
         </select>
       </div>
 
       <div class="mb-4 flex items-center justify-between">
         <div>
-          <label for="settings-notifications" class="text-sm font-medium text-gray-300">
-            Notificaciones
+          <label for="settings-notifications" class="text-sm font-medium text-muted">
+            <%= gettext("Notifications") %>
           </label>
-          <p class="text-xs text-gray-500">Recibir notificaciones por email</p>
+          <p class="text-xs text-muted"><%= gettext("Receive email notifications") %></p>
         </div>
         <label class="relative inline-flex items-center cursor-pointer">
           <input
@@ -83,24 +131,44 @@
             checked={@form_data["notifications_enabled"]}
             class="sr-only peer"
           >
-          <div class="w-9 h-5 bg-gray-700 peer-checked:bg-blue-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+          <div class="w-9 h-5 bg-border peer-checked:bg-accent rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+        </label>
+      </div>
+
+      <div class="mb-4 flex items-center justify-between">
+        <div>
+          <label for="settings-allow-messages" class="text-sm font-medium text-muted">
+            <%= gettext("Direct messages") %>
+          </label>
+          <p class="text-xs text-muted"><%= gettext("Allow other users to send me direct messages") %></p>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            id="settings-allow-messages"
+            name="allow_messages"
+            value="true"
+            checked={@form_data["allow_messages"]}
+            class="sr-only peer"
+          >
+          <div class="w-9 h-5 bg-border peer-checked:bg-accent rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
         </label>
       </div>
     </section>
 
-    <%!-- Apariencia --%>
+    <%!-- Appearance --%>
     <section class="mb-8">
-      <h2 class="text-lg font-semibold text-white mb-4 border-b border-[#1a2035] pb-2">Apariencia</h2>
-      <div :if={@form_data["theme"] == "dark"} class="rounded-xl bg-[#0f1420] border border-[#1a2035] p-6">
+      <h2 class="text-lg font-semibold text-heading mb-4 border-b border-border pb-2"><%= gettext("Appearance") %></h2>
+      <div :if={@form_data["theme"] == "dark"} class="rounded-xl bg-surface border border-border p-6">
         <div class="flex items-center gap-3 mb-4">
           <div class="w-3 h-3 rounded-full bg-red-500"></div>
           <div class="w-3 h-3 rounded-full bg-amber-500"></div>
           <div class="w-3 h-3 rounded-full bg-green-500"></div>
         </div>
         <div class="space-y-2">
-          <div class="h-2 bg-[#1a2035] rounded w-3/4"></div>
-          <div class="h-2 bg-[#1a2035] rounded w-1/2"></div>
-          <div class="h-2 bg-[#1a2035] rounded w-5/6"></div>
+          <div class="h-2 bg-border rounded w-3/4"></div>
+          <div class="h-2 bg-border rounded w-1/2"></div>
+          <div class="h-2 bg-border rounded w-5/6"></div>
         </div>
       </div>
       <div :if={@form_data["theme"] == "light"} class="rounded-xl bg-white border border-gray-200 p-6">
@@ -115,14 +183,199 @@
           <div class="h-2 bg-gray-200 rounded w-5/6"></div>
         </div>
       </div>
+      <div :if={@form_data["theme"] == "racing_light"} class="rounded-xl p-6" style="background: #AFD4EF; border: 1px solid #93BFE3">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-3 h-3 rounded-full" style="background: #0038A8"></div>
+          <div class="w-3 h-3 rounded-full" style="background: #2C6FC4"></div>
+          <div class="w-3 h-3 rounded-full border" style="background: #CFE4F6; border-color: #93BFE3"></div>
+        </div>
+        <div class="space-y-2">
+          <div class="h-2 rounded w-3/4" style="background: #93BFE3"></div>
+          <div class="h-2 rounded w-1/2" style="background: #93BFE3"></div>
+          <div class="h-2 rounded w-5/6" style="background: #93BFE3"></div>
+        </div>
+        <p class="text-xs mt-3" style="color: #0038A8">La Academia · celeste</p>
+      </div>
+      <div :if={@form_data["theme"] == "racing_celeste"} class="rounded-xl p-6" style="background: #7FB3DB; border: 1px solid #5E97CC">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-3 h-3 rounded-full" style="background: #002F8F"></div>
+          <div class="w-3 h-3 rounded-full" style="background: #1E5AAD"></div>
+          <div class="w-3 h-3 rounded-full border" style="background: #99C4E5; border-color: #5E97CC"></div>
+        </div>
+        <div class="space-y-2">
+          <div class="h-2 rounded w-3/4" style="background: #5E97CC"></div>
+          <div class="h-2 rounded w-1/2" style="background: #5E97CC"></div>
+          <div class="h-2 rounded w-5/6" style="background: #5E97CC"></div>
+        </div>
+        <p class="text-xs mt-3" style="color: #002F8F">La Academia · celeste profundo</p>
+      </div>
+      <div :if={@form_data["theme"] in ["racing_navy", "racing"]} class="rounded-xl p-6" style="background: #0C1B33; border: 1px solid #16304F">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-3 h-3 rounded-full" style="background: #5CB8E6"></div>
+          <div class="w-3 h-3 rounded-full" style="background: #0038A8"></div>
+          <div class="w-3 h-3 rounded-full bg-white"></div>
+        </div>
+        <div class="space-y-2">
+          <div class="h-2 rounded w-3/4" style="background: #16304F"></div>
+          <div class="h-2 rounded w-1/2" style="background: #16304F"></div>
+          <div class="h-2 rounded w-5/6" style="background: #16304F"></div>
+        </div>
+        <p class="text-xs mt-3" style="color: #5CB8E6">La Academia · navy profundo</p>
+      </div>
+    </section>
+
+    <%!-- Blocked users --%>
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold text-heading mb-4 border-b border-border pb-2"><%= gettext("Blocked users") %></h2>
+      <div :if={@blocked_users == []} class="text-sm text-muted">
+        <%= gettext("You haven't blocked any users.") %>
+      </div>
+      <div :for={user <- @blocked_users} class="flex items-center justify-between py-3 border-b border-border last:border-b-0">
+        <div class="flex items-center gap-3">
+          <%= if user.avatar_url do %>
+            <img src={user.avatar_url} alt="" class="w-8 h-8 rounded-full object-cover" />
+          <% else %>
+            <div class="w-8 h-8 rounded-full bg-border flex items-center justify-center text-xs font-bold text-muted">
+              <%= String.slice(user.display_name || user.username, 0..0) |> String.upcase() %>
+            </div>
+          <% end %>
+          <div>
+            <span class="text-sm text-heading font-medium"><%= user.display_name || user.username %></span>
+            <span class="text-xs text-muted ml-1">@<%= user.username %></span>
+          </div>
+        </div>
+        <button
+          phx-click="unblock-user"
+          phx-value-user_id={user.id}
+          class="text-xs text-accent hover:text-accent-hover transition-colors"
+        >
+          <%= gettext("Unblock") %>
+        </button>
+      </div>
     </section>
 
     <%!-- Save button --%>
     <div class="flex items-center gap-4">
-      <.button type="submit">Guardar cambios</.button>
-      <a href={~p"/u/#{@current_user.username}"} class="text-sm text-gray-400 hover:text-white transition-colors">
-        Volver al perfil
+      <.button type="submit"><%= gettext("Save changes") %></.button>
+      <a href={~p"/u/#{@current_user.username}"} class="text-sm text-muted hover:text-heading transition-colors">
+        <%= gettext("Back to profile") %>
       </a>
     </div>
   </form>
+
+  <%!-- 2FA Section (outside main form) --%>
+  <section class="mt-8 pt-8 border-t border-border">
+    <h2 class="text-lg font-semibold text-heading mb-4">
+      Autenticación de dos pasos
+      <.badge :if={@current_user.totp_enabled} color="green">Activada</.badge>
+      <.badge :if={!@current_user.totp_enabled} color="gray">Desactivada</.badge>
+    </h2>
+
+    <%!-- 2FA not enabled, not setting up --%>
+    <div :if={!@current_user.totp_enabled && !@setup_2fa && !@backup_codes}>
+      <p class="text-sm text-muted mb-4">
+        Agregá una capa extra de seguridad a tu cuenta. Necesitás una app autenticadora como Google Authenticator o Authy.
+      </p>
+      <button
+        phx-click="start-2fa-setup"
+        class="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-accent text-white hover:bg-accent-hover transition-colors"
+      >
+        <.icon name="shield" class="w-4 h-4" /> Activar autenticación de dos pasos
+      </button>
+    </div>
+
+    <%!-- 2FA setup in progress (QR code) --%>
+    <div :if={@setup_2fa && @qr_svg} class="space-y-4">
+      <p class="text-sm text-muted">
+        Escaneá este código QR con tu app autenticadora:
+      </p>
+      <div class="bg-white p-4 rounded-lg inline-block">
+        <%= Phoenix.HTML.raw(@qr_svg) %>
+      </div>
+      <div>
+        <p class="text-xs text-muted mb-1">O ingresá esta clave manualmente:</p>
+        <code class="text-sm font-mono bg-surface-alt px-3 py-1.5 rounded border border-border text-accent select-all">
+          <%= Base.encode32(@totp_secret, padding: false) %>
+        </code>
+      </div>
+      <form phx-submit="verify-2fa" class="flex items-end gap-3 mt-4">
+        <div class="flex-1">
+          <label class="block text-sm font-medium text-muted mb-1">Código de verificación</label>
+          <input
+            type="text"
+            name="code"
+            placeholder="000000"
+            maxlength="6"
+            autocomplete="one-time-code"
+            class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm text-center font-mono tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-accent"
+          />
+        </div>
+        <.button type="submit" class="text-sm">Verificar y activar</.button>
+      </form>
+      <button
+        type="button"
+        phx-click="cancel-2fa-setup"
+        class="text-xs text-muted hover:text-heading transition-colors"
+      >
+        Cancelar
+      </button>
+    </div>
+
+    <%!-- 2FA enabled, show backup codes (one-time display) --%>
+    <div :if={@backup_codes} class="p-4 rounded-lg bg-warning-soft border border-warning/30">
+      <h3 class="text-sm font-semibold text-heading mb-2">Guardá tus códigos de respaldo</h3>
+      <p class="text-xs text-muted mb-3">
+        Estos códigos te permiten acceder si perdés tu app autenticadora. Cada código se puede usar una sola vez.
+      </p>
+      <div class="grid grid-cols-2 gap-2">
+        <code :for={code <- @backup_codes} class="text-sm font-mono bg-bg px-2 py-1 rounded border border-border text-body select-all">
+          <%= code %>
+        </code>
+      </div>
+      <p class="text-xs text-danger mt-3 font-medium">Guardá estos códigos ahora. No se volverán a mostrar.</p>
+      <button
+        type="button"
+        phx-click="cancel-2fa-setup"
+        class="mt-3 text-sm text-accent hover:text-accent-hover transition-colors"
+      >
+        Ya guardé mis códigos
+      </button>
+    </div>
+
+    <%!-- 2FA enabled, manage --%>
+    <div :if={@current_user.totp_enabled && !@backup_codes}>
+      <p class="text-sm text-muted mb-4">
+        La autenticación de dos pasos está activa. Se te pedirá un código cada vez que inicies sesión.
+      </p>
+
+      <div :if={!@show_disable_2fa}>
+        <button
+          phx-click="show-disable-2fa"
+          class="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg border border-danger text-danger hover:bg-danger-soft transition-colors"
+        >
+          Desactivar autenticación de dos pasos
+        </button>
+      </div>
+
+      <div :if={@show_disable_2fa} class="p-4 rounded-lg bg-danger-soft border border-danger/30">
+        <p class="text-sm text-body mb-3">
+          Para desactivar, ingresá un código de tu app autenticadora:
+        </p>
+        <form phx-submit="disable-2fa" class="flex items-end gap-3">
+          <div class="flex-1">
+            <input
+              type="text"
+              name="code"
+              placeholder="000000"
+              maxlength="6"
+              autocomplete="one-time-code"
+              class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm text-center font-mono tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-accent"
+            />
+          </div>
+          <.button type="submit" class="text-sm">Desactivar</.button>
+          <button type="button" phx-click="cancel-disable-2fa" class="text-sm text-muted hover:text-heading transition-colors">Cancelar</button>
+        </form>
+      </div>
+    </div>
+  </section>
 </div>

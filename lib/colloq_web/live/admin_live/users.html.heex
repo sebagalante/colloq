@@ -1,0 +1,243 @@
+<div class="max-w-5xl mx-auto px-4 py-6">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-heading"><%= gettext("Users") %></h1>
+    <p :if={Permissions.can?(@current_user, :assign_roles)} class="text-sm text-muted mt-1">
+      <.icon name="shield" class="w-4 h-4 inline text-accent" />
+      <%= gettext("Use the Role selector on each user to promote them to moderator, admin, or super admin.") %>
+    </p>
+  </div>
+
+  <%!-- Search --%>
+  <form phx-change="search" class="mb-6">
+    <input
+      type="text"
+      name="query"
+      value={@search}
+      placeholder={gettext("Search by username, email, or name...")}
+      class="w-full max-w-md rounded-lg border border-border bg-surface text-heading px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+    />
+  </form>
+
+  <%!-- User list --%>
+  <div class="space-y-2">
+    <div
+      :for={user <- @users.entries}
+      class="flex items-center gap-4 p-4 rounded-lg bg-surface border border-border"
+    >
+      <%= if user.avatar_url do %>
+        <img src={user.avatar_url} alt="" class="w-10 h-10 rounded-full object-cover" loading="lazy" />
+      <% else %>
+        <div class="w-10 h-10 rounded-full bg-border flex items-center justify-center text-sm font-bold text-muted">
+          <%= String.slice(user.display_name || user.username, 0..0) |> String.upcase() %>
+        </div>
+      <% end %>
+
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="font-semibold text-heading text-sm"><%= user.display_name || user.username %></span>
+          <span class="text-xs text-muted">@<%= user.username %></span>
+          <.badge color={status_color(user_status(user))} class="text-xs">
+            <%= status_label(user_status(user)) %>
+          </.badge>
+          <.badge :if={user.role} color="purple" class="text-xs"><%= Colloq.Permissions.role_name(user.role) %></.badge>
+          <span class="text-xs text-muted ml-auto">TL<%= user.trust_level %></span>
+        </div>
+        <p class="text-xs text-muted mt-1"><%= user.email %></p>
+        <div class="flex items-center gap-3 mt-1 text-xs text-muted">
+          <span><%= user.posts_count %> <%= gettext("posts") %></span>
+          <span :if={user.warnings_count > 0}>⚠️ <%= user.warnings_count %></span>
+          <span :if={user.suspended_until} class="text-amber-400">
+            <%= gettext("Until") %> <%= Calendar.strftime(user.suspended_until, "%d/%m %H:%M") %>
+          </span>
+          <span :if={user.silenced_until} class="text-amber-400">
+            <.icon name="mic-off" class="w-3 h-3 inline" /> <%= gettext("Until") %> <%= Calendar.strftime(user.silenced_until, "%d/%m %H:%M") %>
+          </span>
+          <span :if={user.suspension_reason} class="text-muted truncate max-w-xs">
+            — <%= user.suspension_reason %>
+          </span>
+          <span :if={user.ban_reason} class="text-danger truncate max-w-xs">
+            — <%= user.ban_reason %>
+          </span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-1 flex-shrink-0">
+        <form
+          :if={Permissions.can?(@current_user, :assign_roles) && user.id != @current_user.id}
+          phx-change="assign-role"
+          class="mr-2 flex items-center gap-1.5 rounded-lg border border-border bg-surface-alt pl-2 pr-1 py-1"
+        >
+          <.icon name="shield" class="w-4 h-4 text-accent" />
+          <label class="text-xs font-medium text-muted"><%= gettext("Role") %>:</label>
+          <input type="hidden" name="user_id" value={user.id} />
+          <select
+            name="role"
+            title={gettext("Change role")}
+            class="rounded-md border border-border bg-surface text-heading px-2 py-1 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-accent cursor-pointer"
+          >
+            <option value="none" selected={is_nil(user.role)}><%= gettext("User") %></option>
+            <option value="moderator" selected={user.role == "moderator"}><%= gettext("Moderator") %></option>
+            <option value="admin" selected={user.role == "admin"}><%= gettext("Admin") %></option>
+            <option value="super_admin" selected={user.role == "super_admin"}>Super Admin</option>
+          </select>
+        </form>
+        <button
+          :if={Permissions.can?(@current_user, :warn_users) && user_status(user) == :active}
+          phx-click="moderate"
+          phx-value-user_id={user.id}
+          phx-value-action="warn"
+          class="px-2 py-1 text-xs text-yellow-400 hover:text-yellow-300 transition-colors"
+          title={gettext("Warn")}
+        >
+          ⚠️
+        </button>
+        <button
+          :if={Permissions.can?(@current_user, :silence_users) && user_status(user) in [:active, :warned]}
+          phx-click="moderate"
+          phx-value-user_id={user.id}
+          phx-value-action="silence"
+          class="px-2 py-1 text-xs text-amber-400 hover:text-amber-300 transition-colors"
+          title={gettext("Silence")}
+        >
+          <.icon name="mic-off" class="w-3.5 h-3.5" />
+        </button>
+        <button
+          :if={Permissions.can?(@current_user, :suspend_users) && user_status(user) in [:active, :warned, :silenced]}
+          phx-click="moderate"
+          phx-value-user_id={user.id}
+          phx-value-action="suspend"
+          class="px-2 py-1 text-xs text-amber-400 hover:text-amber-300 transition-colors"
+          title={gettext("Suspend")}
+        >
+          <.icon name="clock" class="w-3.5 h-3.5" />
+        </button>
+        <button
+          :if={Permissions.can?(@current_user, :ban_users) && user_status(user) in [:active, :warned, :silenced, :suspended] && !user.banned}
+          phx-click="moderate"
+          phx-value-user_id={user.id}
+          phx-value-action="ban"
+          class="px-2 py-1 text-xs text-danger hover:text-danger transition-colors"
+          title={gettext("Ban")}
+        >
+          <.icon name="x" class="w-3.5 h-3.5" />
+        </button>
+        <button
+          :if={Permissions.can?(@current_user, :silence_users) && user_status(user) == :silenced}
+          phx-click="moderate"
+          phx-value-user_id={user.id}
+          phx-value-action="unsilence"
+          class="px-2 py-1 text-xs text-green-400 hover:text-green-300 transition-colors"
+          title={gettext("Lift silence")}
+        >
+          <.icon name="mic" class="w-3.5 h-3.5" />
+        </button>
+        <button
+          :if={Permissions.can?(@current_user, :reinstate_users) && user_status(user) in [:silenced, :suspended, :banned]}
+          phx-click="moderate"
+          phx-value-user_id={user.id}
+          phx-value-action="reinstate"
+          class="px-2 py-1 text-xs text-green-400 hover:text-green-300 transition-colors"
+          title={gettext("Reinstate")}
+        >
+          <.icon name="check" class="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <p :if={@users.entries == []} class="text-muted text-center py-8">
+    <%= gettext("No users found.") %>
+  </p>
+
+  <%!-- Pagination --%>
+  <div :if={@users.total_pages > 1} class="flex justify-center gap-2 mt-6">
+    <button
+      :if={@page > 1}
+      phx-click="change-page"
+      phx-value-page={@page - 1}
+      class="px-3 py-1 text-sm text-muted hover:text-heading transition-colors"
+    >
+      ←
+    </button>
+    <span class="px-3 py-1 text-sm text-muted"><%= @page %>/<%= @users.total_pages %></span>
+    <button
+      :if={@page < @users.total_pages}
+      phx-click="change-page"
+      phx-value-page={@page + 1}
+      class="px-3 py-1 text-sm text-muted hover:text-heading transition-colors"
+    >
+      →
+    </button>
+  </div>
+
+  <%!-- Moderation modal --%>
+  <.modal :if={@show_moderation_modal} id="moderation-modal" show on_cancel={JS.push("close-moderation")}>
+    <h2 class="text-lg font-bold text-heading mb-4">
+      <%= case @moderation_action do %>
+        <% "warn" -> %><%= gettext("Warn user") %>
+        <% "silence" -> %><%= gettext("Silence user") %>
+        <% "suspend" -> %><%= gettext("Suspend user") %>
+        <% "ban" -> %><%= gettext("Ban user") %>
+        <% "unsilence" -> %><%= gettext("Lift silence") %>
+        <% "reinstate" -> %><%= gettext("Reinstate user") %>
+      <% end %>
+    </h2>
+
+    <p class="text-sm text-muted mb-4">
+      <%= gettext("User") %>: <strong class="text-heading"><%= @moderation_user && @moderation_user.username %></strong>
+    </p>
+
+    <form phx-submit="confirm-moderation" class="space-y-4">
+      <div :if={@moderation_action in ["silence", "suspend", "ban"]}>
+        <label class="block text-sm font-medium text-body mb-1"><%= gettext("Reason") %></label>
+        <textarea
+          name="reason"
+          rows="2"
+          placeholder={gettext("Reason for this action...")}
+          class="w-full rounded-lg border border-border bg-bg text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+        ></textarea>
+      </div>
+
+      <div :if={@moderation_action == "silence"} class="text-sm text-muted">
+        <p><%= gettext("A silenced user can still log in and read, but cannot post or reply.") %></p>
+      </div>
+
+      <div :if={@moderation_action in ["silence", "suspend"]}>
+        <label class="block text-sm font-medium text-body mb-1"><%= gettext("Duration") %></label>
+        <select name="duration" class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm">
+          <option value="2_hours"><%= gettext("2 hours") %></option>
+          <option value="6_hours"><%= gettext("6 hours") %></option>
+          <option value="1_day" selected><%= gettext("1 day") %></option>
+          <option value="3_days"><%= gettext("3 days") %></option>
+          <option value="7_days"><%= gettext("7 days") %></option>
+          <option value="30_days"><%= gettext("30 days") %></option>
+          <option value="90_days"><%= gettext("90 days") %></option>
+        </select>
+      </div>
+
+      <div :if={@moderation_action == "unsilence"} class="text-sm text-muted">
+        <p><%= gettext("This will let the user post again.") %></p>
+      </div>
+
+      <div :if={@moderation_action == "reinstate"} class="text-sm text-muted">
+        <p><%= gettext("This will clear the suspension or ban and restore full access.") %></p>
+      </div>
+
+      <div class="flex gap-2 pt-2">
+        <.button type="submit" class="text-sm">
+          <%= case @moderation_action do %>
+            <% "warn" -> %><%= gettext("Issue warning") %>
+            <% "silence" -> %><%= gettext("Silence") %>
+            <% "suspend" -> %><%= gettext("Suspend") %>
+            <% "ban" -> %><%= gettext("Ban") %>
+            <% "unsilence" -> %><%= gettext("Lift silence") %>
+            <% "reinstate" -> %><%= gettext("Reinstate") %>
+          <% end %>
+        </.button>
+        <button type="button" phx-click="close-moderation" class="text-sm text-muted hover:text-heading transition-colors">
+          <%= gettext("Cancel") %>
+        </button>
+      </div>
+    </form>
+  </.modal>
+</div>

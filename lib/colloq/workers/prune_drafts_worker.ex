@@ -1,13 +1,14 @@
 defmodule Colloq.Workers.PruneDraftsWorker do
   @moduledoc """
-  Worker de limpieza de borradores de posts.
+  Post draft cleanup worker.
 
-  Elimina borradores con más de 7 días de antigüedad
-  mediante una consulta SQL directa a la tabla post_drafts.
+  Deletes drafts older than 7 days
+  via a direct SQL query on the post_drafts table.
   """
   use Oban.Worker, queue: :default, max_attempts: 1
 
   alias Colloq.Repo
+  import Ecto.Query
 
   @impl Oban.Worker
   def perform(_job) do

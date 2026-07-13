@@ -1,20 +1,20 @@
 defmodule Colloq.Predictions do
   @moduledoc """
-  Contexto de predicciones de partidos.
+  Match prediction context.
 
-  Permite a los usuarios predecir resultados de fixtures,
-  calcular puntuaciones y consultar tablas de posiciones.
+  Allows users to predict fixture outcomes, calculate scores,
+  and view leaderboards.
   """
   import Ecto.Query, warn: false
   alias Colloq.Repo
   alias Colloq.Predictions.{Prediction, Scorer}
 
   @doc """
-  Crea una predicción para un usuario en un fixture.
+  Creates a prediction for a user on a fixture.
 
-  Recibe user_id y attrs: fixture_id, home_score, away_score,
-  first_scorer (opcional), motm (opcional).
-  Retorna {:ok, prediction} o {:error, changeset}.
+  Receives user_id and attrs: fixture_id, home_score, away_score,
+  first_scorer (optional), motm (optional).
+  Returns {:ok, prediction} or {:error, changeset}.
   """
   def create_prediction(user_id, attrs) do
     %Prediction{}
@@ -23,7 +23,7 @@ defmodule Colloq.Predictions do
   end
 
   @doc """
-  Obtiene todas las predicciones para un fixture.
+  Gets all predictions for a fixture.
   """
   def for_fixture(fixture_id) do
     Prediction
@@ -33,8 +33,8 @@ defmodule Colloq.Predictions do
   end
 
   @doc """
-  Puntúa todas las predicciones de un fixture comparándolas
-  con el resultado real.
+  Scores all predictions for a fixture by comparing them
+  with the actual result.
   """
   def score_predictions_for_fixture(fixture_id, home_score, away_score) do
     predictions = for_fixture(fixture_id)
@@ -56,34 +56,42 @@ defmodule Colloq.Predictions do
   end
 
   @doc """
-  Tabla de posiciones (leaderboard) de predicciones.
+  Predictions leaderboard.
 
-  Opciones:
-    - season: filtra por temporada (fixture_id que empieza con ese año)
-    - limit: cantidad máxima de resultados (default 50)
+  Options:
+    - season: filters by season (fixture_id starting with that year)
+    - limit: maximum number of results (default 50)
   """
   def leaderboard(opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
     season = Keyword.get(opts, :season)
 
-    Prediction
-    |> filter_season(season)
-    |> where([p], p.points > 0)
-    |> group_by([p], p.user_id)
-    |> select([p], %{
-      user_id: p.user_id,
-      total_points: sum(p.points),
-      predictions_count: count(p.id),
-      average_points: avg(p.points)
-    })
-    |> order_by(desc: :total_points)
-    |> limit(^limit)
-    |> Repo.all()
-    |> Repo.preload(:user)
+    entries =
+      Prediction
+      |> filter_season(season)
+      |> where([p], p.points > 0)
+      |> group_by([p], p.user_id)
+      |> select([p], %{
+        user_id: p.user_id,
+        total_points: sum(p.points),
+        predictions_count: count(p.id),
+        average_points: avg(p.points)
+      })
+      |> order_by(desc: :total_points)
+      |> limit(^limit)
+      |> Repo.all()
+
+    user_ids = Enum.map(entries, & &1.user_id)
+    users = Repo.all(from u in Colloq.Accounts.User, where: u.id in ^user_ids)
+    users_map = Map.new(users, &{&1.id, &1})
+
+    Enum.map(entries, fn entry ->
+      Map.put(entry, :user, Map.get(users_map, entry.user_id))
+    end)
   end
 
   @doc """
-  Comparación cabeza a cabeza entre dos usuarios en una temporada.
+  Head-to-head comparison between two users in a season.
   """
   def head_to_head(user_a_id, user_b_id, opts \\ []) do
     season = Keyword.get(opts, :season)
@@ -92,7 +100,7 @@ defmodule Colloq.Predictions do
       Prediction
       |> where([p], p.user_id in [^user_a_id, ^user_b_id])
       |> filter_season(season)
-      |> where([p], p.points > 0 or p.scored_at != nil)
+      |> where([p], p.points > 0 or not is_nil(p.scored_at))
       |> preload(:user)
 
     user_a = Repo.all(where(base, [p], p.user_id == ^user_a_id))
@@ -111,7 +119,7 @@ defmodule Colloq.Predictions do
   end
 
   @doc """
-  Obtiene la predicción de un usuario para un fixture.
+  Gets a user's prediction for a fixture.
   """
   def get_user_prediction(user_id, fixture_id) do
     Repo.get_by(Prediction, user_id: user_id, fixture_id: fixture_id)

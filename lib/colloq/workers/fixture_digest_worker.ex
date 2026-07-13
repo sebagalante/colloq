@@ -1,16 +1,14 @@
 defmodule Colloq.Workers.FixtureDigestWorker do
   @moduledoc """
-  Worker de resumen diario de fixtures de la Liga Profesional.
+  Daily Liga Profesional fixture digest worker.
 
-  Cron 9AM BUE: obtiene los partidos del día desde Sofascore
-  y publica una preview en el topic de digest.
+  9 AM BUE cron: fetches today's matches from Sofascore
+  and posts a preview in the digest topic.
 
-  Cron 11PM BUE: obtiene resultados y publica un resumen.
-  Si hay partidos todavía en juego, se reencola +30 min.
+  11 PM BUE cron: fetches results and posts a summary.
+  Re-enqueues +30 min if any matches are still in play.
 
-  Después del último partido de la fecha: publica tabla de posiciones.
-
-  Racing Club recibe destacado especial (⭐ y color coding).
+  Posts the league standings after the last match of the round.
   """
   use Oban.Worker, queue: :events, max_attempts: 3
 
@@ -109,37 +107,39 @@ defmodule Colloq.Workers.FixtureDigestWorker do
   end
 
   defp publish_preview(topic, fixtures) do
-    return unless topic
-    return if fixtures == []
+    if is_nil(topic) or fixtures == [] do
+      :ok
+    else
+      system_user = find_system_user()
+      body = build_preview_body(fixtures)
 
-    system_user = find_system_user()
-    body = build_preview_body(fixtures)
+      Forum.create_post(topic, system_user, %{
+        "body" => body,
+        "is_system" => true,
+        "system_type" => "fixture_preview",
+        "event_data" => %{fixture_count: length(fixtures)}
+      })
 
-    Forum.create_post(topic, system_user, %{
-      "body" => body,
-      "is_system" => true,
-      "system_type" => "fixture_preview",
-      "event_data" => %{fixture_count: length(fixtures)}
-    })
-
-    Logger.info("[FixtureDigest] Preview publicada: #{length(fixtures)} partidos")
+      Logger.info("[FixtureDigest] Preview publicada: #{length(fixtures)} partidos")
+    end
   end
 
   defp publish_summary(topic, fixtures) do
-    return unless topic
-    return if fixtures == []
+    if is_nil(topic) or fixtures == [] do
+      :ok
+    else
+      system_user = find_system_user()
+      body = build_summary_body(fixtures)
 
-    system_user = find_system_user()
-    body = build_summary_body(fixtures)
+      Forum.create_post(topic, system_user, %{
+        "body" => body,
+        "is_system" => true,
+        "system_type" => "fixture_summary",
+        "event_data" => %{fixture_count: length(fixtures)}
+      })
 
-    Forum.create_post(topic, system_user, %{
-      "body" => body,
-      "is_system" => true,
-      "system_type" => "fixture_summary",
-      "event_data" => %{fixture_count: length(fixtures)}
-    })
-
-    Logger.info("[FixtureDigest] Resumen publicado: #{length(fixtures)} resultados")
+      Logger.info("[FixtureDigest] Resumen publicado: #{length(fixtures)} resultados")
+    end
   end
 
   defp build_preview_body(fixtures) do
@@ -184,17 +184,19 @@ defmodule Colloq.Workers.FixtureDigestWorker do
   end
 
   defp maybe_publish_standings(fixtures, topic) do
-    return unless topic
+    if is_nil(topic) do
+      :ok
+    else
+      all_finished? = Enum.all?(fixtures, fn f ->
+        f["status"]["type"] in ["finished", "cancelled", "postponed"]
+      end)
 
-    all_finished? = Enum.all?(fixtures, fn f ->
-      f["status"]["type"] in ["finished", "cancelled", "postponed"]
-    end)
+      if all_finished? and fixtures != [] do
+        season_id = get_season_id_from_fixtures(fixtures)
 
-    if all_finished? and fixtures != [] do
-      season_id = get_season_id_from_fixtures(fixtures)
-
-      if season_id do
-        publish_standings(topic, season_id)
+        if season_id do
+          publish_standings(topic, season_id)
+        end
       end
     end
   end
@@ -230,12 +232,14 @@ defmodule Colloq.Workers.FixtureDigestWorker do
       team = row["team"]["name"]
       pts = row["points"]
       pj = row["played"]
-      "+#{row["scoresFor"]} -#{row["scoresAgainst"]} DF:#{row["scoresDiff"]}"
+      gf = row["scoresFor"]
+      gc = row["scoresAgainst"]
+      gd = row["scoresDiff"]
 
       bold = if team_name?(team, "Racing"), do: "<strong>", else: ""
       bold_end = if team_name?(team, "Racing"), do: "</strong>", else: ""
 
-      "#{pos}. #{bold}#{team}#{bold_end} — #{pts} pts (#{pj} PJ)"
+      "#{pos}. #{bold}#{team}#{bold_end} — #{pts} pts (#{pj} PJ, +#{gf} -#{gc} DG:#{gd})"
     end)
   end
 
@@ -277,6 +281,4 @@ defmodule Colloq.Workers.FixtureDigestWorker do
       user -> user
     end
   end
-
-  defp return(_), do: nil
 end

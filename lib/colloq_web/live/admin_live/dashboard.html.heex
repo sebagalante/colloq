@@ -1,36 +1,36 @@
 <section class="space-y-6">
-  <h1 class="text-2xl font-bold text-white">Panel de Control</h1>
+  <h1 class="text-2xl font-bold text-heading"><%= gettext("Dashboard") %></h1>
 
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
     <.card>
-      <p class="text-sm text-gray-400">Usuarios Totales</p>
-      <p class="text-3xl font-bold text-white tabular-nums"><%= @stats.total_users %></p>
+      <p class="text-sm text-muted"><%= gettext("Total Users") %></p>
+      <p class="text-3xl font-bold text-heading tabular-nums"><%= @stats.total_users %></p>
     </.card>
 
     <.card>
-      <p class="text-sm text-gray-400">Temas Totales</p>
-      <p class="text-3xl font-bold text-white tabular-nums"><%= @stats.total_topics %></p>
+      <p class="text-sm text-muted"><%= gettext("Total Topics") %></p>
+      <p class="text-3xl font-bold text-heading tabular-nums"><%= @stats.total_topics %></p>
     </.card>
 
     <.card>
-      <p class="text-sm text-gray-400">Posts Totales</p>
-      <p class="text-3xl font-bold text-white tabular-nums"><%= @stats.total_posts %></p>
+      <p class="text-sm text-muted"><%= gettext("Total Posts") %></p>
+      <p class="text-3xl font-bold text-heading tabular-nums"><%= @stats.total_posts %></p>
     </.card>
 
     <.card>
-      <p class="text-sm text-gray-400">Usuarios en Línea</p>
+      <p class="text-sm text-muted"><%= gettext("Online Users") %></p>
       <p class="text-3xl font-bold text-emerald-400 tabular-nums"><%= @stats.online_users %></p>
     </.card>
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <.card class="col-span-1">
-      <h3 class="text-lg font-semibold text-white mb-3">Crecimiento de Usuarios</h3>
+      <h3 class="text-lg font-semibold text-heading mb-3"><%= gettext("User Growth") %></h3>
       <div
         id="chart-user-growth"
         phx-hook="ECharts"
         data-chart-type="line"
-        data-chart-title="Usuarios nuevos por día"
+        data-chart-title={gettext("New users per day")}
         data-chart-data={"#{@user_growth_data}"}
         class="h-64"
       >
@@ -38,12 +38,12 @@
     </.card>
 
     <.card class="col-span-1">
-      <h3 class="text-lg font-semibold text-white mb-3">Actividad de Posts (30 días)</h3>
+      <h3 class="text-lg font-semibold text-heading mb-3"><%= gettext("Post Activity (30 days)") %></h3>
       <div
         id="chart-post-activity"
         phx-hook="ECharts"
         data-chart-type="bar"
-        data-chart-title="Posts por día"
+        data-chart-title={gettext("Posts per day")}
         data-chart-data={"#{@post_activity_data}"}
         class="h-64"
       >
@@ -53,12 +53,12 @@
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <.card class="col-span-1">
-      <h3 class="text-lg font-semibold text-white mb-3">Distribución de Reacciones</h3>
+      <h3 class="text-lg font-semibold text-heading mb-3"><%= gettext("Reaction Distribution") %></h3>
       <div
         id="chart-reactions"
         phx-hook="ECharts"
         data-chart-type="pie"
-        data-chart-title="Reacciones"
+        data-chart-title={gettext("Reactions")}
         data-chart-data={"#{@reaction_distribution}"}
         class="h-64"
       >
@@ -67,8 +67,8 @@
 
     <.card class="col-span-2">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-lg font-semibold text-white">
-          Reportes Pendientes
+        <h3 class="text-lg font-semibold text-heading">
+          <%= gettext("Pending Reports") %>
           <%= if @stats.flags_count > 0 do %>
             <.badge color="red"><%= @stats.flags_count %></.badge>
           <% end %>
@@ -76,21 +76,54 @@
       </div>
 
       <%= if @recent_flags == [] do %>
-        <p class="text-sm text-gray-500">No hay reportes pendientes.</p>
+        <p class="text-sm text-muted"><%= gettext("No pending reports.") %></p>
       <% else %>
-        <div class="space-y-2">
-          <%= for flag <- @recent_flags do %>
-            <div class="flex items-center justify-between py-2 border-b border-[#1a2035] last:border-0">
-              <div>
-                <span class="text-sm text-white">Post #<%= flag.post_id %></span>
-                <span class="text-xs text-gray-500 ml-2">por <%= flag.user %></span>
-              </div>
-              <div class="flex items-center gap-2">
+        <div class="space-y-3">
+          <div :for={flag <- @recent_flags} class="p-3 rounded-lg bg-surface-alt border border-border">
+            <div class="flex items-start justify-between gap-3 mb-1.5 flex-wrap">
+              <div class="flex items-center gap-2 flex-wrap">
                 <.badge color="amber"><%= flag.reason %></.badge>
-                <span class="text-xs text-gray-500"><%= es_locale(flag.inserted_at) %></span>
+                <span class="text-xs text-muted">
+                  <%= gettext("Post #%{id}", id: flag.post_id) %> · <%= gettext("by") %> <%= flag.user || gettext("unknown") %>
+                </span>
+                <.badge :if={flag.deleted} color="gray"><%= gettext("hidden") %></.badge>
               </div>
+              <span class="text-xs text-muted"><%= es_locale(flag.inserted_at) %></span>
             </div>
-          <% end %>
+
+            <p :if={flag.excerpt && flag.excerpt != ""} class="text-sm text-body line-clamp-2 mb-2">
+              <%= flag.excerpt %>
+            </p>
+
+            <div class="flex items-center gap-2 flex-wrap">
+              <.link
+                :if={flag.topic_id}
+                navigate={~p"/t/#{flag.topic_id}"}
+                class="inline-flex items-center gap-1 text-xs text-accent hover:text-accent-hover transition-colors"
+              >
+                <.icon name="external-link" class="w-3.5 h-3.5" /><%= gettext("View") %>
+              </.link>
+              <button
+                :if={!flag.deleted}
+                type="button"
+                phx-click="hide-flagged-post"
+                phx-value-id={flag.id}
+                phx-value-post_id={flag.post_id}
+                data-confirm={gettext("Hide this post and resolve the report?")}
+                class="inline-flex items-center gap-1 text-xs text-muted hover:text-danger transition-colors"
+              >
+                <.icon name="eye-off" class="w-3.5 h-3.5" /><%= gettext("Hide post") %>
+              </button>
+              <button
+                type="button"
+                phx-click="dismiss-flag"
+                phx-value-id={flag.id}
+                class="inline-flex items-center gap-1 text-xs text-muted hover:text-heading transition-colors"
+              >
+                <.icon name="check" class="w-3.5 h-3.5" /><%= gettext("Dismiss") %>
+              </button>
+            </div>
+          </div>
         </div>
       <% end %>
     </.card>

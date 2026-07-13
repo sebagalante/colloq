@@ -1,24 +1,24 @@
 defmodule Colloq.Bots do
   @moduledoc """
-  Contexto de bots y personas bot.
+  Bot and bot persona context.
 
-  Gestiona las personas bot (usuarios que responden vía LLM cuando son mencionados)
-  y los bots de sistema (scorebot, etc.).
-  Incluye rate limiting por Cachex.
+  Manages bot personas (users that respond via LLM when mentioned)
+  and system bots (scorebot, etc.).
+  Includes rate limiting via Cachex.
   """
   import Ecto.Query, warn: false
   alias Colloq.Repo
   alias Colloq.Bots.BotSystem
 
   @doc """
-  Obtiene una persona bot por su slug.
+  Gets a bot persona by its slug.
   """
   def get_persona_by_slug(slug) do
     Repo.get_by(BotSystem, slug: slug, type: "persona")
   end
 
   @doc """
-  Lista todas las personas bot activas.
+  Lists all active bot personas.
   """
   def list_personas do
     BotSystem
@@ -28,7 +28,7 @@ defmodule Colloq.Bots do
   end
 
   @doc """
-  Lista todos los bots de sistema.
+  Lists all system bots.
   """
   def list_system_bots do
     BotSystem
@@ -38,12 +38,12 @@ defmodule Colloq.Bots do
   end
 
   @doc """
-  Verifica el rate limit para una persona bot por usuario.
+  Checks the rate limit for a bot persona per user.
 
-  Usa Cachex para mantener un contador de invocaciones por persona+usuario.
-  Retorna :ok si está dentro del límite, {:error, :rate_limited} si no.
+  Uses Cachex to maintain an invocation counter per persona+user.
+  Returns :ok if within the limit, {:error, :rate_limited} if not.
 
-  Límite por defecto: 5 invocaciones por minuto.
+  Default limit: 5 invocations per minute.
   """
   def check_rate_limit(persona_slug, user_id) do
     max_calls = Application.get_env(:colloq, :bot_rate_limit, 5)

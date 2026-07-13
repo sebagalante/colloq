@@ -1,4 +1,4 @@
-defmodule Colloq.Predictions.PredictionsLive do
+defmodule ColloqWeb.PredictionsLive do
   use ColloqWeb, :live_view
 
   alias Colloq.Repo
@@ -19,7 +19,7 @@ defmodule Colloq.Predictions.PredictionsLive do
 
     socket =
       socket
-      |> assign(:page_title, "Predicciones")
+      |> assign(:page_title, gettext("Predictions"))
       |> assign(:next_match, next_match)
       |> assign(:leaderboard, leaderboard)
       |> assign(:user_history, user_history)
@@ -47,16 +47,16 @@ defmodule Colloq.Predictions.PredictionsLive do
     match = socket.assigns.next_match
 
     unless user do
-      {:noreply, put_flash(socket, :error, "Debés iniciar sesión para hacer predicciones.")}
+      {:noreply, put_flash(socket, :error, gettext("You must log in to make predictions."))}
     else
       with {:ok, home} <- parse_score(home_score),
            {:ok, away} <- parse_score(away_score) do
 
         prediction = %{
           user_id: user.id,
-          match_id: match.id,
+          fixture_id: match.fixture_id,
           home_score: home,
-          away_score: away_score,
+          away_score: away,
           first_scorer: String.trim(first_scorer),
           motm: String.trim(motm)
         }
@@ -71,20 +71,20 @@ defmodule Colloq.Predictions.PredictionsLive do
              |> assign(:form_away_score, "")
              |> assign(:form_first_scorer, "")
              |> assign(:form_motm, "")
-             |> put_flash(:info, "¡Predicción guardada!")}
+             |> put_flash(:info, gettext("Prediction saved!"))}
 
           {:error, reason} ->
             {:noreply, put_flash(socket, :error, reason)}
         end
       else
-        :error -> {:noreply, put_flash(socket, :error, "Los goles deben ser números válidos.")}
+        :error -> {:noreply, put_flash(socket, :error, gettext("Goals must be valid numbers."))}
       end
     end
   end
 
   @impl true
   def handle_info({:match_started, _}, socket) do
-    {:noreply, socket |> assign(:next_match, nil) |> put_flash(:info, "El partido ya comenzó. No se aceptan más predicciones.")}
+    {:noreply, socket |> assign(:next_match, nil) |> put_flash(:info, gettext("The match has started. No more predictions are accepted."))}
   end
 
   def handle_info({:scores_updated, _}, socket) do
@@ -103,13 +103,11 @@ defmodule Colloq.Predictions.PredictionsLive do
   defp get_next_match do
     import Ecto.Query
 
-    now = DateTime.utc_now()
-
     query =
       from(t in Colloq.Forum.Topic,
-        where: t.match_date > ^now,
+        where: t.is_match_thread == true,
         where: t.match_mode in ["prematch", "live"],
-        order_by: [asc: t.match_date],
+        order_by: [desc: t.inserted_at],
         limit: 1
       )
 
@@ -118,10 +116,10 @@ defmodule Colloq.Predictions.PredictionsLive do
       [topic | _] ->
         %{
           id: topic.id,
+          fixture_id: topic.match_id,
           title: topic.title,
-          match_date: topic.match_date,
-          home_team: Map.get(topic.match_data || %{}, "home_team", "Local"),
-          away_team: Map.get(topic.match_data || %{}, "away_team", "Visitante")
+          home_team: topic.home_team || gettext("Home"),
+          away_team: topic.away_team || gettext("Away")
         }
     end
   end
@@ -132,19 +130,19 @@ defmodule Colloq.Predictions.PredictionsLive do
     # Check if user already predicted this match
     existing =
       Colloq.Predictions.Prediction
-      |> where([p], p.user_id == ^prediction.user_id and p.match_id == ^prediction.match_id)
+      |> where([p], p.user_id == ^prediction.user_id and p.fixture_id == ^prediction.fixture_id)
       |> Repo.one()
 
     schema = if existing, do: existing, else: struct!(Colloq.Predictions.Prediction)
 
     changeset =
       schema
-      |> Ecto.Changeset.cast(prediction, [:user_id, :match_id, :home_score, :away_score, :first_scorer, :motm])
+      |> Ecto.Changeset.cast(prediction, [:user_id, :fixture_id, :home_score, :away_score, :first_scorer, :motm])
       |> Ecto.Changeset.validate_required([:home_score, :away_score])
 
     case Repo.insert_or_update(changeset) do
       {:ok, pred} -> {:ok, pred}
-      {:error, _} -> {:error, "Error al guardar la predicción."}
+      {:error, _} -> {:error, gettext("Error saving the prediction.")}
     end
   end
 
@@ -161,7 +159,7 @@ defmodule Colloq.Predictions.PredictionsLive do
     Repo.all(query)
     |> Enum.map(fn p ->
       %{
-        match_title: get_match_title(p.match_id),
+        match_title: get_match_title(p.fixture_id),
         home_score: p.home_score,
         away_score: p.away_score,
         points: p.points || 0,
@@ -170,13 +168,13 @@ defmodule Colloq.Predictions.PredictionsLive do
     end)
   end
 
-  defp get_match_title(match_id) do
-    case Colloq.Forum.get_topic!(match_id) do
-      nil -> "Partido ##{match_id}"
+  defp get_match_title(fixture_id) do
+    case Colloq.Forum.get_topic!(fixture_id) do
+      nil -> gettext("Match #%{id}", id: fixture_id)
       topic -> topic.title
     end
   rescue
-    _ -> "Partido ##{match_id}"
+    _ -> gettext("Match #%{id}", id: fixture_id)
   end
 
   defp get_leaderboard do
@@ -206,7 +204,7 @@ defmodule Colloq.Predictions.PredictionsLive do
 
         %{
           rank: rank,
-          username: if(user, do: user.username, else: "Usuario ##{entry.user_id}"),
+          username: if(user, do: user.username, else: gettext("User #%{id}", id: entry.user_id)),
           points: entry.total_points,
           predictions: entry.predictions_count,
           streak: streak

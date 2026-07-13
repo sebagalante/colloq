@@ -1,15 +1,15 @@
 defmodule Colloq.Workers.SpamDetectorWorker do
   @moduledoc """
-  Worker de detección de spam en posts nuevos.
+  Spam detection worker for new posts.
 
-  Se encola al crear un post de un usuario TL0 o TL1.
-  Verifica múltiples señales:
-    - Exceso de URLs (> N links = spam)
-    - Contenido duplicado (cuerpo idéntico en últimos 10 posts)
-    - Palabras bloqueadas de SiteSettings
-    - Fallback opcional: clasificador LLM vía Groq para casos dudosos
+  Enqueued when a TL0 or TL1 user creates a post.
+  Checks multiple signals:
+    - Excessive URLs (> N links = spam)
+    - Duplicate content (identical body in last 10 posts)
+    - Blocked words from SiteSettings
+    - Optional fallback: LLM classifier via Groq for borderline cases
 
-  Si se detecta spam: oculta el post, lo reporta y notifica al autor.
+  If spam is detected: hides the post, flags it, and notifies the author.
   """
   use Oban.Worker, queue: :default, max_attempts: 2
 
@@ -19,6 +19,7 @@ defmodule Colloq.Workers.SpamDetectorWorker do
   alias Colloq.Notifications
   alias Colloq.SiteSettings
 
+  import Ecto.Query
   require Logger
 
   @max_links 3

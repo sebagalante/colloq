@@ -1,0 +1,82 @@
+<div class="max-w-2xl mx-auto px-4 py-6">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+      🎙️ <%= @room.name %>
+    </h1>
+    <p :if={@room.topic} class="text-sm text-gray-500 mt-1">
+      <%= gettext("Linked to") %> <a href={~p"/t/#{@room.topic.id}"} class="text-blue-400 hover:text-blue-300"><%= @room.topic.title %></a>
+    </p>
+    <p :if={@room.trust_level_required > 0} class="text-xs text-gray-500 mt-1">
+      <%= gettext("Requires trust level") %> TL<%= @room.trust_level_required %>
+    </p>
+  </div>
+
+  <%!-- Voice room hook --%>
+  <div
+    id="voice-room"
+    phx-hook="VoiceRoom"
+    data-room-id={@room.id}
+    data-user-id={if @current_user, do: @current_user.id, else: ""}
+    data-username={if @current_user, do: @current_user.username, else: ""}
+    data-stun-url={Application.get_env(:colloq, :stun_url, "stun:stun.l.google.com:19302")}
+    data-turn-url={Application.get_env(:colloq, :turn_url, "")}
+    data-turn-username={Application.get_env(:colloq, :turn_username, "")}
+    data-turn-credential={Application.get_env(:colloq, :turn_credential, "")}
+  >
+    <%!-- Controls --%>
+    <div class="flex items-center gap-3 mb-6">
+      <button
+        :if={!@joined && @current_user}
+        id="voice-join-btn"
+        onclick="document.getElementById('voice-room').dispatchEvent(new CustomEvent('voice-join'))"
+        class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white font-medium transition-colors"
+      >
+        🎙️ <%= gettext("Join") %>
+      </button>
+      <button
+        :if={@joined}
+        id="voice-leave-btn"
+        onclick="document.getElementById('voice-room').dispatchEvent(new CustomEvent('voice-leave'))"
+        class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium transition-colors"
+      >
+        📴 <%= gettext("Leave") %>
+      </button>
+      <p :if={!@current_user} class="text-sm text-gray-400">
+        <a href="/login" class="text-blue-400 hover:text-blue-300"><%= gettext("Log in") %></a> <%= gettext("to join the voice room.") %>
+      </p>
+    </div>
+
+    <%!-- Participants --%>
+    <div class="space-y-2">
+      <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+        <%= gettext("Participants") %> (<%= length(@participants) %>)
+      </h3>
+
+      <div :if={@participants == []} class="text-sm text-gray-500 py-4">
+        <%= gettext("No one is in the voice room yet.") %>
+      </div>
+
+      <div
+        :for={participant <- @participants}
+        class="radio-bar"
+      >
+        <div class="radio-indicator"></div>
+        <div class="flex-1">
+          <span class="text-sm text-white font-medium">
+            <%= participant.display_name || participant.username %>
+          </span>
+          <span class="text-xs text-gray-500 ml-1">@<%= participant.username %></span>
+        </div>
+        <div
+          class={["speaker-indicator", Map.get(@speaking_users, participant.user_id) && "speaking"]}
+          data-user-id={participant.user_id}
+        >
+          <div class="level" style="width: 0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Audio elements container (hidden, managed by JS hook) --%>
+    <div id="voice-audio-container" class="hidden"></div>
+  </div>
+</div>

@@ -1,0 +1,23 @@
+{
+  "name": "colloq-assets",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Colloq frontend deps. Phoenix/phoenix_live_view come from the Elixir deps dir (resolved via NODE_PATH at build time); only third-party npm packages live here.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "install:ci": "npm install --no-audit --no-fund"
+  },
+  "dependencies": {
+    "@discordapp/twemoji": "^15.1.0",
+    "@tiptap/core": "^2.6.0",
+    "@tiptap/extension-image": "^2.6.0",
+    "@tiptap/extension-link": "^2.6.0",
+    "@tiptap/extension-placeholder": "^2.6.0",
+    "@tiptap/extension-table": "^2.27.2",
+    "@tiptap/extension-table-cell": "^2.27.2",
+    "@tiptap/extension-table-header": "^2.27.2",
+    "@tiptap/extension-table-row": "^2.27.2",
+    "@tiptap/starter-kit": "^2.6.0",
+    "lucide": "^0.460.0"
+  }
+}

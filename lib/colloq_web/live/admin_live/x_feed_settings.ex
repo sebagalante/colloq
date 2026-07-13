@@ -7,7 +7,7 @@ defmodule ColloqWeb.AdminLive.XFeedSettings do
   def mount(_params, _session, socket) do
     socket =
       socket
-      |> assign(:page_title, "Configuración de X Feed")
+      |> assign(:page_title, gettext("X Feed Settings"))
       |> load_form()
 
     {:ok, socket}
@@ -28,9 +28,9 @@ defmodule ColloqWeb.AdminLive.XFeedSettings do
     ]
 
     if Enum.all?(results, &match?({:ok, _}, &1)) do
-      {:noreply, socket |> load_form() |> put_flash(:info, "Configuración de X Feed guardada.")}
+      {:noreply, socket |> load_form() |> put_flash(:info, gettext("X Feed settings saved."))}
     else
-      {:noreply, put_flash(socket, :error, "Error al guardar la configuración.")}
+      {:noreply, put_flash(socket, :error, gettext("Error saving settings."))}
     end
   end
 

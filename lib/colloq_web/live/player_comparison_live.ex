@@ -2,6 +2,7 @@ defmodule ColloqWeb.PlayerComparisonLive do
   use ColloqWeb, :live_view
 
   alias Phoenix.PubSub
+  alias Colloq.Sofascore
 
   @seasons [
     {"23/24", "2023-2024"},
@@ -188,15 +189,15 @@ defmodule ColloqWeb.PlayerComparisonLive do
   end
 
   defp search_players(query) do
-    import Ecto.Query
-
-    like = "%#{query}%"
-
-    Colloq.Accounts.User
-    |> where([u], ilike(u.display_name, ^like) or ilike(u.username, ^like))
-    |> limit(10)
-    |> select([u], %{id: u.id, display_name: u.display_name, username: u.username})
-    |> Colloq.Repo.all()
+    Sofascore.search(query)
+    |> Enum.map(fn player ->
+      %{
+        id: player.sofascore_id,
+        name: player.name,
+        position: player.position,
+        team_id: player.team_id
+      }
+    end)
   end
 
   def bar_width(val, other) do

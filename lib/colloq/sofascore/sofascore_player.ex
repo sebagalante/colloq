@@ -1,9 +1,9 @@
 defmodule Colloq.Sofascore.SofascorePlayer do
   @moduledoc """
-  Esquema de jugador de Sofascore.
+  Sofascore player schema.
 
-  Almacena los IDs y metadatos de Sofascore para jugadores,
-  vinculados a la base de datos local de Racing Club.
+  Stores Sofascore IDs and metadata for players
+  across multiple teams.
   """
   use Ecto.Schema
   import Ecto.Changeset

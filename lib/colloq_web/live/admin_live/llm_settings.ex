@@ -17,7 +17,7 @@ defmodule ColloqWeb.AdminLive.LlmSettings do
 
     socket =
       socket
-      |> assign(:page_title, "Configuración LLM")
+      |> assign(:page_title, gettext("LLM Settings"))
       |> assign(:providers, providers)
       |> assign(:testing_provider, nil)
 
@@ -29,10 +29,10 @@ defmodule ColloqWeb.AdminLive.LlmSettings do
     case SiteSettings.put(key, api_key, type: "secret", group: "llm") do
       {:ok, _} ->
         providers = load_providers()
-        {:noreply, socket |> assign(:providers, providers) |> put_flash(:info, "API key guardada.")}
+        {:noreply, socket |> assign(:providers, providers) |> put_flash(:info, gettext("API key saved."))}
 
       {:error, _} ->
-        {:noreply, put_flash(socket, :error, "No se pudo guardar la API key.")}
+        {:noreply, put_flash(socket, :error, gettext("Could not save the API key."))}
     end
   end
 
@@ -66,12 +66,12 @@ defmodule ColloqWeb.AdminLive.LlmSettings do
         {:ok, _} ->
           socket
           |> assign(:providers, providers)
-          |> put_flash(:info, "Conexión con #{provider_info.name} exitosa.")
+          |> put_flash(:info, gettext("Connection with %{name} successful.", name: provider_info.name))
 
         {:error, reason} ->
           socket
           |> assign(:providers, providers)
-          |> put_flash(:error, "Error conectando con #{provider_info.name}: #{inspect(reason)}")
+          |> put_flash(:error, gettext("Error connecting with %{name}: %{reason}", name: provider_info.name, reason: inspect(reason)))
       end
 
     {:noreply, assign(socket, :testing_provider, nil)}

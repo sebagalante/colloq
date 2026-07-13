@@ -23,7 +23,7 @@ defmodule ColloqWeb.UserLive.Registration do
       {:ok, user} ->
         socket =
           socket
-          |> put_flash(:info, "¡Cuenta creada con éxito! Ya podés iniciar sesión.")
+          |> put_flash(:info, gettext("Account created! You can now log in."))
           |> redirect(to: "/login")
 
         {:noreply, socket}
@@ -37,51 +37,51 @@ defmodule ColloqWeb.UserLive.Registration do
     ~H"""
     <div class="max-w-md mx-auto mt-12 px-4">
       <.card>
-        <h1 class="text-xl font-bold text-white mb-6 text-center">Crear cuenta</h1>
+        <h1 class="text-xl font-bold text-white mb-6 text-center"><%= gettext("Create account") %></h1>
 
         <.form for={@form} phx-change="validate" phx-submit="save">
           <.input
             field={@form[:email]}
             type="email"
-            label="Email"
+            label={gettext("Email")}
             placeholder="tu@email.com"
             required
           />
           <.input
             field={@form[:username]}
             type="text"
-            label="Nombre de usuario"
-            placeholder="usuario123"
+            label={gettext("Username")}
+            placeholder="user123"
             required
           />
           <.input
             field={@form[:display_name]}
             type="text"
-            label="Nombre visible"
-            placeholder="Tu nombre"
+            label={gettext("Display name")}
+            placeholder={gettext("Your name")}
           />
           <.input
             field={@form[:password]}
             type="password"
-            label="Contraseña"
-            placeholder="Mínimo 8 caracteres"
+            label={gettext("Password")}
+            placeholder={gettext("minimum 8 characters")}
             required
           />
           <.input
             field={@form[:password_confirmation]}
             type="password"
-            label="Confirmar contraseña"
-            placeholder="Repetí la contraseña"
+            label={gettext("Confirm password")}
+            placeholder={gettext("Repeat password")}
             required
           />
 
           <.button type="submit" class="w-full mt-2">
-            Crear cuenta
+            <%= gettext("Sign up") %>
           </.button>
         </.form>
 
         <p class="text-sm text-gray-400 text-center mt-4">
-          ¿Ya tenés cuenta? <.link href="/login" class="text-blue-400 hover:text-blue-300">Iniciar sesión</.link>
+          <%= gettext("Already have an account?") %> <.link href="/login" class="text-blue-400 hover:text-blue-300"><%= gettext("Log in") %></.link>
         </p>
       </.card>
     </div>

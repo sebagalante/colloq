@@ -2,12 +2,16 @@ defmodule ColloqWeb.CoreComponents do
   @moduledoc """
   Shared UI components for Colloq.
   """
-  use ColloqWeb, :html
+  use Phoenix.Component
+
+  import ColloqWeb.Components.Lucide, only: [icon: 1]
+  import ColloqWeb.Gettext
 
   alias Phoenix.LiveView.JS
 
   # ============= FLASH =============
   attr :kind, :atom, required: true, values: [:info, :error]
+  attr :on_click, JS, default: nil
   attr :rest, :global
   slot :inner_block, required: true
 
@@ -17,12 +21,12 @@ defmodule ColloqWeb.CoreComponents do
       role="alert"
       class={[
         "rounded-lg px-4 py-3 text-sm mb-4",
-        @kind == :info && "bg-blue-900/30 border border-blue-700 text-blue-300",
-        @kind == :error && "bg-red-900/30 border border-red-700 text-red-300"
+        @kind == :info && "bg-accent-soft border border-accent-border text-accent",
+        @kind == :error && "bg-danger-soft border border-danger-border text-danger"
       ]}
       {@rest}
     >
-      <button :if={@rest[:on_click]} phx-click={@rest[:on_click]} class="float-right text-xs opacity-60 hover:opacity-100">
+      <button :if={@on_click} phx-click={@on_click} class="float-right text-xs opacity-60 hover:opacity-100">
         ✕
       </button>
       <%= render_slot(@inner_block) %>
@@ -32,11 +36,25 @@ defmodule ColloqWeb.CoreComponents do
 
   def flash_group(assigns) do
     ~H"""
-    <.flash kind={:info} rest={%{on_click: JS.push("lv:clear-flash") |> JS.remove_class("show")}}>
-      <%= live_flash(@flash, :info) %>
+    <.flash
+      :if={msg = Phoenix.Flash.get(@flash, :info)}
+      id="flash-info"
+      kind={:info}
+      phx-hook="FlashAutoHide"
+      data-auto-hide="10000"
+      on_click={JS.push("lv:clear-flash", value: %{key: "info"})}
+    >
+      <%= msg %>
     </.flash>
-    <.flash kind={:error} rest={%{on_click: JS.push("lv:clear-flash") |> JS.remove_class("show")}}>
-      <%= live_flash(@flash, :error) %>
+    <.flash
+      :if={msg = Phoenix.Flash.get(@flash, :error)}
+      id="flash-error"
+      kind={:error}
+      phx-hook="FlashAutoHide"
+      data-auto-hide="10000"
+      on_click={JS.push("lv:clear-flash", value: %{key: "error"})}
+    >
+      <%= msg %>
     </.flash>
     """
   end
@@ -53,7 +71,7 @@ defmodule ColloqWeb.CoreComponents do
       type={@type}
       class={[
         "inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold",
-        "bg-blue-600 hover:bg-blue-500 text-white transition-colors",
+        "bg-accent hover:bg-accent-hover text-white transition-colors",
         "disabled:opacity-50 disabled:cursor-not-allowed",
         @class
       ]}
@@ -65,18 +83,31 @@ defmodule ColloqWeb.CoreComponents do
   end
 
   # ============= INPUT =============
-  attr :id, :any
-  attr :name, :any
+  attr :id, :any, default: nil
+  attr :name, :any, default: nil
   attr :label, :string, default: nil
-  attr :value, :any
+  attr :value, :any, default: nil
   attr :type, :string, default: "text"
+  attr :field, Phoenix.HTML.FormField, default: nil
   attr :errors, :list, default: []
-  attr :rest, :global, include: ~w(placeholder required disabled)
+  attr :rest, :global, include: ~w(placeholder required disabled min max step pattern autocomplete inputmode)
+
+  def input(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
+    # Force the field's id/name/value (attrs carry a default of nil, so assign_new
+    # would be a no-op and the typed value would be wiped on every re-render).
+    assigns
+    |> assign(:field, nil)
+    |> assign(:id, assigns.id || field.id)
+    |> assign(:name, field.name)
+    |> assign(:value, field.value)
+    |> assign(:errors, if(assigns.errors != [], do: assigns.errors, else: Enum.map(field.errors, fn {msg, _opts} -> msg end)))
+    |> input()
+  end
 
   def input(assigns) do
     ~H"""
     <div class="mb-4">
-      <label :if={@label} for={@id} class="block text-sm font-medium text-gray-300 mb-1">
+      <label :if={@label} for={@id} class="block text-sm font-medium text-muted mb-1">
         <%= @label %>
       </label>
       <input
@@ -85,10 +116,10 @@ defmodule ColloqWeb.CoreComponents do
         id={@id}
         value={Phoenix.HTML.Form.normalize_value(@type, @value)}
         class={[
-          "w-full rounded-lg border bg-[#0f1420] text-white px-3 py-2 text-sm",
-          "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-          @errors != [] && "border-red-500 focus:border-red-500 focus:ring-red-500",
-          @errors == [] && "border-[#1a2035]"
+          "w-full rounded-lg border bg-surface text-heading px-3 py-2 text-sm",
+          "focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent",
+          @errors != [] && "border-danger focus:border-danger focus:ring-danger",
+          @errors == [] && "border-border"
         ]}
         {@rest}
       />
@@ -98,27 +129,38 @@ defmodule ColloqWeb.CoreComponents do
   end
 
   # ============= TEXTAREA =============
-  attr :id, :any
-  attr :name, :any
+  attr :id, :any, default: nil
+  attr :name, :any, default: nil
   attr :label, :string, default: nil
-  attr :value, :any
+  attr :value, :any, default: nil
+  attr :field, Phoenix.HTML.FormField, default: nil
   attr :errors, :list, default: []
-  attr :rest, :global
+  attr :rest, :global, include: ~w(placeholder required disabled rows)
+
+  def textarea(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
+    assigns
+    |> assign(:field, nil)
+    |> assign(:id, assigns.id || field.id)
+    |> assign(:name, field.name)
+    |> assign(:value, field.value)
+    |> assign(:errors, if(assigns.errors != [], do: assigns.errors, else: Enum.map(field.errors, fn {msg, _opts} -> msg end)))
+    |> textarea()
+  end
 
   def textarea(assigns) do
     ~H"""
     <div class="mb-4">
-      <label :if={@label} for={@id} class="block text-sm font-medium text-gray-300 mb-1">
+      <label :if={@label} for={@id} class="block text-sm font-medium text-muted mb-1">
         <%= @label %>
       </label>
       <textarea
         id={@id}
         name={@name}
         class={[
-          "w-full rounded-lg border bg-[#0f1420] text-white px-3 py-2 text-sm min-h-[100px]",
-          "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-          @errors != [] && "border-red-500",
-          @errors == [] && "border-[#1a2035]"
+          "w-full rounded-lg border bg-surface text-heading px-3 py-2 text-sm min-h-[100px]",
+          "focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent",
+          @errors != [] && "border-danger",
+          @errors == [] && "border-border"
         ]}
         {@rest}
       ><%= Phoenix.HTML.Form.normalize_value("textarea", @value) %></textarea>
@@ -144,7 +186,7 @@ defmodule ColloqWeb.CoreComponents do
 
   def card(assigns) do
     ~H"""
-    <div class={["bg-[#0f1420] border border-[#1a2035] rounded-xl p-5", @class]}>
+    <div class={["bg-surface border border-border rounded-xl p-5", @class]}>
       <%= render_slot(@inner_block) %>
     </div>
     """
@@ -156,16 +198,39 @@ defmodule ColloqWeb.CoreComponents do
 
   def badge(assigns) do
     colors = %{
-      "blue" => "bg-blue-900/30 text-blue-300 border-blue-700",
-      "green" => "bg-green-900/30 text-green-300 border-green-700",
-      "red" => "bg-red-900/30 text-red-300 border-red-700",
-      "amber" => "bg-amber-900/30 text-amber-300 border-amber-700",
+      "blue" => "bg-accent-soft text-accent border-accent-border",
+      "green" => "bg-success-soft text-success border-success/50",
+      "red" => "bg-danger-soft text-danger border-danger/50",
+      "amber" => "bg-warning-soft text-warning border-warning/50",
       "purple" => "bg-purple-900/30 text-purple-300 border-purple-700",
-      "gray" => "bg-gray-800 text-gray-400 border-gray-700"
+      "gray" => "bg-surface-alt text-muted border-border"
     }
 
+    hex_color = if @color && String.starts_with?(@color, "#"), do: @color
+
+    assigns =
+      assigns
+      |> assign(:named_class, colors[@color])
+      |> assign(:hex_color, hex_color)
+
     ~H"""
-    <span class={["inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border", colors[@color]]}>
+    <span
+      :if={@named_class}
+      class={["inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border", @named_class]}
+    >
+      <%= render_slot(@inner_block) %>
+    </span>
+    <span
+      :if={!@named_class && @hex_color}
+      class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border"
+      style={"background-color: #{@hex_color}20; color: #{@hex_color}; border-color: #{@hex_color}60"}
+    >
+      <%= render_slot(@inner_block) %>
+    </span>
+    <span
+      :if={!@named_class && !@hex_color}
+      class={["inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border", colors["blue"]]}
+    >
       <%= render_slot(@inner_block) %>
     </span>
     """
@@ -180,13 +245,13 @@ defmodule ColloqWeb.CoreComponents do
 
   def modal(assigns) do
     ~H"""
-    <div id={@id} phx-mounted={@show && JS.show(transition: "fade-in")} phx-remove={JS.hide(transition: "fade-out")} class="hidden">
-      <div class="fixed inset-0 z-50 bg-black/60" phx-click={@on_cancel}></div>
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div class="bg-[#0f1420] border border-[#1a2035] rounded-xl max-w-lg w-full p-6 shadow-2xl">
+    <div :if={@show} id={@id} class="relative z-50">
+      <div class="fixed inset-0 z-40 bg-black/60" phx-click={@on_cancel}></div>
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-surface border border-border rounded-xl max-w-lg w-full p-6 shadow-2xl my-8">
           <div :if={@title != []} class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-white"><%= render_slot(@title) %></h3>
-            <button phx-click={@on_cancel} class="text-gray-500 hover:text-white transition-colors">✕</button>
+            <h3 class="text-lg font-semibold text-heading"><%= render_slot(@title) %></h3>
+            <button phx-click={@on_cancel} class="text-muted hover:text-heading transition-colors">✕</button>
           </div>
           <%= render_slot(@inner_block) %>
         </div>
@@ -195,20 +260,99 @@ defmodule ColloqWeb.CoreComponents do
     """
   end
 
-  # ============= REACTION BAR (placeholder for v9) =============
+  # ============= REACTION BAR =============
   attr :post_id, :integer, required: true
   attr :reactions, :list, default: []
+  attr :user_reactions, :map, default: nil
+
+  # Emoji palette shown in the reaction picker popup.
+  @reaction_emojis ~w(👍 ❤️ 😂 😮 😢 🔥 🎉 💯 👏 🙌 🤝 🚀 🤩 👀 ⚽ 🏆)
 
   def reaction_bar(assigns) do
+    assigns =
+      assigns
+      |> assign(:reaction_emojis, @reaction_emojis)
+      |> assign(:custom_emojis, Colloq.Emojis.map())
+
     ~H"""
-    <div class="flex items-center gap-2 mt-3">
-      <button class="flex items-center gap-1 rounded-full bg-[#1a2035] px-2.5 py-1 text-xs hover:bg-[#253048] transition-colors group">
-        <span class="grayscale group-hover:grayscale-0 transition-all">❤️</span>
-        <span class="text-gray-400">12</span>
+    <div class="flex items-center flex-wrap gap-1.5">
+      <%!-- Existing reactions (only those with at least one) --%>
+      <button
+        :for={%{emoji: emoji, count: count} <- Enum.filter(@reactions, &(&1.count > 0))}
+        type="button"
+        phx-click="reaction"
+        phx-value-post_id={@post_id}
+        phx-value-emoji={emoji}
+        class={[
+          "reaction-pill flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors",
+          @user_reactions && MapSet.member?(@user_reactions, emoji) &&
+            "bg-accent-soft border border-accent text-accent",
+          (!@user_reactions || !MapSet.member?(@user_reactions, emoji)) &&
+            "bg-border border border-transparent hover:bg-border-hover text-muted"
+        ]}
+      >
+        <span><%= emoji_display(emoji, @custom_emojis) %></span>
+        <span class="tabular-nums"><%= count %></span>
       </button>
-      <!-- More reactions rendered dynamically from @reactions -->
+
+      <%!-- Add-reaction button + emoji picker popup --%>
+      <div class="relative">
+        <button
+          type="button"
+          phx-click={JS.toggle(to: "#emoji-picker-#{@post_id}")}
+          class="flex items-center justify-center w-7 h-7 rounded-full bg-border border border-transparent hover:bg-border-hover text-muted hover:text-heading transition-colors"
+          title={gettext("Add reaction")}
+        >
+          <.icon name="thumbs-up" class="w-4 h-4" />
+        </button>
+
+        <div
+          id={"emoji-picker-#{@post_id}"}
+          class="hidden absolute z-50 bottom-full mb-2 left-0 p-2 rounded-xl bg-surface border border-border shadow-lg"
+          phx-click-away={JS.hide(to: "#emoji-picker-#{@post_id}")}
+        >
+          <div class="grid grid-cols-8 gap-0.5 w-max">
+            <button
+              :for={emoji <- @reaction_emojis}
+              type="button"
+              phx-click={
+                JS.hide(to: "#emoji-picker-#{@post_id}")
+                |> JS.push("reaction", value: %{post_id: to_string(@post_id), emoji: emoji})
+              }
+              class="emoji-choice text-xl leading-none p-1.5 rounded-lg hover:bg-surface-alt transition-colors"
+            >
+              <%= emoji %>
+            </button>
+          </div>
+
+          <%!-- Custom emoji --%>
+          <div :if={@custom_emojis != %{}} class="mt-1 pt-1 border-t border-border grid grid-cols-8 gap-0.5 w-max">
+            <button
+              :for={{name, url} <- @custom_emojis}
+              type="button"
+              title={":#{name}:"}
+              phx-click={
+                JS.hide(to: "#emoji-picker-#{@post_id}")
+                |> JS.push("reaction", value: %{post_id: to_string(@post_id), emoji: ":#{name}:"})
+              }
+              class="p-1.5 rounded-lg hover:bg-surface-alt transition-colors"
+            >
+              <img src={url} alt={":#{name}:"} class="w-5 h-5 object-contain" />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
     """
+  end
+
+  # Render a reaction "emoji" value: a custom-emoji image for a known
+  # ":name:" shortcode, otherwise the raw unicode emoji.
+  defp emoji_display(emoji, custom_emojis) do
+    case Colloq.Emojis.shortcode_img(emoji, custom_emojis) do
+      nil -> emoji
+      html -> Phoenix.HTML.raw(html)
+    end
   end
 
   # ============= MATCH SCORE PIN (placeholder for match day) =============
@@ -220,15 +364,15 @@ defmodule ColloqWeb.CoreComponents do
 
   def match_score_pin(assigns) do
     ~H"""
-    <div class="sticky top-0 z-40 bg-[#0f1420] border-b border-[#1a2035] px-4 py-3 flex items-center justify-between">
+    <div class="sticky top-0 z-40 bg-surface border-b border-border px-4 py-3 flex items-center justify-between">
       <div class="flex items-center gap-4">
-        <span class="text-sm font-bold text-white"><%= @home_team %></span>
-        <span class="text-2xl font-bold text-white tabular-nums">
+        <span class="text-sm font-bold text-heading"><%= @home_team %></span>
+        <span class="text-2xl font-bold text-heading tabular-nums">
           <%= @home_score %> - <%= @away_score %>
         </span>
-        <span class="text-sm font-bold text-white"><%= @away_team %></span>
+        <span class="text-sm font-bold text-heading"><%= @away_team %></span>
       </div>
-      <span class="text-sm font-mono text-green-400"><%= @minute %>'</span>
+      <span class="text-sm font-mono text-success"><%= @minute %>'</span>
     </div>
     """
   end

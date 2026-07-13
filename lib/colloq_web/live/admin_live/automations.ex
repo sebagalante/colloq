@@ -6,30 +6,30 @@ defmodule ColloqWeb.AdminLive.Automations do
   alias Phoenix.LiveView.JS
 
   @trigger_options [
-    {"Periódica", "recurring"},
-    {"Usuario Registrado", "user_registered"},
-    {"Usuario Promovido", "user_promoted"},
-    {"Post Creado", "post_created"},
-    {"Tema Estancado", "stalled_topic"},
-    {"Punto en el Tiempo", "point_in_time"},
-    {"Llamada API", "api_call"}
+    {"Recurring", "recurring"},
+    {"User Registered", "user_registered"},
+    {"User Promoted", "user_promoted"},
+    {"Post Created", "post_created"},
+    {"Stalled Topic", "stalled_topic"},
+    {"Point in Time", "point_in_time"},
+    {"API Call", "api_call"}
   ]
 
   @script_options [
-    {"Enviar MP", "send_pm"},
-    {"Crear Post", "create_post"},
-    {"Responder con LLM", "llm_respond"},
-    {"Cerrar Tema", "close_topic"},
-    {"Fijar Tema", "pin_topic"},
-    {"Reportar Post", "flag_post"},
-    {"Auto Etiquetar", "auto_tag"}
+    {"Send PM", "send_pm"},
+    {"Create Post", "create_post"},
+    {"LLM Respond", "llm_respond"},
+    {"Close Topic", "close_topic"},
+    {"Pin Topic", "pin_topic"},
+    {"Flag Post", "flag_post"},
+    {"Auto Tag", "auto_tag"}
   ]
 
   @impl true
   def mount(_params, _session, socket) do
     socket =
       socket
-      |> assign(:page_title, "Automatizaciones")
+      |> assign(:page_title, gettext("Automations"))
       |> assign(:automations, Automations.list_automations())
       |> assign(:show_modal, false)
       |> assign(:editing, nil)
@@ -74,10 +74,10 @@ defmodule ColloqWeb.AdminLive.Automations do
         {:noreply,
          socket
          |> assign(:automations, automations)
-         |> put_flash(:info, "Automatización #{if updated.enabled, do: "activada", else: "desactivada"}.")}
+         |> put_flash(:info, if(updated.enabled, do: gettext("Automation enabled."), else: gettext("Automation disabled.")))}
 
       {:error, _} ->
-        {:noreply, put_flash(socket, :error, "No se pudo cambiar el estado.")}
+        {:noreply, put_flash(socket, :error, gettext("Could not change the status."))}
     end
   end
 
@@ -91,10 +91,10 @@ defmodule ColloqWeb.AdminLive.Automations do
         {:noreply,
          socket
          |> assign(:automations, automations)
-         |> put_flash(:info, "Automatización eliminada.")}
+         |> put_flash(:info, gettext("Automation deleted."))}
 
       {:error, _} ->
-        {:noreply, put_flash(socket, :error, "No se pudo eliminar la automatización.")}
+        {:noreply, put_flash(socket, :error, gettext("Could not delete the automation."))}
     end
   end
 
@@ -109,7 +109,7 @@ defmodule ColloqWeb.AdminLive.Automations do
              socket
              |> assign(:automations, [automation | socket.assigns.automations])
              |> assign(:show_modal, false)
-             |> put_flash(:info, "Automatización creada.")}
+             |> put_flash(:info, gettext("Automation created."))}
 
           {:error, changeset} ->
             {:noreply,
@@ -125,7 +125,7 @@ defmodule ColloqWeb.AdminLive.Automations do
              socket
              |> assign(:automations, replace_in_list(socket.assigns.automations, updated))
              |> assign(:show_modal, false)
-             |> put_flash(:info, "Automatización actualizada.")}
+             |> put_flash(:info, gettext("Automation updated."))}
 
           {:error, changeset} ->
             {:noreply, put_changeset_errors(socket, changeset)}

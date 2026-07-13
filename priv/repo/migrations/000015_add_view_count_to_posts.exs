@@ -3,7 +3,7 @@ defmodule Colloq.Repo.Migrations.AddViewCountToPosts do
 
   def change do
     alter table(:posts) do
-      add :view_count, :integer, default: 0
+      add_if_not_exists :view_count, :integer, default: 0
     end
   end
 end

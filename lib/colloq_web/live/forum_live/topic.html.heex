@@ -1,14 +1,39 @@
-<div class="max-w-3xl mx-auto px-4 py-6">
+<%!-- Topic timeline scrubber (Discourse-style), fixed on the right --%>
+<div
+  id="topic-timeline"
+  phx-hook="TopicTimeline"
+  data-total={@topic.posts_count}
+  class="hidden xl:flex fixed top-24 z-30 flex-col items-center gap-2 select-none"
+  style="left: 0; visibility: hidden;"
+>
+  <button type="button" data-tl-top title={gettext("Back to top")} class="text-muted hover:text-heading transition-colors">
+    <.icon name="chevron-up" class="w-4 h-4" />
+  </button>
+  <span class="text-[11px] text-muted"><%= es_locale(@topic.inserted_at) %></span>
+
+  <div data-tl-track class="relative w-1.5 h-56 bg-border rounded-full cursor-pointer my-1">
+    <div data-tl-progress class="absolute left-0 right-0 top-0 bg-accent rounded-full" style="height:0%"></div>
+    <div data-tl-thumb class="absolute -left-1.5 w-[18px] h-[18px] rounded-full bg-accent border-2 border-bg shadow" style="top:0%"></div>
+  </div>
+
+  <span data-tl-current class="text-[11px] font-semibold text-heading tabular-nums">1 / <%= @topic.posts_count %></span>
+  <span class="text-[11px] text-muted"><%= es_locale(@topic.bumped_at || @topic.inserted_at) %></span>
+  <button type="button" data-tl-bottom title={gettext("Back to bottom")} class="text-muted hover:text-heading transition-colors">
+    <.icon name="chevron-down" class="w-4 h-4" />
+  </button>
+</div>
+
+<div id="topic-content" class="max-w-3xl mx-auto px-4 py-6">
   <%!-- Closed / Archived banner --%>
   <div :if={@topic.closed || @topic.archived} class="mb-6">
     <.flash kind={:info}>
       <%= cond do %>
         <% @topic.archived -> %>
-          Este tema fue archivado. No se pueden agregar nuevas respuestas.
+          <%= gettext("This topic was archived. No new replies can be added.") %>
         <% @topic.closed && @topic.closed_reason -> %>
-          Este tema está cerrado: <%= @topic.closed_reason %>.
+          <%= gettext("This topic is closed:") %> <%= @topic.closed_reason %>.
         <% true -> %>
-          Este tema está cerrado. No se pueden agregar nuevas respuestas.
+          <%= gettext("This topic is closed. No new replies can be added.") %>
       <% end %>
     </.flash>
   </div>
@@ -16,8 +41,8 @@
   <%!-- Match score pin --%>
   <div :if={@topic.is_match_thread && @match_mode} class="mb-6">
     <.match_score_pin
-      home_team={@topic.home_team || "Local"}
-      away_team={@topic.away_team || "Visitante"}
+      home_team={@topic.home_team || gettext("Home")}
+      away_team={@topic.away_team || gettext("Away")}
       home_score={assigns[:home_score] || 0}
       away_score={assigns[:away_score] || 0}
       minute={assigns[:match_minute] || 0}
@@ -26,106 +51,331 @@
 
   <%!-- Topic header --%>
   <div class="mb-6">
-    <div class="flex items-center gap-2 mb-2">
+    <div class="flex items-center gap-2 mb-2 flex-wrap">
       <.badge color={@topic.category.color || "blue"}>
         <%= @topic.category.name %>
       </.badge>
-      <.badge :if={@topic.is_match_thread} color="green">Partido</.badge>
+      <.badge :if={@topic.is_match_thread} color="green"><%= gettext("Match") %></.badge>
+      <span
+        :for={tag <- @topic_tags}
+        class="inline-flex items-center px-2 py-0.5 text-xs rounded-full"
+        style={"background-color: #{tag.color || "#6b7280"}20; color: #{tag.color || "#6b7280"}"}
+      >
+        #<%= tag.name %>
+      </span>
     </div>
-    <h1 class="text-2xl font-bold text-white">
-      <%= @topic.title %>
-    </h1>
-    <p class="text-sm text-gray-500 mt-1">
-      Creado por <%= @topic.user.display_name || @topic.user.username %> —
+
+    <%!-- Title (view mode) --%>
+    <div :if={!@editing_topic} class="flex items-start gap-2">
+      <h1 class="text-2xl font-bold text-heading flex-1">
+        <%= @topic.title %>
+      </h1>
+      <button
+        :if={can_edit_topic?(@current_user, @topic)}
+        type="button"
+        phx-click="start-edit-topic"
+        title={gettext("Edit topic")}
+        class="flex-shrink-0 mt-1 inline-flex items-center gap-1 text-xs text-muted hover:text-heading transition-colors"
+      >
+        <.icon name="edit" class="w-4 h-4" /><%= gettext("Edit") %>
+      </button>
+    </div>
+
+    <%!-- Title (edit mode) --%>
+    <form :if={@editing_topic} phx-submit="save-edit-topic" class="space-y-3">
+      <input
+        type="text"
+        name="title"
+        value={@edit_title}
+        minlength="5"
+        maxlength="200"
+        required
+        class="w-full rounded-lg border border-border bg-surface text-heading text-xl font-bold px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent"
+      />
+      <div>
+        <label class="block text-xs font-medium text-muted mb-1"><%= gettext("Category") %></label>
+        <select
+          name="category_id"
+          class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+        >
+          <option :for={cat <- @categories} value={cat.id} selected={cat.id == @edit_category_id}>
+            <%= cat.name %>
+          </option>
+        </select>
+      </div>
+      <div class="flex gap-2">
+        <.button type="submit" class="text-sm"><%= gettext("Save") %></.button>
+        <button type="button" phx-click="cancel-edit-topic" class="text-sm text-muted hover:text-heading transition-colors">
+          <%= gettext("Cancel") %>
+        </button>
+      </div>
+    </form>
+
+    <p class="text-sm text-muted mt-1">
+      <%= gettext("Created by") %> <%= @topic.user.display_name || @topic.user.username %> —
       <%= es_locale(@topic.inserted_at) %>
       ·
-      <%= @topic.posts_count %> respuestas
+      <%= @topic.posts_count %> <%= gettext("replies") %>
     </p>
+  </div>
+
+  <%!-- Topic stats bar (Discourse-style) --%>
+  <div class="flex items-center justify-between gap-4 flex-wrap py-3 mb-6 border-y border-border">
+    <div class="flex items-center gap-5">
+      <div class="flex items-center gap-4">
+        <div class="text-center leading-tight">
+          <div class="text-base font-semibold text-accent"><%= @topic.views_count %></div>
+          <div class="text-xs text-muted"><%= gettext("views") %></div>
+        </div>
+        <div class="text-center leading-tight">
+          <div class="text-base font-semibold text-accent"><%= total_likes(@posts) %></div>
+          <div class="text-xs text-muted"><%= gettext("likes") %></div>
+        </div>
+        <div class="text-center leading-tight">
+          <div class="text-base font-semibold text-accent"><%= length(participants(@posts)) %></div>
+          <div class="text-xs text-muted"><%= gettext("users") %></div>
+        </div>
+      </div>
+
+      <%!-- Participant avatars --%>
+      <div class="flex items-center -space-x-2">
+        <a
+          :for={user <- Enum.take(participants(@posts), 5)}
+          href={~p"/u/#{user.username}"}
+          title={user.display_name || user.username}
+          class="block hover:z-10 relative"
+        >
+          <img
+            :if={user.avatar_url}
+            src={user.avatar_url}
+            alt=""
+            class="w-7 h-7 rounded-full object-cover ring-2 ring-bg"
+            loading="lazy"
+          />
+          <div
+            :if={!user.avatar_url}
+            class={["w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ring-2 ring-bg", avatar_class(user)]}
+          >
+            <%= initials(user) %>
+          </div>
+        </a>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <div class="text-right leading-tight">
+        <div class="text-sm font-medium text-body"><%= read_time_minutes(@posts) %> min</div>
+        <div class="text-xs text-muted"><%= gettext("read") %></div>
+      </div>
+
+      <%!-- Notification level (Discourse-style) --%>
+      <div :if={@current_user} class="relative" id="notif-level">
+        <button
+          type="button"
+          phx-click={Phoenix.LiveView.JS.toggle(to: "#notif-level-menu")}
+          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-alt border border-border text-sm font-medium text-body hover:bg-border transition-colors"
+        >
+          <.icon name={level_icon(@notification_level)} class="w-4 h-4 text-accent" />
+          <%= level_label(@notification_level) %>
+          <.icon name="chevron-down" class="w-3.5 h-3.5" />
+        </button>
+        <div
+          id="notif-level-menu"
+          class="hidden absolute right-0 mt-2 w-80 rounded-xl bg-surface border border-border shadow-lg p-1 z-30"
+          phx-click-away={Phoenix.LiveView.JS.hide()}
+        >
+          <button
+            :for={level <- notification_levels()}
+            type="button"
+            phx-click={
+              Phoenix.LiveView.JS.hide(to: "#notif-level-menu")
+              |> Phoenix.LiveView.JS.push("set-notification-level", value: %{level: level})
+            }
+            class={[
+              "flex items-start gap-3 w-full text-left px-3 py-2.5 rounded-lg transition-colors",
+              @notification_level == level && "bg-surface-alt" || "hover:bg-surface-alt"
+            ]}
+          >
+            <.icon name={level_icon(level)} class="w-4 h-4 mt-0.5 flex-shrink-0 text-accent" />
+            <span class="min-w-0">
+              <span class="block text-sm font-semibold text-heading"><%= level_label(level) %></span>
+              <span class="block text-xs text-muted mt-0.5"><%= level_description(level) %></span>
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <button
+        :if={@current_user}
+        type="button"
+        phx-click="toggle-topic-bookmark"
+        class={[
+          "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-sm font-medium transition-colors",
+          @topic_bookmarked && "bg-warning-soft border-warning text-warning" || "bg-surface-alt border-border text-body hover:bg-border"
+        ]}
+      >
+        <.icon name={if @topic_bookmarked, do: "bookmark-filled", else: "bookmark"} class="w-4 h-4" />
+        <%= if @topic_bookmarked, do: gettext("Bookmarked"), else: gettext("Bookmark") %>
+      </button>
+      <a
+        href="#summary-section"
+        phx-click="generate-summary"
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-alt border border-border text-sm font-medium text-body hover:bg-border transition-colors"
+      >
+        <.icon name="sparkles" class="w-4 h-4 text-accent" /><%= gettext("Summarize") %>
+      </a>
+    </div>
   </div>
 
   <%!-- Post list --%>
   <div id="posts-container" phx-hook="AutoScroll" class="space-y-0">
-    <div :for={post <- @posts} id={"post-#{post.id}"} class="group py-4 border-b border-[#1a2035] last:border-b-0">
-      <div class="flex gap-4">
-        <%!-- Avatar --%>
-        <div class="flex-shrink-0">
-          <div class={["w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white", avatar_class(post.user)]}>
-            <%= initials(post.user) %>
-          </div>
-        </div>
-
-        <%!-- Post content --%>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2 mb-1">
-            <a href={~p"/u/#{post.user.username}"} class="font-semibold text-white hover:underline text-sm">
-              <%= post.user.display_name || post.user.username %>
-            </a>
-            <span class="text-xs text-gray-500">@<%= post.user.username %></span>
-            <.badge color={trust_badge_color(post.user.trust_level)}>
-              TL<%= post.user.trust_level %>
-            </.badge>
-            <span :if={post.is_system} class="text-xs text-gray-500 ml-auto">Sistema</span>
-            <span :if={!post.is_system} class="text-xs text-gray-500 ml-auto">
-              <%= es_locale(post.inserted_at) %>
-            </span>
-          </div>
-
-          <div class={[
-            "prose prose-invert max-w-none text-sm text-gray-300",
-            post.is_system && "italic text-gray-500 border-l-2 border-[#1a2035] pl-3"
-          ]}>
-            <%= render_body(post.body) %>
-          </div>
-
-          <%!-- Goal alert for system goal posts --%>
-          <.goal_alert :if={post.system_type == "goal" && post.event_data}
-            player={post.event_data[:player] || post.event_data["player"] || "Jugador"}
-            minute={post.event_data[:minute] || post.event_data["minute"] || 0}
-          />
-
-          <%!-- Reaction bar --%>
-          <div :if={!post.is_system}>
-            <.reaction_bar
-              post_id={post.id}
-              reactions={Map.get(@reaction_data, post.id, %{}) |> Enum.map(fn {emoji, count} -> %{emoji: emoji, count: count} end)}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
+    <.post_item
+      :for={post <- @posts}
+      post={post}
+      topic={@topic}
+      current_user={@current_user}
+      replying_to={@replying_to}
+      nested_reply_body={@nested_reply_body}
+      editing_post={@editing_post}
+      editing_body={@editing_body}
+      reaction_data={@reaction_data}
+      user_reactions={@user_reactions}
+      poll_data={Map.get(@poll_data, post.id)}
+      user_votes={Map.get(@user_poll_votes, post.id, [])}
+      bookmarked_posts={@bookmarked_posts}
+      show_flag_for={@show_flag_for}
+      user_badges={@user_badges}
+    />
   </div>
 
   <%!-- Reply form --%>
-  <div :if={can_reply?(assigns)} class="mt-8 pt-6 border-t border-[#1a2035]">
-    <h3 class="text-lg font-semibold text-white mb-4">Responder</h3>
-    <form phx-submit="reply">
-      <.textarea
-        id="reply-body"
+  <div :if={can_reply?(assigns)} class="mt-8 pt-6 border-t border-border">
+    <h3 class="text-lg font-semibold text-heading mb-4"><%= gettext("Reply") %></h3>
+
+    <form :if={@show_poll_form} phx-submit="submit-with-poll" class="mb-6 p-4 rounded-lg bg-surface-alt border border-border">
+      <h4 class="text-sm font-semibold text-heading mb-3"><%= gettext("Create poll") %></h4>
+      <input
+        type="text"
         name="body"
-        label="Tu respuesta"
-        value={@reply_body}
-        placeholder="Escribí tu respuesta..."
-        phx-keyup="typing"
-        phx-blur="stopped_typing"
+        placeholder={gettext("Write your reply...")}
+        class="w-full mb-3 px-3 py-2 bg-bg border border-border rounded-lg text-sm text-body placeholder-muted focus:outline-none focus:border-accent"
+        required
       />
-      <.button type="submit" class="w-full sm:w-auto">
-        Publicar respuesta
-      </.button>
+      <input
+        type="text"
+        value={@poll_question}
+        phx-keyup="update-poll-question"
+        placeholder={gettext("Poll question")}
+        class="w-full mb-3 px-3 py-2 bg-bg border border-border rounded-lg text-sm text-body placeholder-muted focus:outline-none focus:border-accent"
+      />
+      <div class="space-y-2 mb-3">
+        <div :for={{option, idx} <- Enum.with_index(@poll_options)} class="flex gap-2">
+          <input
+            type="text"
+            value={option}
+            phx-keyup="update-poll-option"
+            phx-value-index={idx}
+            placeholder={gettext("Option %{n}", n: idx + 1)}
+            class="flex-1 px-3 py-2 bg-bg border border-border rounded-lg text-sm text-body placeholder-muted focus:outline-none focus:border-accent"
+          />
+          <button
+            :if={length(@poll_options) > 2}
+            type="button"
+            phx-click="remove-poll-option"
+            phx-value-index={idx}
+            class="px-2 py-2 text-muted hover:text-danger transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button
+          type="button"
+          phx-click="add-poll-option"
+          class="text-xs text-accent hover:text-accent-hover transition-colors"
+        >
+          + <%= gettext("Add option") %>
+        </button>
+      </div>
+      <div class="flex gap-2 mt-4">
+        <.button type="submit" class="text-sm"><%= gettext("Post with poll") %></.button>
+        <button type="button" phx-click="toggle-poll-form" class="text-sm text-muted hover:text-heading transition-colors"><%= gettext("Cancel") %></button>
+      </div>
+    </form>
+
+    <form :if={!@show_poll_form} phx-submit="reply">
+      <div id="reply-composer" phx-update="ignore">
+        <div
+          id="reply-editor"
+          phx-hook="TiptapEditor"
+          data-target-input="reply-body-input"
+          data-placeholder={gettext("Write here. Use the toolbar or Markdown to format.")}
+          class="rounded-lg border border-border bg-surface focus-within:border-accent focus-within:ring-2 focus-within:ring-accent"
+        >
+        </div>
+        <input type="hidden" name="body" id="reply-body-input" />
+      </div>
+      <div class="flex items-center gap-3 mt-2">
+        <.button type="submit" class="w-full sm:w-auto">
+          <%= gettext("Post reply") %>
+        </.button>
+        <button
+          type="button"
+          phx-click="toggle-poll-form"
+          class="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-muted hover:text-heading transition-colors"
+        >
+          <.icon name="bar-chart-3" class="w-4 h-4" /><%= gettext("Add poll") %>
+        </button>
+      </div>
     </form>
   </div>
 
   <%!-- Login prompt for anonymous users --%>
-  <div :if={!@current_user} class="mt-8 pt-6 border-t border-[#1a2035]">
+  <div :if={!@current_user} class="mt-8 pt-6 border-t border-border">
     <div class="text-center py-4">
-      <p class="text-gray-400 mb-3">Iniciá sesión para participar en la conversación.</p>
-      <a href="/login" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors">
-        Iniciar sesión
+      <p class="text-muted mb-3"><%= gettext("Log in to join the conversation.") %></p>
+      <a href="/login" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold bg-accent hover:bg-accent-hover text-white transition-colors">
+        <%= gettext("Log in") %>
       </a>
     </div>
   </div>
 
   <%!-- Typing indicator --%>
-  <div :if={@typing_users != []} class="mt-4 text-sm text-gray-500 italic">
+  <div :if={@typing_users != []} class="mt-4 text-sm text-muted italic">
     <%= typing_text(@typing_users) %>
+  </div>
+
+  <%!-- Topic summary — flash card, right-aligned --%>
+  <div id="summary-section" class="mt-8 flex justify-end">
+    <%!-- Loading card --%>
+    <div :if={@summary_loading} class="w-full sm:max-w-sm sm:ml-auto rounded-xl bg-accent-soft border border-accent-border p-4 shadow-sm">
+      <div class="flex items-center gap-3">
+        <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-accent"></div>
+        <p class="text-sm text-accent"><%= gettext("Generating summary with AI...") %></p>
+      </div>
+    </div>
+
+    <%!-- Summary flash card --%>
+    <div
+      :if={@summary && !@summary_loading}
+      class="w-full sm:max-w-sm sm:ml-auto rounded-xl bg-accent-soft border border-accent-border p-4 shadow-sm"
+    >
+      <div class="flex items-center gap-2 mb-2">
+        <.icon name="sparkles" class="w-4 h-4 text-accent" />
+        <h3 class="text-sm font-semibold text-accent"><%= gettext("Conversation summary") %></h3>
+      </div>
+      <div class="prose prose-sm max-w-none text-sm text-body">
+        <%= Phoenix.HTML.raw(HtmlSanitizeEx.basic_html(@summary)) %>
+      </div>
+      <p :if={@summary_at} class="text-xs text-muted mt-3 pt-2 border-t border-accent-border/50">
+        <.icon name="clock" class="w-3 h-3 inline -mt-0.5" /> <%= es_locale(@summary_at) %>
+      </p>
+    </div>
+
+    <%!-- Login prompt (only for logged-out visitors) --%>
+    <p :if={!@summary && !@summary_loading && !@current_user} class="text-sm text-muted sm:ml-auto">
+      <%= gettext("Log in to generate a conversation summary.") %>
+    </p>
   </div>
 </div>

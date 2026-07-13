@@ -5,15 +5,22 @@ defmodule ColloqWeb.Endpoint do
   @session_options [
     store: :cookie,
     key: "_colloq_session",
-    signing_salt: "colloq2024",
+    signing_salt: System.get_env("PHX_SESSION_SIGNING_SALT", "colloq2024"),
     # Secure and SameSite are set per environment in runtime.exs
     same_site: "Lax"
   ]
 
-  # Socket mount for LiveView
+  # Socket mount for LiveView.
+  # Longpoll is enabled so the client's `longPollFallbackMs` fallback works when
+  # the WebSocket can't connect (e.g. proxies / WSL2) — otherwise LiveView never
+  # connects and the page renders but is completely non-interactive.
   socket "/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options]],
     longpoll: [connect_info: [session: @session_options]]
+
+  # Socket mount for channels (DMs, notifications, forum)
+  socket "/socket", ColloqWeb.UserSocket,
+    websocket: true
 
   # Serve static assets at / from priv/static
   plug Plug.Static,

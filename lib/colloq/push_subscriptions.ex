@@ -1,19 +1,19 @@
 defmodule Colloq.PushSubscriptions do
   @moduledoc """
-  Contexto de suscripciones a notificaciones push web (PWA).
+  Web push subscription context (PWA).
 
-  Administra las suscripciones Push API de los usuarios,
-  agrupadas por equipo y por usuario.
+  Manages users' Push API subscriptions,
+  grouped by team and by user.
   """
   import Ecto.Query, warn: false
   alias Colloq.Repo
   alias Colloq.PushSubscriptions.PushSubscription
 
   @doc """
-  Suscribe a un usuario a notificaciones push.
+  Subscribes a user to push notifications.
 
-  Recibe user_id y subscription_data con claves: endpoint, p256dh, auth.
-  Si team_ids no se especifica, por defecto es [174] (Racing Club).
+  Receives user_id and subscription_data with keys: endpoint, p256dh, auth.
+  If team_ids is not specified, defaults to [174] (Racing Club).
   """
   def subscribe(user_id, subscription_data) do
     team_ids = Map.get(subscription_data, "team_ids", [174])
@@ -34,7 +34,7 @@ defmodule Colloq.PushSubscriptions do
   end
 
   @doc """
-  Cancela la suscripción de un usuario para un endpoint específico.
+  Unsubscribes a user from a specific endpoint.
   """
   def unsubscribe(user_id, endpoint) do
     sub = Repo.get_by(PushSubscription, user_id: user_id, endpoint: endpoint)
@@ -47,10 +47,10 @@ defmodule Colloq.PushSubscriptions do
   end
 
   @doc """
-  Lista las suscripciones push de usuarios que siguen a un equipo.
+  Lists push subscriptions of users who follow a team.
 
-  Útil para enviar notificaciones masivas cuando hay gol,
-  tarjeta o final de partido.
+  Useful for sending mass notifications when there is a goal,
+  card, or end of match.
   """
   def for_team(team_id) do
     PushSubscription
@@ -60,7 +60,7 @@ defmodule Colloq.PushSubscriptions do
   end
 
   @doc """
-  Lista todas las suscripciones de un usuario.
+  Lists all subscriptions of a user.
   """
   def for_user(user_id) do
     PushSubscription

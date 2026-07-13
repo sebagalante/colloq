@@ -1,36 +1,53 @@
 defmodule Colloq.Workers.SofascoreWorker do
   @moduledoc """
-  Worker de integración con la API de Sofascore.
+  Sofascore API integration worker.
 
-  Soporta múltiples acciones en un solo worker:
-    - fetch_fixtures: obtiene próximos partidos y cachea 12h
-    - fetch_lineups: obtiene formaciones y transmite por PubSub
-    - fetch_stats: obtiene estadísticas de jugador y cachea
-    - fetch_standings: obtiene tabla de posiciones y cachea 12h
+  Supports multiple actions in a single worker:
+    - fetch_fixtures: fetches upcoming matches and caches for 12h
+    - fetch_lineups: fetches lineups and broadcasts via PubSub
+    - fetch_stats: fetches player stats and caches
+    - fetch_standings: fetches league standings and caches for 12h
 
-  Agrega jitter aleatorio de 500-1500ms entre llamadas consecutivas
-  para no sobrecargar la API.
+  Adds random jitter of 500-1500ms between consecutive calls
+  to avoid overloading the API.
   """
   use Oban.Worker, queue: :scorebot, max_attempts: 3
 
   require Logger
 
-  @base_url "https://www.sofascore.com/api/v1"
   @user_agent "Colloq/1.0"
 
-  @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"action" => "fetch_fixtures"}}) do
-    Logger.info("[Sofascore] Obteniendo próximos fixtures")
+  defp base_url, do: Application.get_env(:colloq, :sofascore_api_url, "https://www.sofascore.com/api/v1")
 
-    case api_get("/team/3215/events/next/0") do
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"action" => "fetch_fixtures", "team_id" => team_id}}) do
+    Logger.info("[Sofascore] Obteniendo próximos fixtures para team #{team_id}")
+
+    case api_get("/team/#{team_id}/events/next/0") do
       {:ok, %{"events" => events}} ->
-        Cachex.put(:forum_cache, "sofascore:fixtures", events, ttl: :timer.hours(12))
+        Cachex.put(:forum_cache, "sofascore:fixtures:#{team_id}", events, ttl: :timer.hours(12))
         {:ok, "fixtures actualizados: #{length(events)}"}
 
       {:error, reason} ->
-        Logger.error("[Sofascore] Error fetch_fixtures: #{inspect(reason)}")
+        Logger.error("[Sofascore] Error fetch_fixtures team #{team_id}: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"action" => "fetch_fixtures"}}) do
+    # No team_id: fetches fixtures for all teams with registered players
+    team_ids =
+      Colloq.Sofascore.teams_with_players()
+      |> Enum.map(& &1.id)
+
+    results =
+      Enum.map(team_ids, fn team_id ->
+        jitter()
+        perform(%Oban.Job{args: %{"action" => "fetch_fixtures", "team_id" => team_id}})
+      end)
+
+    {:ok, "#{length(results)} equipos actualizados"}
   end
 
   @impl Oban.Worker
@@ -73,6 +90,35 @@ defmodule Colloq.Workers.SofascoreWorker do
   end
 
   @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"action" => "fetch_squad", "team_id" => team_id}}) do
+    Logger.info("[Sofascore] Obteniendo plantilla team #{team_id}")
+
+    case Colloq.Sofascore.fetch_and_seed_squad(team_id) do
+      {:ok, count} ->
+        Logger.info("[Sofascore] Plantilla team #{team_id}: #{count} jugadores")
+        {:ok, "squad team #{team_id}: #{count} jugadores"}
+
+      {:error, reason} ->
+        Logger.error("[Sofascore] Error fetch_squad team #{team_id}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"action" => "fetch_squad"}}) do
+    # No team_id: fetches squads for all known teams
+    {:ok, results} = Colloq.Sofascore.fetch_and_seed_all(force: true)
+
+    Enum.each(results, fn
+      {team, {:ok, count}} -> Logger.info("[Sofascore] #{team}: #{count} jugadores")
+      {team, {:error, reason}} -> Logger.warning("[Sofascore] #{team}: #{inspect(reason)}")
+      {team, :skipped} -> :ok
+    end)
+
+    {:ok, "fetch_squad completado"}
+  end
+
+  @impl Oban.Worker
   def perform(%Oban.Job{args: %{"action" => "fetch_standings", "season_id" => season_id}}) do
     Logger.info("[Sofascore] Obteniendo tabla de posiciones temporada #{season_id}")
 
@@ -87,7 +133,7 @@ defmodule Colloq.Workers.SofascoreWorker do
   end
 
   defp api_get(path) do
-    url = "#{@base_url}#{path}"
+    url = "#{base_url()}#{path}"
 
     case Req.get(url,
            headers: %{

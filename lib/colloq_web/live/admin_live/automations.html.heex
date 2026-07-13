@@ -1,12 +1,12 @@
 <section class="space-y-6">
   <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-white">Automatizaciones</h1>
-    <.button phx-click="open-new">Nueva Automatización</.button>
+    <h1 class="text-2xl font-bold text-heading"><%= gettext("Automations") %></h1>
+    <.button phx-click="open-new"><%= gettext("New Automation") %></.button>
   </div>
 
   <%= if @automations == [] do %>
     <.card>
-      <p class="text-sm text-gray-400">No hay automatizaciones configuradas. Creá una para empezar.</p>
+      <p class="text-sm text-muted"><%= gettext("No automations configured. Create one to get started.") %></p>
     </.card>
   <% else %>
     <div class="space-y-3">
@@ -18,7 +18,7 @@
               phx-value-id={auto.id}
               class={[
                 "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                auto.enabled && "bg-blue-600",
+                auto.enabled && "bg-accent",
                 !auto.enabled && "bg-gray-700"
               ]}
             >
@@ -30,8 +30,8 @@
             </button>
 
             <div>
-              <p class="text-sm font-semibold text-white"><%= auto.name %></p>
-              <p class="text-xs text-gray-500">
+              <p class="text-sm font-semibold text-heading"><%= auto.name %></p>
+              <p class="text-xs text-muted">
                 Trigger: <%= auto.trigger %> ·
                 Script: <%= auto.script %>
               </p>
@@ -40,18 +40,18 @@
 
           <div class="flex items-center gap-2">
             <.badge color={if auto.enabled, do: "green", else: "gray"}>
-              <%= if auto.enabled, do: "Activo", else: "Inactivo" %>
+              <%= if auto.enabled, do: gettext("Active"), else: gettext("Inactive") %>
             </.badge>
-            <button phx-click="edit" phx-value-id={auto.id} class="text-gray-400 hover:text-white text-sm">
-              Editar
+            <button phx-click="edit" phx-value-id={auto.id} class="text-muted hover:text-heading text-sm">
+              <%= gettext("Edit") %>
             </button>
             <button
               phx-click="delete"
               phx-value-id={auto.id}
-              data-confirm="¿Eliminar esta automatización?"
-              class="text-red-400 hover:text-red-300 text-sm"
+              data-confirm={gettext("Delete this automation?")}
+              class="text-danger hover:text-danger text-sm"
             >
-              Eliminar
+              <%= gettext("Delete") %>
             </button>
           </div>
         </.card>
@@ -60,59 +60,65 @@
   <% end %>
 
   <.modal id="automation-modal" show={@show_modal} on_cancel={JS.push("close-modal")}>
-    <:title><%= if @editing, do: "Editar Automatización", else: "Nueva Automatización" %></:title>
+    <:title><%= if @editing, do: gettext("Edit Automation"), else: gettext("New Automation") %></:title>
 
     <form phx-submit="save" class="space-y-4">
       <input type="hidden" name="automation[enabled]" value="true" />
 
       <.input
-        label="Nombre"
+        label={gettext("Name")}
         name="automation[name]"
         value={@form.name}
         required
       />
 
       <div class="mb-4">
-        <label class="block text-sm font-medium text-gray-300 mb-1">Trigger</label>
+        <label class="block text-sm font-medium text-body mb-1">Trigger</label>
         <select
           name="automation[trigger]"
-          class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
         >
-          <%= for {label, value} <- ~w(Periódica recurring Usuario\ Registrado user_registered Usuario\ Promovido user_promoted Post\ Creado post_created Tema\ Estancado stalled_topic Punto\ en\ el\ Tiempo point_in_time Llamada\ API api_call) |> Enum.chunk_every(2) do %>
-            <% [label, value] = [Enum.at(label, 0), Enum.at(value, 0)] %>
-            <option value={value} selected={@form.trigger == value}><%= label %></option>
-          <% end %>
+          <option value="recurring" selected={@form.trigger == "recurring"}><%= gettext("Periodic") %></option>
+          <option value="user_registered" selected={@form.trigger == "user_registered"}><%= gettext("User Registered") %></option>
+          <option value="user_promoted" selected={@form.trigger == "user_promoted"}><%= gettext("User Promoted") %></option>
+          <option value="post_created" selected={@form.trigger == "post_created"}><%= gettext("Post Created") %></option>
+          <option value="stalled_topic" selected={@form.trigger == "stalled_topic"}><%= gettext("Stale Topic") %></option>
+          <option value="point_in_time" selected={@form.trigger == "point_in_time"}><%= gettext("Point in Time") %></option>
+          <option value="api_call" selected={@form.trigger == "api_call"}><%= gettext("API Call") %></option>
         </select>
       </div>
 
       <.textarea
-        label="Configuración del Trigger (JSON)"
+        label={gettext("Trigger Config (JSON)")}
         name="automation[trigger_config]"
         value={@form.trigger_config}
       />
 
       <div class="mb-4">
-        <label class="block text-sm font-medium text-gray-300 mb-1">Script</label>
+        <label class="block text-sm font-medium text-body mb-1">Script</label>
         <select
           name="automation[script]"
-          class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
         >
-          <%= for {label, value} <- ~w(Enviar\ MP send_pm Crear\ Post create_post Responder\ con\ LLM llm_respond Cerrar\ Tema close_topic Fijar\ Tema pin_topic Reportar\ Post flag_post Auto\ Etiquetar auto_tag) |> Enum.chunk_every(2) do %>
-            <% [label, value] = [Enum.at(label, 0), Enum.at(value, 0)] %>
-            <option value={value} selected={@form.script == value}><%= label %></option>
-          <% end %>
+          <option value="send_pm" selected={@form.script == "send_pm"}><%= gettext("Send DM") %></option>
+          <option value="create_post" selected={@form.script == "create_post"}><%= gettext("Create Post") %></option>
+          <option value="llm_respond" selected={@form.script == "llm_respond"}><%= gettext("Reply with LLM") %></option>
+          <option value="close_topic" selected={@form.script == "close_topic"}><%= gettext("Close Topic") %></option>
+          <option value="pin_topic" selected={@form.script == "pin_topic"}><%= gettext("Pin Topic") %></option>
+          <option value="flag_post" selected={@form.script == "flag_post"}><%= gettext("Report Post") %></option>
+          <option value="auto_tag" selected={@form.script == "auto_tag"}><%= gettext("Auto Tag") %></option>
         </select>
       </div>
 
       <.textarea
-        label="Configuración del Script (JSON)"
+        label={gettext("Script Config (JSON)")}
         name="automation[script_config]"
         value={@form.script_config}
       />
 
       <div class="flex items-center gap-3 pt-2">
-        <.button type="submit">Guardar</.button>
-        <.button type="button" class="bg-gray-700 hover:bg-gray-600" phx-click="close-modal">Cancelar</.button>
+        <.button type="submit"><%= gettext("Save") %></.button>
+        <.button type="button" class="bg-gray-700 hover:bg-gray-600" phx-click="close-modal"><%= gettext("Cancel") %></.button>
       </div>
     </form>
   </.modal>

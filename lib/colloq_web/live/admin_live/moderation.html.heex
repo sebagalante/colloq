@@ -1,0 +1,231 @@
+<section class="space-y-6">
+  <h1 class="text-2xl font-bold text-heading"><%= gettext("Moderation") %></h1>
+
+  <div class="flex items-center gap-1 border-b border-border">
+    <button
+      type="button"
+      phx-click="switch-tab"
+      phx-value-tab="reports"
+      class={[
+        "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors inline-flex items-center gap-2",
+        @tab == "reports" && "border-accent text-accent",
+        @tab != "reports" && "border-transparent text-muted hover:text-heading"
+      ]}
+    >
+      <.icon name="flag" class="w-4 h-4" /><%= gettext("Reports") %>
+      <.badge :if={@reports != []} color="red"><%= length(@reports) %></.badge>
+    </button>
+    <button
+      type="button"
+      phx-click="switch-tab"
+      phx-value-tab="hidden"
+      class={[
+        "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors inline-flex items-center gap-2",
+        @tab == "hidden" && "border-accent text-accent",
+        @tab != "hidden" && "border-transparent text-muted hover:text-heading"
+      ]}
+    >
+      <.icon name="eye-off" class="w-4 h-4" /><%= gettext("Hidden posts") %>
+      <.badge :if={@hidden != []} color="gray"><%= length(@hidden) %></.badge>
+    </button>
+    <button
+      type="button"
+      phx-click="switch-tab"
+      phx-value-tab="banned"
+      class={[
+        "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors inline-flex items-center gap-2",
+        @tab == "banned" && "border-accent text-accent",
+        @tab != "banned" && "border-transparent text-muted hover:text-heading"
+      ]}
+    >
+      <.icon name="ban" class="w-4 h-4" /><%= gettext("Banned users") %>
+      <.badge :if={@sanctioned != []} color="red"><%= length(@sanctioned) %></.badge>
+    </button>
+  </div>
+
+  <%!-- Reports tab --%>
+  <div :if={@tab == "reports"} class="space-y-3">
+    <%= if @reports == [] do %>
+      <p class="text-sm text-muted"><%= gettext("No pending reports.") %></p>
+    <% else %>
+      <div
+        :for={report <- @reports}
+        class="p-4 rounded-lg bg-surface-alt border border-border"
+      >
+        <div class="flex items-start justify-between gap-3 mb-2 flex-wrap">
+          <div class="flex items-center gap-2 flex-wrap">
+            <.badge color="amber"><%= reason_label(report.reason) %></.badge>
+            <span class="text-xs text-muted">
+              <%= gettext("Post #%{id}", id: report.post_id) %>
+              <%= if report.author do %>
+                · <%= gettext("by") %> <span class="text-body">@<%= report.author %></span>
+              <% end %>
+            </span>
+            <.badge :if={report.hidden} color="gray"><%= gettext("hidden") %></.badge>
+          </div>
+          <span class="text-xs text-muted">
+            <%= gettext("reported by %{user}", user: report.reporter || gettext("unknown")) %> · <%= es_locale(report.inserted_at) %>
+          </span>
+        </div>
+
+        <p :if={report.excerpt && report.excerpt != ""} class="text-sm text-body line-clamp-3 mb-3">
+          <%= report.excerpt %>
+        </p>
+
+        <div class="flex items-center gap-3 flex-wrap">
+          <.link
+            :if={report.topic_id}
+            navigate={~p"/t/#{report.topic_id}"}
+            class="inline-flex items-center gap-1 text-xs text-accent hover:text-accent-hover transition-colors"
+          >
+            <.icon name="external-link" class="w-3.5 h-3.5" /><%= gettext("View") %>
+          </.link>
+          <button
+            :if={!report.hidden}
+            type="button"
+            phx-click="hide-flagged-post"
+            phx-value-id={report.id}
+            phx-value-post_id={report.post_id}
+            data-confirm={gettext("Hide this post and resolve the report?")}
+            class="inline-flex items-center gap-1 text-xs text-muted hover:text-danger transition-colors"
+          >
+            <.icon name="eye-off" class="w-3.5 h-3.5" /><%= gettext("Hide post") %>
+          </button>
+          <button
+            type="button"
+            phx-click="dismiss-flag"
+            phx-value-id={report.id}
+            class="inline-flex items-center gap-1 text-xs text-muted hover:text-heading transition-colors"
+          >
+            <.icon name="check" class="w-3.5 h-3.5" /><%= gettext("Dismiss") %>
+          </button>
+          <.link
+            :if={report.author}
+            navigate={~p"/admin/users?query=#{report.author}"}
+            class="inline-flex items-center gap-1 text-xs text-muted hover:text-heading transition-colors"
+          >
+            <.icon name="shield" class="w-3.5 h-3.5" /><%= gettext("Moderate author") %>
+          </.link>
+        </div>
+      </div>
+    <% end %>
+  </div>
+
+  <%!-- Hidden posts tab --%>
+  <div :if={@tab == "hidden"} class="space-y-3">
+    <%= if @hidden == [] do %>
+      <p class="text-sm text-muted"><%= gettext("No hidden posts.") %></p>
+    <% else %>
+      <div
+        :for={post <- @hidden}
+        class="p-4 rounded-lg bg-surface-alt border border-border"
+      >
+        <div class="flex items-start justify-between gap-3 mb-2 flex-wrap">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs text-muted">
+              <%= gettext("Post #%{id}", id: post.id) %>
+              <%= if post.author do %>
+                · <%= gettext("by") %> <span class="text-body">@<%= post.author %></span>
+              <% end %>
+            </span>
+          </div>
+          <span class="text-xs text-muted">
+            <%= gettext("hidden") %> · <%= es_locale(post.deleted_at) %>
+          </span>
+        </div>
+
+        <p :if={post.topic_title} class="text-xs text-muted mb-1">
+          <%= gettext("in") %> <span class="text-body"><%= post.topic_title %></span>
+        </p>
+        <p :if={post.excerpt && post.excerpt != ""} class="text-sm text-body line-clamp-3 mb-3">
+          <%= post.excerpt %>
+        </p>
+
+        <div class="flex items-center gap-3 flex-wrap">
+          <.link
+            :if={post.topic_id}
+            navigate={~p"/t/#{post.topic_id}"}
+            class="inline-flex items-center gap-1 text-xs text-accent hover:text-accent-hover transition-colors"
+          >
+            <.icon name="external-link" class="w-3.5 h-3.5" /><%= gettext("View topic") %>
+          </.link>
+          <button
+            type="button"
+            phx-click="restore-post"
+            phx-value-id={post.id}
+            data-confirm={gettext("Restore this post so it's visible again?")}
+            class="inline-flex items-center gap-1 text-xs text-muted hover:text-success transition-colors"
+          >
+            <.icon name="eye" class="w-3.5 h-3.5" /><%= gettext("Restore") %>
+          </button>
+        </div>
+      </div>
+    <% end %>
+  </div>
+
+  <%!-- Banned / sanctioned users tab --%>
+  <div :if={@tab == "banned"} class="space-y-3">
+    <%= if @sanctioned == [] do %>
+      <p class="text-sm text-muted"><%= gettext("No banned or sanctioned users.") %></p>
+    <% else %>
+      <div
+        :for={u <- @sanctioned}
+        class="flex items-center gap-3 p-4 rounded-lg bg-surface-alt border border-border"
+      >
+        <img
+          :if={u.avatar_url}
+          src={u.avatar_url}
+          alt=""
+          class="w-10 h-10 rounded-full object-cover flex-shrink-0"
+        />
+        <div :if={!u.avatar_url} class="w-10 h-10 rounded-full bg-border flex items-center justify-center text-sm font-bold text-muted flex-shrink-0">
+          <%= String.slice(u.display_name || u.username, 0..0) |> String.upcase() %>
+        </div>
+
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <.link navigate={~p"/u/#{u.username}"} class="text-sm font-semibold text-heading hover:underline">
+              <%= u.display_name || u.username %>
+            </.link>
+            <span class="text-xs text-muted">@<%= u.username %></span>
+            <.badge color={status_color(u.status)}><%= status_label(u.status) %></.badge>
+          </div>
+          <div class="flex items-center gap-3 mt-1 text-xs text-muted flex-wrap">
+            <span :if={u.status in [:suspended, :silenced] && u.until}>
+              <%= gettext("Until") %> <%= Calendar.strftime(u.until, "%d/%m/%Y %H:%M") %>
+            </span>
+            <span :if={u.at}><%= es_locale(u.at) %></span>
+            <span :if={u.reason} class="truncate max-w-md">— <%= u.reason %></span>
+          </div>
+        </div>
+
+        <%!-- Restore: silence → unsilence (mod+); ban/suspend → reinstate (super_admin) --%>
+        <button
+          :if={u.status == :silenced && Colloq.Permissions.can?(@current_user, :silence_users)}
+          type="button"
+          phx-click="unsilence-user"
+          phx-value-id={u.id}
+          class="flex-shrink-0 inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-body hover:border-success hover:text-success transition-colors"
+        >
+          <.icon name="mic" class="w-3.5 h-3.5" /><%= gettext("Lift silence") %>
+        </button>
+        <button
+          :if={u.status in [:banned, :suspended] && Colloq.Permissions.can?(@current_user, :reinstate_users)}
+          type="button"
+          phx-click="reinstate-user"
+          phx-value-id={u.id}
+          data-confirm={gettext("Restore full access for this user?")}
+          class="flex-shrink-0 inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-body hover:border-success hover:text-success transition-colors"
+        >
+          <.icon name="check" class="w-3.5 h-3.5" /><%= gettext("Restore") %>
+        </button>
+        <span
+          :if={u.status in [:banned, :suspended] && !Colloq.Permissions.can?(@current_user, :reinstate_users)}
+          class="flex-shrink-0 text-xs text-muted italic"
+        >
+          <%= gettext("Super admin only") %>
+        </span>
+      </div>
+    <% end %>
+  </div>
+</section>

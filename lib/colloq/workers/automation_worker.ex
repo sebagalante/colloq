@@ -1,11 +1,11 @@
 defmodule Colloq.Workers.AutomationWorker do
   @moduledoc """
-  Worker despachador genérico de reglas de automatización.
+  Generic automation rule dispatcher worker.
 
-  Carga la regla de automatización por ID, evalúa la configuración
-  del trigger y ejecuta el script asociado.
+  Loads the automation rule by ID, evaluates the trigger configuration,
+  and executes the associated script.
 
-  Triggers soportados: recurring, user_registered, user_promoted,
+  Supported triggers: recurring, user_registered, user_promoted,
   post_created, stalled_topic, point_in_time, api_call.
   """
   use Oban.Worker, queue: :events, max_attempts: 3

@@ -1,10 +1,10 @@
 defmodule Colloq.Workers.PruneNotificationsWorker do
   @moduledoc """
-  Worker de limpieza de notificaciones antiguas.
+  Stale notification cleanup worker.
 
-  Se ejecuta vía Oban Cron o puede ser disparado por una regla de automatización.
-  Elimina notificaciones con más de 90 días de antigüedad.
-  Un solo intento: no reintentar si falla.
+  Runs via Oban Cron or can be triggered by an automation rule.
+  Deletes notifications older than 90 days.
+  Single attempt: no retries on failure.
   """
   use Oban.Worker, queue: :default, max_attempts: 1
 

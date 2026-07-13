@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es" class="[color-scheme:dark]">
+<html lang={@locale || "es"} class={["theme-#{@theme || "dark"}"]}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -8,20 +8,22 @@
       <%= assigns[:page_title] || "Colloq" %>
     </.live_title>
 
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
     <link phx-track-static rel="stylesheet" href={~p"/assets/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/app.js"}>
     </script>
 
     <!-- PWA -->
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#1d4ed8" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="theme-color" content={theme_color(@theme || "dark")} />
+    <link rel="apple-touch-icon" href="/icons/icon.svg" />
 
     <!-- Open Graph defaults -->
     <meta property="og:site_name" content="Colloq" />
-    <meta property="og:locale" content="es_AR" />
+    <meta property="og:locale" content={if @locale == "en", do: "en_US", else: "es_AR"} />
   </head>
-  <body class="bg-[#080c14] text-[#e2e5ed] antialiased">
+  <body class="bg-bg text-body antialiased">
     <%= @inner_content %>
   </body>
 </html>

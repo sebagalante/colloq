@@ -1,6 +1,6 @@
 <div class="min-h-screen flex items-center justify-center px-4">
-  <div class="bg-[#0f1420] border border-[#1a2035] rounded-xl p-8 w-full max-w-md">
-    <h1 class="text-2xl font-bold text-white mb-6 text-center">Crear cuenta</h1>
+  <div class="bg-surface border border-border rounded-xl p-8 w-full max-w-md">
+    <h1 class="text-2xl font-bold text-heading mb-6 text-center"><%= gettext("Create account") %></h1>
 
     <.simple_form for={@form} phx-change="validate" phx-submit="save" class="space-y-4">
       <.input
@@ -13,41 +13,41 @@
       <.input
         field={@form[:username]}
         type="text"
-        label="Nombre de usuario"
-        placeholder="solo letras, números y _"
+        label={gettext("Username")}
+        placeholder={gettext("letters, numbers and _ only")}
         required
       />
       <.input
         field={@form[:display_name]}
         type="text"
-        label="Nombre visible"
-        placeholder="Tu nombre en el foro"
+        label={gettext("Display name")}
+        placeholder={gettext("Your name on the forum")}
       />
       <.input
         field={@form[:password]}
         type="password"
-        label="Contraseña"
-        placeholder="mínimo 8 caracteres"
+        label={gettext("Password")}
+        placeholder={gettext("minimum 8 characters")}
         required
       />
       <.input
         field={@form[:password_confirmation]}
         type="password"
-        label="Repetir contraseña"
+        label={gettext("Confirm password")}
         placeholder="••••••••"
         required
       />
 
-      <.button type="submit" class="w-full mt-2" phx-disable-with="Creando cuenta...">
-        Registrarse
+      <.button type="submit" class="w-full mt-2" phx-disable-with={gettext("Creating account...")}>
+        <%= gettext("Sign up") %>
       </.button>
     </.simple_form>
 
-    <div class="mt-6 text-center text-sm text-gray-400">
+    <div class="mt-6 text-center text-sm text-muted">
       <p>
-        ¿Ya tenés cuenta?{" "}
-        <.link navigate="/login" class="text-blue-400 hover:text-blue-300 underline">
-          Iniciá sesión
+        <%= gettext("Already have an account?") %>{" "}
+        <.link navigate="/login" class="text-accent hover:text-accent-hover underline">
+          <%= gettext("Log in") %>
         </.link>
       </p>
     </div>

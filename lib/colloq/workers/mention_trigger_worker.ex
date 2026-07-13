@@ -1,11 +1,11 @@
 defmodule Colloq.Workers.MentionTriggerWorker do
   @moduledoc """
-  Worker de procesamiento de menciones (@username).
+  @username mention processing worker.
 
-  Se dispara al crear un post. Parsea el cuerpo en busca de @menciones.
-  Por cada mención encontrada:
-  - Crea una notificación para el usuario mencionado.
-  - Si el usuario mencionado es una persona bot, encola LlmResponderWorker.
+  Triggered on post creation. Parses the body for @mentions.
+  For each mention found:
+  - Creates a notification for the mentioned user.
+  - Enqueues LlmResponderWorker if the mentioned user is a bot persona.
   """
   use Oban.Worker, queue: :events, max_attempts: 3
 

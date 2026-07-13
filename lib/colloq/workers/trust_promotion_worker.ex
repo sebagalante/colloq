@@ -3,11 +3,9 @@ defmodule Colloq.Workers.TrustPromotionWorker do
   Trust level promotion worker. Checks user activity thresholds nightly.
   Cron: 2:00 AM daily. Will become an automation rule in a future version.
 
-  Discourse model thresholds:
-  - TL0 → TL1: 5 posts, 1 day registered
-  - TL1 → TL2: 15 posts, 3 days registered
-  - TL2 → TL3: 30 posts, 7 days, manual (requires admin action)
-  - TL3 → TL4: manual only (leader)
+  Thresholds:
+  - TL0 → TL1: 10 posts, 1 day registered (Básico)
+  - TL1 → TL2: 50 posts, 7 days registered (Miembro)
   """
   use Oban.Worker, queue: :default, max_attempts: 3
   alias Colloq.Accounts
@@ -15,8 +13,8 @@ defmodule Colloq.Workers.TrustPromotionWorker do
   import Ecto.Query
 
   @promotions [
-    %{from: 0, to: 1, min_posts: 5, min_days: 1, name: "Básico"},
-    %{from: 1, to: 2, min_posts: 15, min_days: 3, name: "Miembro"}
+    %{from: 0, to: 1, min_posts: 10, min_days: 1, name: "Básico"},
+    %{from: 1, to: 2, min_posts: 50, min_days: 7, name: "Miembro"}
   ]
 
   @impl Oban.Worker

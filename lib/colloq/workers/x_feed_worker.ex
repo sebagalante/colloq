@@ -1,13 +1,13 @@
 defmodule Colloq.Workers.XFeedWorker do
   @moduledoc """
-  Worker de feed de X/Twitter vía Nitter RSS.
+  X/Twitter feed worker via Nitter RSS.
 
-  Cron cada 30 minutos.
-  Obtiene el feed RSS de Nitter para cuentas configuradas,
-  parsea con SweetXml, filtra por palabras clave y
-  publica tweets nuevos en el topic de feed como posts de sistema.
+  Runs every 30 minutes.
+  Fetches the Nitter RSS feed for configured accounts,
+  parses with SweetXml, filters by keywords, and
+  posts new tweets to the feed topic as system posts.
 
-  Deduplicación vía Cachex con TTL de 7 días.
+  Deduplication via Cachex with a 7-day TTL.
   """
   use Oban.Worker, queue: :events, max_attempts: 3
 
@@ -20,7 +20,7 @@ defmodule Colloq.Workers.XFeedWorker do
 
   require Logger
 
-  @nitter_base "https://nitter.net"
+  defp nitter_base, do: Application.get_env(:colloq, :nitter_url, "https://nitter.net")
 
   @impl Oban.Worker
   def perform(_job) do
@@ -44,7 +44,7 @@ defmodule Colloq.Workers.XFeedWorker do
   end
 
   defp fetch_and_publish(account, keywords, topic, system_user) do
-    url = "#{@nitter_base}/#{account}/rss"
+    url = "#{nitter_base()}/#{account}/rss"
 
     case Req.get(url, receive_timeout: 10_000) do
       {:ok, %{status: 200, body: body}} ->

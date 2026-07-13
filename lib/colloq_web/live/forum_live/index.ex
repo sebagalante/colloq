@@ -1,7 +1,20 @@
 defmodule ColloqWeb.ForumLive.Index do
+  @moduledoc """
+  LiveView for the forum index / landing page.
+
+  Displays a paginated list of topics that can be filtered by category.
+  Also provides the "new topic" modal (requires authentication) and
+  refreshes in real-time when new topics are created via PubSub.
+
+  Routes:
+  - `/` — all topics
+  - `/c/:slug` — topics filtered by category
+  - `/new` — opens the new-topic modal (live_action: :new_topic)
+  """
   use ColloqWeb, :live_view
 
   alias Colloq.Forum
+  alias Colloq.Tags
   alias Colloq.Accounts
   alias Phoenix.LiveView.JS
 
@@ -11,6 +24,8 @@ defmodule ColloqWeb.ForumLive.Index do
   def mount(_params, session, socket) do
     current_user = load_user(session)
     categories = Forum.list_categories()
+    blocked_ids = if current_user, do: Accounts.hidden_user_ids(current_user.id), else: MapSet.new()
+    muted_ids = if current_user, do: Colloq.Subscriptions.muted_topic_ids(current_user.id), else: MapSet.new()
 
     socket =
       socket
@@ -18,7 +33,11 @@ defmodule ColloqWeb.ForumLive.Index do
       |> assign(:categories, categories)
       |> assign(:selected_category_slug, nil)
       |> assign(:show_modal, false)
-      |> assign_new(:page_title, fn -> "Foro" end)
+      |> assign(:popular_tags, Tags.list_tags() |> Enum.take(20))
+      |> assign(:form_tags, "")
+      |> assign(:blocked_user_ids, blocked_ids)
+      |> assign(:muted_topic_ids, muted_ids)
+      |> assign_new(:page_title, fn -> gettext("Forum") end)
 
     if connected?(socket) do
       ColloqWeb.Endpoint.subscribe("forum:topic_list")
@@ -30,14 +49,21 @@ defmodule ColloqWeb.ForumLive.Index do
   @impl true
   def handle_params(params, _uri, socket) do
     page = parse_page(params)
+    order = parse_order(params)
     category_id = category_id_from_params(params, socket.assigns.categories)
 
-    topics = Forum.list_topics(page: page, per_page: @per_page, category_id: category_id)
+    topics = Forum.list_topics(page: page, per_page: @per_page, category_id: category_id, order: order, blocked_ids: socket.assigns.blocked_user_ids, muted_topic_ids: socket.assigns.muted_topic_ids)
+
+    # Preload tags for topics
+    topic_ids = Enum.map(topics.entries, & &1.id)
+    topic_tags = Tags.preload_topic_tags(topic_ids)
 
     socket =
       socket
       |> assign(:topics, topics.entries)
+      |> assign(:topic_tags, topic_tags)
       |> assign(:page, page)
+      |> assign(:order, order)
       |> assign(:total_pages, topics.total_pages)
       |> assign(:selected_category_slug, params["slug"])
 
@@ -67,33 +93,87 @@ defmodule ColloqWeb.ForumLive.Index do
     {:noreply, socket |> assign(:show_modal, false) |> clear_form()}
   end
 
-  def handle_event("create-topic", %{"title" => title, "category_id" => cat_id, "body" => body}, socket) do
+  def handle_event("create-topic", %{"title" => title} = params, socket) do
     user = socket.assigns.current_user
+    body = params["body"] || ""
 
-    case Forum.create_topic(user, %{
-      "title" => title,
-      "category_id" => String.to_integer(cat_id),
-      "body" => body
-    }) do
-      {:ok, topic} ->
-        path = ~p"/t/#{topic.id}/#{topic.slug}"
+    category_id =
+      case Integer.parse(to_string(params["category_id"])) do
+        {id, _} -> id
+        :error -> nil
+      end
 
-        {:noreply,
-         socket
-         |> clear_form()
-         |> push_navigate(to: path)}
+    # Parse tags from comma-separated string
+    tag_names =
+      case params["tags"] do
+        nil -> []
+        tags_str ->
+          tags_str
+          |> String.split(",")
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+      end
 
-      {:error, _changeset} ->
-        {:noreply, put_flash(socket, :error, "No se pudo crear el tema. Verificá los campos.")}
+    cond do
+      is_nil(user) ->
+        {:noreply, push_navigate(socket, to: ~p"/login")}
+
+      is_nil(category_id) ->
+        {:noreply, put_flash(socket, :error, gettext("Choose a category."))}
+
+      String.trim(title) == "" ->
+        {:noreply, put_flash(socket, :error, gettext("The title is required."))}
+
+      true ->
+        case Forum.create_topic(user, %{
+               "title" => title,
+               "category_id" => category_id,
+               "body" => body,
+               "tags" => tag_names
+             }) do
+          {:ok, topic} ->
+            {:noreply,
+             socket
+             |> clear_form()
+             |> push_navigate(to: ~p"/t/#{topic.id}/#{topic.slug}")}
+
+          {:error, :silenced} ->
+            {:noreply, put_flash(socket, :error, gettext("You are silenced and cannot post right now."))}
+
+          {:error, :suspended} ->
+            {:noreply, put_flash(socket, :error, gettext("Your account is suspended and cannot post."))}
+
+          {:error, :banned} ->
+            {:noreply, put_flash(socket, :error, gettext("Your account is banned."))}
+
+          {:error, _changeset} ->
+            {:noreply, put_flash(socket, :error, gettext("Could not create the topic. Check the fields."))}
+        end
     end
   end
 
   def handle_event("filter-category", %{"slug" => slug}, socket) do
+    query = order_query(socket.assigns[:order])
+
     path =
       if slug == "" do
-        ~p"/"
+        ~p"/?#{query}"
       else
-        ~p"/c/#{slug}"
+        ~p"/c/#{slug}?#{query}"
+      end
+
+    {:noreply, push_patch(socket, to: path)}
+  end
+
+  def handle_event("set-order", %{"order" => order}, socket) do
+    slug = socket.assigns.selected_category_slug
+    query = order_query(String.to_existing_atom(order))
+
+    path =
+      if slug do
+        ~p"/c/#{slug}?#{query}"
+      else
+        ~p"/?#{query}"
       end
 
     {:noreply, push_patch(socket, to: path)}
@@ -113,16 +193,31 @@ defmodule ColloqWeb.ForumLive.Index do
     {:noreply, push_patch(socket, to: path)}
   end
 
+  def handle_event("add-tag", %{"tag" => tag}, socket) do
+    current = socket.assigns.form_tags || ""
+    new_tags =
+      if current == "" do
+        tag
+      else
+        current <> ", " <> tag
+      end
+
+    {:noreply, assign(socket, :form_tags, new_tags)}
+  end
+
   @impl true
   def handle_info(%{event: "topic_created", payload: _payload}, socket) do
     page = socket.assigns.page
     category_id = category_id_from_slug(socket.assigns.selected_category_slug, socket.assigns.categories)
 
-    topics = Forum.list_topics(page: page, per_page: @per_page, category_id: category_id)
+    topics = Forum.list_topics(page: page, per_page: @per_page, category_id: category_id, order: socket.assigns[:order] || :latest, blocked_ids: socket.assigns.blocked_user_ids, muted_topic_ids: socket.assigns.muted_topic_ids)
+    topic_ids = Enum.map(topics.entries, & &1.id)
+    topic_tags = Tags.preload_topic_tags(topic_ids)
 
     {:noreply,
      socket
      |> assign(:topics, topics.entries)
+     |> assign(:topic_tags, topic_tags)
      |> assign(:total_pages, topics.total_pages)}
   end
 
@@ -139,6 +234,13 @@ defmodule ColloqWeb.ForumLive.Index do
       str -> String.to_integer(str)
     end
   end
+
+  defp parse_order(%{"order" => "top"}), do: :top
+  defp parse_order(_), do: :latest
+
+  # Build the query params for a given order (omit for the default :latest).
+  defp order_query(:top), do: [order: "top"]
+  defp order_query(_), do: []
 
   defp category_id_from_params(params, categories) do
     case Map.get(params, "slug") do
@@ -164,5 +266,6 @@ defmodule ColloqWeb.ForumLive.Index do
     |> assign(:form_title, "")
     |> assign(:form_category_id, "")
     |> assign(:form_body, "")
+    |> assign(:form_tags, "")
   end
 end

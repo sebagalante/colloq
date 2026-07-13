@@ -15,6 +15,9 @@ defmodule Colloq.Forum.Topic do
     field :views_count, :integer, default: 0
     field :likes_count, :integer, default: 0  # Legacy, replaced by reactions
 
+    # Last-activity timestamp (used for "recent topics" ordering)
+    field :bumped_at, :utc_datetime_usec
+
     # States
     field :pinned, :boolean, default: false
     field :pinned_at, :utc_datetime_usec
@@ -28,6 +31,8 @@ defmodule Colloq.Forum.Topic do
     field :is_match_thread, :boolean, default: false
     field :match_mode, :string  # "prematch" | "live" | "fulltime"
     field :match_id, :string    # External API fixture ID
+    field :home_team, :string
+    field :away_team, :string
 
     # Continuation chain (for 50k+ post threads)
     field :continuation_topic_id, :integer
@@ -40,6 +45,7 @@ defmodule Colloq.Forum.Topic do
     belongs_to :last_post, Colloq.Forum.Post
 
     has_many :posts, Colloq.Forum.Post, foreign_key: :topic_id
+    many_to_many :tags, Colloq.Forum.Tag, join_through: "topic_tags", on_replace: :delete
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -47,15 +53,15 @@ defmodule Colloq.Forum.Topic do
   def changeset(topic, attrs) do
     topic
     |> cast(attrs, [
-      :title, :slug, :user_id, :category_id,
+      :title, :slug, :user_id, :category_id, :bumped_at,
       :is_match_thread, :match_id, :match_mode,
+      :home_team, :away_team,
       :pinned, :pinned_at, :closed, :closed_reason,
       :archived, :continuation_topic_id, :parent_topic_id
     ])
     |> validate_required([:title, :user_id, :category_id])
     |> validate_length(:title, min: 5, max: 200)
     |> generate_slug()
-    |> unique_constraint(:slug)
   end
 
   defp generate_slug(changeset) do

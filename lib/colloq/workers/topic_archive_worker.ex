@@ -1,16 +1,17 @@
 defmodule Colloq.Workers.TopicArchiveWorker do
   @moduledoc """
-  Worker de archivado automático de topics.
+  Automatic topic archiving worker.
 
-  Cron: cada 15 minutos.
-  - Cierra topics que superen 50.000 posts si no están cerrados aún.
-  - Archiva topics con más de 90 días sin actividad.
+  Runs every 15 minutes.
+  - Closes topics exceeding 50,000 posts if not already closed.
+  - Archives topics with no activity for more than 90 days.
   """
   use Oban.Worker, queue: :default, max_attempts: 3
 
   alias Colloq.Repo
   alias Colloq.Forum
   alias Colloq.Forum.Topic
+  import Ecto.Query
 
   @post_limit 50_000
   @archive_days 90

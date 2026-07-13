@@ -7,6 +7,7 @@ defmodule ColloqWeb.Plugs.VpnOnly do
   """
 
   import Plug.Conn
+  import Bitwise
   require Logger
 
   def init(opts), do: opts
@@ -55,11 +56,36 @@ defmodule ColloqWeb.Plugs.VpnOnly do
   end
 
   defp in_cidr?(ip, network, mask_bits) do
-    ip_int = ip_to_integer(ip)
-    network_int = ip_to_integer(network)
-    mask = bnot(:erlang.bsl(1, 32 - mask_bits) - 1)
+    ip_family = tuple_size(ip)
+    network_family = tuple_size(network)
 
-    (ip_int &&& mask) == (network_int &&& mask)
+    cond do
+      ip_family != network_family ->
+        false
+
+      ip_family == 4 and mask_bits in 0..32 ->
+        mask_ipv4(mask_bits)
+        |> same_network?(ip, network)
+
+      ip_family == 8 and mask_bits in 0..128 ->
+        mask_ipv6(mask_bits)
+        |> same_network?(ip, network)
+
+      true ->
+        false
+    end
+  end
+
+  defp mask_ipv4(mask_bits) do
+    bnot(:erlang.bsl(1, 32 - mask_bits) - 1)
+  end
+
+  defp mask_ipv6(mask_bits) do
+    bnot(:erlang.bsl(1, 128 - mask_bits) - 1)
+  end
+
+  defp same_network?(mask, ip, network) do
+    (ip_to_integer(ip) &&& mask) == (ip_to_integer(network) &&& mask)
   end
 
   defp ip_to_integer({a, b, c, d}) do

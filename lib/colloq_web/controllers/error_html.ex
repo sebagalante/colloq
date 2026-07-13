@@ -4,7 +4,7 @@ defmodule ColloqWeb.ErrorHTML do
   """
   use ColloqWeb, :html
 
-  def render("404.html", _assigns) do
+  def render("404.html", assigns) do
     ~H"""
     <div class="text-center py-20">
       <h1 class="text-6xl font-bold text-white mb-4">404</h1>
@@ -16,7 +16,7 @@ defmodule ColloqWeb.ErrorHTML do
     """
   end
 
-  def render("403.html", _assigns) do
+  def render("403.html", assigns) do
     ~H"""
     <div class="text-center py-20">
       <h1 class="text-6xl font-bold text-red-500 mb-4">403</h1>
@@ -26,7 +26,7 @@ defmodule ColloqWeb.ErrorHTML do
     """
   end
 
-  def render("500.html", _assigns) do
+  def render("500.html", assigns) do
     ~H"""
     <div class="text-center py-20">
       <h1 class="text-6xl font-bold text-red-500 mb-4">500</h1>

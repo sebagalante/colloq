@@ -2,6 +2,10 @@ defmodule ColloqWeb.Telemetry do
   use Supervisor
   import Telemetry.Metrics
 
+  def start_link(arg) do
+    Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
+  end
+
   def metrics do
     [
       # VM Metrics
@@ -73,10 +77,15 @@ defmodule ColloqWeb.Telemetry do
     end
 
     def run_queue_lengths do
+      # Only :total_run_queue_lengths[_all] are valid stat keys; the _cpu/_io
+      # variants raise :badarg. Report the CPU (scheduler) queues and the total.
+      cpu = :erlang.statistics(:total_run_queue_lengths)
+      all = :erlang.statistics(:total_run_queue_lengths_all)
+
       :telemetry.execute([:vm, :total_run_queue_lengths], %{
-        total: :erlang.statistics(:total_run_queue_lengths_all),
-        cpu: :erlang.statistics(:total_run_queue_lengths_cpu),
-        io: :erlang.statistics(:total_run_queue_lengths_io)
+        total: all,
+        cpu: cpu,
+        io: max(all - cpu, 0)
       })
     end
   end

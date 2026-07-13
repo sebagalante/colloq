@@ -1,11 +1,11 @@
 defmodule Colloq.Workers.PredictionScorerWorker do
   @moduledoc """
-  Worker de puntuación de predicciones al finalizar un partido.
+  Post-match prediction scoring worker.
 
-  Se encola cuando un partido llega a tiempo completo (FT).
-  Carga todas las predicciones para el fixture_id, las compara
-  contra el resultado real y asigna puntos.
-  Luego publica los resultados en el hilo del partido.
+  Enqueued when a match reaches full-time (FT).
+  Loads all predictions for the fixture_id, compares them
+  against the actual result, and assigns points.
+  Then posts the results in the match thread.
   """
   use Oban.Worker, queue: :default, max_attempts: 3
 
@@ -64,12 +64,13 @@ defmodule Colloq.Workers.PredictionScorerWorker do
       top_users
       |> Enum.with_index(1)
       |> Enum.map_join("\n", fn {%{user: user, total_points: pts}, pos} ->
+        user_name = if user, do: user.display_name || user.username, else: "Usuario"
         medalla = case pos do
           1 -> "🥇"
           2 -> "🥈"
           3 -> "🥉"
         end
-        "#{medalla} **#{user.display_name || user.username}** — #{pts} pts"
+        "#{medalla} **#{user_name}** — #{pts} pts"
       end)
 
     """

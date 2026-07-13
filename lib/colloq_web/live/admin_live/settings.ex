@@ -5,9 +5,9 @@ defmodule ColloqWeb.AdminLive.Settings do
 
   @groups [
     %{id: "general", label: "General"},
-    %{id: "forum", label: "Foro"},
-    %{id: "security", label: "Seguridad"},
-    %{id: "integrations", label: "Integraciones"},
+    %{id: "forum", label: "Forum"},
+    %{id: "security", label: "Security"},
+    %{id: "integrations", label: "Integrations"},
     %{id: "match_day", label: "Match Day"}
   ]
 
@@ -15,7 +15,7 @@ defmodule ColloqWeb.AdminLive.Settings do
   def mount(_params, _session, socket) do
     socket =
       socket
-      |> assign(:page_title, "Configuración")
+      |> assign(:page_title, gettext("Settings"))
       |> assign(:groups, @groups)
       |> assign(:active_group, "general")
       |> load_group("general")
@@ -34,10 +34,10 @@ defmodule ColloqWeb.AdminLive.Settings do
         {:noreply,
          socket
          |> load_group(group)
-         |> put_flash(:info, "Configuración '#{key}' guardada.")}
+         |> put_flash(:info, gettext("Setting '%{key}' saved.", key: key))}
 
       {:error, _} ->
-        {:noreply, put_flash(socket, :error, "No se pudo guardar '#{key}'.")}
+        {:noreply, put_flash(socket, :error, gettext("Could not save '%{key}'.", key: key))}
     end
   end
 

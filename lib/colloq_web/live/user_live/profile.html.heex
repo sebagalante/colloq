@@ -1,99 +1,236 @@
 <div :if={@profile_user} class="max-w-3xl mx-auto px-4 py-6">
-  <%!-- Profile header --%>
-  <div class="flex items-start gap-6 mb-8">
-    <div class="flex-shrink-0">
-      <div class="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center text-2xl font-bold text-white">
-        <%= initials(@profile_user) %>
+  <%!-- Profile header card --%>
+  <div class="rounded-2xl bg-surface border border-border p-6 mb-6">
+    <div class="flex items-start gap-5">
+      <%!-- Avatar --%>
+      <div class="flex-shrink-0 relative">
+        <%= if @profile_user.avatar_url do %>
+          <img src={@profile_user.avatar_url} alt="" class="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover" />
+        <% else %>
+          <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-accent flex items-center justify-center text-3xl font-bold text-white">
+            <%= initials(@profile_user) %>
+          </div>
+        <% end %>
+        <span
+          :if={@online}
+          class="absolute bottom-1 right-1 sm:bottom-1.5 sm:right-1.5 w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-success border-[3px] border-surface"
+          title={gettext("Online")}
+        >
+        </span>
       </div>
-    </div>
 
-    <div class="flex-1">
-      <h1 class="text-2xl font-bold text-white">
-        <%= @profile_user.display_name || @profile_user.username %>
-      </h1>
-      <p class="text-gray-400 text-sm">
-        @<%= @profile_user.username %>
-      </p>
-      <div class="flex items-center gap-2 mt-2">
-        <.badge color={trust_level_badge_color(@profile_user.trust_level)}>
-          TL<%= @profile_user.trust_level %>
-        </.badge>
-        <.badge :if={@profile_user.is_admin} color="red">Admin</.badge>
-      </div>
-    </div>
-  </div>
+      <%!-- Main info --%>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h1 class="text-2xl sm:text-3xl font-bold text-heading flex items-center gap-2 flex-wrap">
+              <%= @profile_user.display_name || @profile_user.username %>
+              <span :if={@profile_user.flair} class="text-xs font-medium px-2 py-0.5 rounded bg-border text-body">
+                <%= @profile_user.flair %>
+              </span>
+            </h1>
 
-  <%!-- Bio --%>
-  <div :if={@profile_user.bio} class="mb-6">
-    <p class="text-gray-300 text-sm leading-relaxed"><%= @profile_user.bio %></p>
-  </div>
+            <div class="flex items-center flex-wrap gap-x-4 gap-y-1 mt-1.5 text-sm text-muted">
+              <span :if={@profile_user.location} class="inline-flex items-center gap-1">
+                <.icon name="map-pin" class="w-4 h-4" /> <%= @profile_user.location %>
+              </span>
+              <a
+                :if={@profile_user.website}
+                href={@profile_user.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1 text-accent hover:underline"
+              >
+                <.icon name="globe" class="w-4 h-4" /> <%= display_website(@profile_user.website) %>
+              </a>
+            </div>
+          </div>
 
-  <%!-- Location & Website --%>
-  <div class="flex flex-wrap gap-4 mb-6 text-sm">
-    <span :if={@profile_user.location} class="text-gray-400">
-      📍 <%= @profile_user.location %>
-    </span>
-    <a
-      :if={@profile_user.website}
-      href={@profile_user.website}
-      target="_blank"
-      rel="noopener noreferrer"
-      class="text-blue-400 hover:underline"
-    >
-      🔗 <%= @profile_user.website %>
-    </a>
-  </div>
-
-  <%!-- Stats row --%>
-  <.card class="mb-8">
-    <div class="flex justify-around text-center">
-      <div>
-        <p class="text-2xl font-bold text-white"><%= @profile_user.posts_count %></p>
-        <p class="text-xs text-gray-500 mt-1">Publicaciones</p>
-      </div>
-      <div class="border-l border-[#1a2035]"></div>
-      <div>
-        <p class="text-2xl font-bold text-white"><%= member_since(@profile_user) %></p>
-        <p class="text-xs text-gray-500 mt-1">Miembro desde</p>
-      </div>
-    </div>
-  </.card>
-
-  <%!-- Recent posts --%>
-  <div>
-    <h2 class="text-lg font-semibold text-white mb-4">Publicaciones recientes</h2>
-
-    <div :if={@posts != []} class="space-y-3">
-      <div :for={post <- @posts} class="group py-3 border-b border-[#1a2035] last:border-b-0">
-        <div class="flex items-center justify-between mb-1">
-          <a
-            href={~p"/t/#{post.topic_id}"}
-            class="text-sm text-blue-400 hover:underline truncate max-w-md"
-          >
-            <%= post.topic.title %>
-          </a>
-          <span class="text-xs text-gray-500 flex-shrink-0 ml-2">
-            <%= es_locale(post.inserted_at) %>
-          </span>
+          <%!-- Actions --%>
+          <div :if={@current_user && @current_user.id != @profile_user.id} class="flex-shrink-0 flex flex-col items-stretch gap-2">
+            <button
+              :if={!@blocked_by_me && @can_message}
+              phx-click="message-user"
+              phx-value-user_id={@profile_user.id}
+              class="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-full bg-accent text-white hover:bg-accent-hover transition-colors"
+            >
+              <.icon name="mail" class="w-4 h-4" /> <%= gettext("Message") %>
+            </button>
+            <p
+              :if={!@blocked_by_me && !@can_message}
+              class="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs text-muted"
+            >
+              <.icon name="mail" class="w-3.5 h-3.5" /> <%= gettext("Not accepting messages") %>
+            </p>
+            <%!-- Block menu: Ignore (one-way) or Block (mutual) --%>
+            <div :if={!@blocked_by_me} class="relative" id="block-menu">
+              <button
+                type="button"
+                phx-click={Phoenix.LiveView.JS.toggle(to: "#block-options")}
+                class="inline-flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm rounded-full border border-border text-muted hover:border-danger hover:text-danger transition-colors"
+              >
+                <.icon name="x" class="w-4 h-4" /> <%= gettext("Block") %>
+              </button>
+              <div
+                id="block-options"
+                class="hidden absolute right-0 mt-1 w-64 rounded-lg bg-surface border border-border shadow-lg py-1 z-20"
+                phx-click-away={Phoenix.LiveView.JS.hide()}
+              >
+                <button
+                  type="button"
+                  phx-click="block-user"
+                  phx-value-user_id={@profile_user.id}
+                  phx-value-mode="ignore"
+                  class="w-full text-left px-3 py-2 hover:bg-surface-alt transition-colors"
+                >
+                  <div class="text-sm font-medium text-heading"><%= gettext("Ignore") %></div>
+                  <div class="text-xs text-muted"><%= gettext("You stop seeing their posts.") %></div>
+                </button>
+                <button
+                  type="button"
+                  phx-click="block-user"
+                  phx-value-user_id={@profile_user.id}
+                  phx-value-mode="block"
+                  class="w-full text-left px-3 py-2 hover:bg-surface-alt transition-colors"
+                >
+                  <div class="text-sm font-medium text-danger"><%= gettext("Block") %></div>
+                  <div class="text-xs text-muted"><%= gettext("Neither of you sees the other.") %></div>
+                </button>
+              </div>
+            </div>
+            <button
+              :if={@blocked_by_me}
+              phx-click="unblock-user"
+              phx-value-user_id={@profile_user.id}
+              class="inline-flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm rounded-full border border-accent text-accent hover:bg-accent-soft transition-colors"
+            >
+              <.icon name="check" class="w-4 h-4" /> <%= gettext("Unblock") %>
+            </button>
+          </div>
         </div>
-        <p class="text-sm text-gray-400 line-clamp-2">
-          <%= body_excerpt(post.body, 200) %>
+
+        <%!-- Bio --%>
+        <p :if={@profile_user.bio} class="mt-3 text-sm text-body leading-relaxed">
+          <%= @profile_user.bio %>
         </p>
-        <div class="flex items-center gap-1 mt-1">
-          <span :for={%{emoji: emoji, count: count} <- Map.get(@post_reactions, post.id, %{}) |> Enum.map(fn {e, c} -> %{emoji: e, count: c} end)} class="text-xs text-gray-600">
-            <%= emoji %> <%= count %>
+
+        <%!-- Role / badges --%>
+        <div class="flex items-center gap-2 mt-3 flex-wrap">
+          <span class="text-xs text-muted">@<%= @profile_user.username %></span>
+          <.badge :if={@profile_user.role} color="red"><%= Colloq.Permissions.role_name(@profile_user.role) %></.badge>
+          <span
+            :for={badge <- @profile_badges}
+            class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded"
+            style={"background-color: #{badge.color}20; color: #{badge.color}"}
+          >
+            <%= badge.icon %> <%= badge.name %>
           </span>
         </div>
       </div>
     </div>
 
-    <div :if={@posts == []} class="text-center py-8">
-      <p class="text-gray-500 text-sm">Todavía no publicó nada.</p>
+    <%!-- Stats row --%>
+    <div class="flex flex-wrap gap-x-6 gap-y-2 mt-5 pt-4 border-t border-border text-sm">
+      <div class="flex items-center gap-1.5">
+        <span class="text-muted"><%= gettext("Joined") %></span>
+        <span class="font-semibold text-heading"><%= short_date(@profile_user.inserted_at) %></span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-muted"><%= gettext("Last Post") %></span>
+        <span class="font-semibold text-heading"><%= short_date(@stats[:last_post_at]) %></span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-muted"><%= gettext("Views") %></span>
+        <span class="font-semibold text-heading"><%= @stats[:total_views] || 0 %></span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-muted"><%= gettext("Trust Level") %></span>
+        <span class="font-semibold text-heading"><%= trust_level_name(@profile_user.trust_level) %></span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-muted"><%= gettext("Cheers") %></span>
+        <span class="font-semibold text-accent"><%= @stats[:cheers] || 0 %></span>
+      </div>
+    </div>
+  </div>
+
+  <%!-- Blocked state --%>
+  <div :if={@blocked_by_me} class="text-center py-12 border border-border rounded-xl bg-surface">
+    <div class="text-4xl mb-3">🚫</div>
+    <p class="text-heading font-semibold mb-1"><%= gettext("Blocked user") %></p>
+    <p class="text-muted text-sm mb-4"><%= gettext("You won't see posts from this user.") %></p>
+    <button
+      phx-click="unblock-user"
+      phx-value-user_id={@profile_user.id}
+      class="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-accent text-white hover:bg-accent-hover transition-colors"
+    >
+      <%= gettext("Unblock user") %>
+    </button>
+  </div>
+
+  <%!-- Tabs --%>
+  <div :if={!@blocked_by_me}>
+    <div class="flex items-center gap-8 border-b border-border mb-6">
+      <button
+        :for={{tab, label, icon} <- [{"summary", gettext("Summary"), "user"}, {"activity", gettext("Activity"), "activity"}, {"badges", gettext("Badges"), "star"}]}
+        phx-click="set-tab"
+        phx-value-tab={tab}
+        class={[
+          "inline-flex items-center gap-1.5 pb-3 -mb-px text-sm font-medium border-b-2 transition-colors",
+          @active_tab == tab && "border-accent text-accent" || "border-transparent text-muted hover:text-heading"
+        ]}
+      >
+        <.icon name={icon} class="w-4 h-4" /> <%= label %>
+      </button>
+    </div>
+
+    <%!-- Summary / Activity: recent posts --%>
+    <div :if={@active_tab in ["summary", "activity"]}>
+      <div :if={@posts != []} class="space-y-3">
+        <div :for={post <- @posts} class="group py-3 border-b border-border last:border-b-0">
+          <div class="flex items-center justify-between mb-1">
+            <a href={~p"/t/#{post.topic_id}"} class="text-sm text-accent hover:underline truncate max-w-md">
+              <%= post.topic.title %>
+            </a>
+            <span class="text-xs text-muted flex-shrink-0 ml-2"><%= es_locale(post.inserted_at) %></span>
+          </div>
+          <p class="text-sm text-muted line-clamp-2"><%= body_excerpt(post.body, 200) %></p>
+          <div class="flex items-center gap-2 mt-1">
+            <span :for={%{emoji: emoji, count: count} <- Map.get(@post_reactions, post.id, %{}) |> Enum.map(fn {e, c} -> %{emoji: e, count: c} end)} class="text-xs text-muted">
+              <%= emoji %> <%= count %>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div :if={@posts == []} class="text-center py-8">
+        <p class="text-muted text-sm"><%= gettext("No posts yet.") %></p>
+      </div>
+    </div>
+
+    <%!-- Badges --%>
+    <div :if={@active_tab == "badges"}>
+      <div :if={@profile_badges != []} class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div
+          :for={badge <- @profile_badges}
+          class="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface"
+        >
+          <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-xl" style={"background-color: #{badge.color}20"}>
+            <%= badge.icon %>
+          </div>
+          <div class="min-w-0">
+            <div class="text-sm font-medium text-heading truncate"><%= badge.name %></div>
+            <div :if={badge.description} class="text-xs text-muted truncate"><%= badge.description %></div>
+          </div>
+        </div>
+      </div>
+      <div :if={@profile_badges == []} class="text-center py-8">
+        <p class="text-muted text-sm"><%= gettext("No badges yet.") %></p>
+      </div>
     </div>
   </div>
 </div>
 
 <div :if={@profile_user == nil} class="max-w-3xl mx-auto px-4 py-16 text-center">
-  <h1 class="text-2xl font-bold text-white mb-2">Usuario no encontrado</h1>
-  <p class="text-gray-400">El usuario que buscás no existe.</p>
+  <h1 class="text-2xl font-bold text-heading mb-2"><%= gettext("User not found") %></h1>
+  <p class="text-muted"><%= gettext("The user you're looking for doesn't exist.") %></p>
 </div>

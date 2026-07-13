@@ -2,6 +2,16 @@ defmodule Colloq.Forum.Post do
   @moduledoc """
   Post schema.
   Stores both HTML (body) and Tiptap JSON (body_json) for full fidelity.
+
+  System posts (`is_system: true`) have a `system_type` that controls rendering:
+  - "goal" — goal alert from ScoreBotWorker
+  - "card" — card alert (yellow/red)
+  - "sub" — substitution alert
+  - "summary" — match summary
+  - "standings" — league standings table
+  - "x_feed" — imported tweet from X/Twitter
+  - "continuation" / "continuation_start" — thread continuation chain
+  - "prediction_results" — prediction scoring results
   """
   use Ecto.Schema
   import Ecto.Changeset
@@ -27,6 +37,16 @@ defmodule Colloq.Forum.Post do
     has_one :first_topic, Colloq.Forum.Topic, foreign_key: :first_post_id
     has_one :last_topic, Colloq.Forum.Topic, foreign_key: :last_post_id
 
+    # Nested replies
+    belongs_to :parent, Colloq.Forum.Post
+    has_many :replies, Colloq.Forum.Post, foreign_key: :parent_id
+
+    # Polls
+    has_one :poll, Colloq.Forum.Poll
+
+    # Link unfurls / rich embeds
+    has_many :embeds, Colloq.Forum.Embed
+
     timestamps(type: :utc_datetime_usec)
   end
 
@@ -34,7 +54,7 @@ defmodule Colloq.Forum.Post do
     post
     |> cast(attrs, [
       :body, :body_json, :topic_id, :user_id, :post_number,
-      :is_system, :system_type, :event_data
+      :is_system, :system_type, :event_data, :parent_id
     ])
     |> sanitize_body()
     |> validate_required([:body, :topic_id, :user_id, :post_number])

@@ -65,10 +65,10 @@ defmodule ColloqWeb.AdminLive.Bots do
         {:noreply,
          socket
          |> assign(:personas, personas)
-         |> put_flash(:info, "Bot eliminado.")}
+         |> put_flash(:info, gettext("Bot deleted."))}
 
       {:error, _} ->
-        {:noreply, put_flash(socket, :error, "No se pudo eliminar el bot.")}
+        {:noreply, put_flash(socket, :error, gettext("Could not delete the bot."))}
     end
   end
 
@@ -98,7 +98,7 @@ defmodule ColloqWeb.AdminLive.Bots do
              socket
              |> assign(:personas, [persona | socket.assigns.personas])
              |> assign(:show_modal, false)
-             |> put_flash(:info, "Bot creado.")}
+             |> put_flash(:info, gettext("Bot created."))}
 
           {:error, changeset} ->
             {:noreply, put_changeset_flash(socket, changeset)}
@@ -113,7 +113,7 @@ defmodule ColloqWeb.AdminLive.Bots do
              socket
              |> assign(:personas, replace_in_list(socket.assigns.personas, updated))
              |> assign(:show_modal, false)
-             |> put_flash(:info, "Bot actualizado.")}
+             |> put_flash(:info, gettext("Bot updated."))}
 
           {:error, changeset} ->
             {:noreply, put_changeset_flash(socket, changeset)}
@@ -125,26 +125,14 @@ defmodule ColloqWeb.AdminLive.Bots do
     temperature = Application.get_env(:colloq, :bot_default_temperature, 0.7)
     max_tokens = Application.get_env(:colloq, :bot_default_max_tokens, 1024)
 
-    {:noreply, assign(socket, :test_loading, true)}
-
     messages = [
       %{role: "system", content: system_prompt},
       %{role: "user", content: prompt}
     ]
 
-    case Llm.complete(provider, messages, %{model: model, temperature: temperature, max_tokens: max_tokens}) do
-      {:ok, %{content: content}} ->
-        {:noreply,
-         socket
-         |> assign(:test_response, content)
-         |> assign(:test_loading, false)}
+    send(self(), {:run_llm_test, provider, messages, %{model: model, temperature: temperature, max_tokens: max_tokens}})
 
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(:test_response, "Error: #{inspect(reason)}")
-         |> assign(:test_loading, false)}
-    end
+    {:noreply, assign(socket, :test_loading, true)}
   end
 
   def handle_event("close-modal", _params, socket) do
@@ -169,6 +157,23 @@ defmodule ColloqWeb.AdminLive.Bots do
   def handle_event("edit", %{"id" => id}, socket) do
     persona = Enum.find(socket.assigns.personas, &(&1.id == String.to_integer(id)))
     {:noreply, push_patch(socket, to: ~p"/admin/bots/#{persona.id}/edit")}
+  end
+
+  @impl true
+  def handle_info({:run_llm_test, provider, messages, opts}, socket) do
+    case Llm.complete(provider, messages, opts) do
+      {:ok, %{content: content}} ->
+        {:noreply,
+         socket
+         |> assign(:test_response, content)
+         |> assign(:test_loading, false)}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:test_response, "Error: #{inspect(reason)}")
+         |> assign(:test_loading, false)}
+    end
   end
 
   defp assign_form(socket, nil) do

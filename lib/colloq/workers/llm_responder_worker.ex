@@ -1,10 +1,10 @@
 defmodule Colloq.Workers.LlmResponderWorker do
   @moduledoc """
-  Worker de respuesta vía LLM cuando se menciona una persona bot.
+  LLM response worker for bot persona mentions.
 
-  Carga la persona bot desde la tabla bot_system, construye el prompt
-  del sistema y el array de mensajes, llama al proveedor LLM configurado
-  y publica la respuesta como post del bot en el mismo hilo.
+  Loads the bot persona from the bot_system table, builds the system
+  prompt and message array, calls the configured LLM provider,
+  and posts the response as a bot post in the same thread.
   """
   use Oban.Worker, queue: :llm, max_attempts: 3
 
@@ -15,6 +15,7 @@ defmodule Colloq.Workers.LlmResponderWorker do
   alias Colloq.Bots.BotSystem
   alias Colloq.Llm
   alias Colloq.Accounts
+  import Ecto.Query
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"post_id" => post_id, "persona_slug" => persona_slug}}) do
@@ -30,15 +31,20 @@ defmodule Colloq.Workers.LlmResponderWorker do
 
     case Llm.complete(provider, messages, %{model: model}) do
       {:ok, %{content: reply_body}} ->
-        bot_user = Repo.get_by!(Colloq.Accounts.User, username: persona_slug)
+        case Repo.get_by(Colloq.Accounts.User, username: persona_slug) do
+          nil ->
+            Logger.warning("LLM responder: no existe usuario para persona #{persona_slug}")
+            {:error, "bot user not found"}
 
-        {:ok, _reply_post} =
-          Forum.create_post(topic, bot_user, %{
-            "body" => reply_body,
-            "body_json" => nil
-          })
+          bot_user ->
+            {:ok, _reply_post} =
+              Forum.create_post(topic, bot_user, %{
+                "body" => reply_body,
+                "body_json" => nil
+              })
 
-        :ok
+            :ok
+        end
 
       {:error, :rate_limited} ->
         {:snooze, 60}

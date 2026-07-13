@@ -1,4 +1,14 @@
-<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-  <.flash_group flash={@flash} />
-  <%= @inner_content %>
-</main>
+<.app_header
+  current_user={@current_user}
+  unread_notifications={assigns[:unread_notifications] || 0}
+  unread_messages={assigns[:unread_messages] || 0}
+/>
+
+<div class="mx-auto max-w-7xl flex">
+  <.sidebar current_user={@current_user} categories={assigns[:categories] || []} />
+
+  <main class="flex-1 min-w-0 px-4 sm:px-6 py-6">
+    <.flash_group flash={@flash} />
+    <%= @inner_content %>
+  </main>
+</div>

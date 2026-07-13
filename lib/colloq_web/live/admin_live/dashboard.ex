@@ -59,6 +59,38 @@ defmodule ColloqWeb.AdminLive.Dashboard do
 
   def handle_info(_, socket), do: {:noreply, socket}
 
+  @impl true
+  # Dismiss a report without hiding the post.
+  def handle_event("dismiss-flag", %{"id" => id}, socket) do
+    Moderation.resolve_flag(String.to_integer(id), socket.assigns.current_user.id, "dismissed")
+
+    {:noreply,
+     socket
+     |> refresh_flags()
+     |> put_flash(:info, gettext("Report dismissed."))}
+  end
+
+  # Hide the reported post and resolve the report.
+  def handle_event("hide-flagged-post", %{"id" => id, "post_id" => post_id}, socket) do
+    case Repo.get(Colloq.Forum.Post, String.to_integer(post_id)) do
+      nil -> :ok
+      post -> Moderation.hide_post(post)
+    end
+
+    Moderation.resolve_flag(String.to_integer(id), socket.assigns.current_user.id, "post_hidden")
+
+    {:noreply,
+     socket
+     |> refresh_flags()
+     |> put_flash(:info, gettext("Post hidden and report resolved."))}
+  end
+
+  defp refresh_flags(socket) do
+    socket
+    |> assign(:recent_flags, recent_flags())
+    |> assign(:stats, Map.put(socket.assigns.stats, :flags_count, recent_flags_count()))
+  end
+
   defp load_stats do
     %{
       total_users: total_users(),
@@ -98,14 +130,25 @@ defmodule ColloqWeb.AdminLive.Dashboard do
     Moderation.list_pending_flags()
     |> Enum.take(10)
     |> Enum.map(fn flag ->
+      post = if Ecto.assoc_loaded?(flag.post), do: flag.post, else: nil
+
       %{
         id: flag.id,
         reason: flag.reason,
         inserted_at: flag.inserted_at,
         post_id: flag.post_id,
-        user: if(Ecto.assoc_loaded?(flag.user), do: flag.user.username, else: nil)
+        topic_id: post && post.topic_id,
+        deleted: post && post.deleted_at != nil,
+        excerpt: post && flag_excerpt(post.body),
+        user: if(Ecto.assoc_loaded?(flag.user) && flag.user, do: flag.user.username, else: nil)
       }
     end)
+  end
+
+  defp flag_excerpt(nil), do: ""
+
+  defp flag_excerpt(body) do
+    body |> HtmlSanitizeEx.strip_tags() |> String.trim() |> String.slice(0, 160)
   end
 
   defp user_growth_chart_data do

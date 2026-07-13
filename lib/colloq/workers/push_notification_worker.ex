@@ -1,14 +1,13 @@
 defmodule Colloq.Workers.PushNotificationWorker do
   @moduledoc """
-  Worker de envío de notificaciones push web (PWA).
+  Web push notification delivery worker (PWA).
 
-  Llamado por ScoreBotWorker cuando ocurre un gol, tarjeta o
-  final de partido. Carga todas las suscripciones push de usuarios
-  que siguen a Racing Club (team_id 174) y envía una notificación
-  web push a cada una.
+  Triggered by ScoreBotWorker on goals, cards, or full-time.
+  Loads all push subscriptions from users following the involved team
+  and sends a web push notification to each.
 
-  Las notificaciones usan el tag "match-event" para que se reemplacen
-  entre sí en el dispositivo.
+  Notifications use the "match-event" tag so they replace
+  each other on the device.
   """
   use Oban.Worker, queue: :notifications, max_attempts: 3
 
@@ -16,23 +15,22 @@ defmodule Colloq.Workers.PushNotificationWorker do
 
   require Logger
 
-  @racing_id 174
   @vapid_subject "mailto:no-reply@colloq.ar"
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"event_type" => "goal"} = args}) do
     payload = build_goal_payload(args)
-    send_to_racing_fans(payload)
+    send_to_fans(payload, args["team_id"])
   end
 
   def perform(%Oban.Job{args: %{"event_type" => "card"} = args}) do
     payload = build_card_payload(args)
-    send_to_racing_fans(payload)
+    send_to_fans(payload, args["team_id"])
   end
 
   def perform(%Oban.Job{args: %{"event_type" => "ft"} = args}) do
     payload = build_ft_payload(args)
-    send_to_racing_fans(payload)
+    send_to_fans(payload, args["team_id"])
   end
 
   defp build_goal_payload(args) do
@@ -92,14 +90,14 @@ defmodule Colloq.Workers.PushNotificationWorker do
     end
   end
 
-  defp send_to_racing_fans(payload) do
-    subscriptions = PushSubscriptions.for_team(@racing_id)
+  defp send_to_fans(payload, team_id) do
+    subscriptions = PushSubscriptions.for_team(team_id)
 
     Enum.each(subscriptions, fn sub ->
       send_push(sub, payload)
     end)
 
-    Logger.info("[PushNotification] Enviadas a #{length(subscriptions)} suscriptores")
+    Logger.info("[PushNotification] Enviadas a #{length(subscriptions)} suscriptores del equipo #{team_id}")
     :ok
   end
 
@@ -107,34 +105,32 @@ defmodule Colloq.Workers.PushNotificationWorker do
     vapid_public = Application.get_env(:colloq, :vapid_public_key)
     vapid_private = Application.get_env(:colloq, :vapid_private_key)
 
-    unless vapid_public && vapid_private do
+    if vapid_public && vapid_private do
+      message = WebPushEncryption.encrypt(
+        Jason.encode!(payload),
+        %{
+          endpoint: subscription.endpoint,
+          keys: %{
+            p256dh: subscription.p256dh,
+            auth: subscription.auth
+          }
+        },
+        vapid_private,
+        vapid_public,
+        @vapid_subject
+      )
+
+      case message do
+        {:ok, %{body: body, headers: headers}} ->
+          send_to_endpoint(subscription.endpoint, body, headers)
+
+        {:error, reason} ->
+          Logger.error("[PushNotification] Error cifrando mensaje: #{inspect(reason)}")
+      end
+    else
       Logger.warning("[PushNotification] VAPID keys no configuradas")
-      {:discard, "sin VAPID keys"} and throw(:skip)
+      {:discard, "sin VAPID keys"}
     end
-
-    message = WebPushEncryption.encrypt(
-      Jason.encode!(payload),
-      %{
-        endpoint: subscription.endpoint,
-        keys: %{
-          p256dh: subscription.p256dh,
-          auth: subscription.auth
-        }
-      },
-      vapid_private,
-      vapid_public,
-      @vapid_subject
-    )
-
-    case message do
-      {:ok, %{body: body, headers: headers}} ->
-        send_to_endpoint(subscription.endpoint, body, headers)
-
-      {:error, reason} ->
-        Logger.error("[PushNotification] Error cifrando mensaje: #{inspect(reason)}")
-    end
-  catch
-    :skip -> {:discard, "sin VAPID keys"}
   end
 
   defp send_to_endpoint(endpoint, body, headers) do

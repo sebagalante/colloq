@@ -1,19 +1,18 @@
 defmodule Colloq.Workers.PlayerStatsWorker do
   @moduledoc """
-  Worker de estadísticas de jugador vía API-Football.
+  Player stats worker via API-Football.
 
-  Obtiene estadísticas de jugadores desde el endpoint /players de
-  API-Football, las enriquece con datos de SofascoreWorker y
-  las almacena en Cachex.
+  Fetches player statistics from the API-Football /players endpoint,
+  enriches them with SofascoreWorker data, and stores in Cachex.
 
-  Al completar la carga, transmite :player_comparison_ready por PubSub
-  para que el frontend pueda mostrar la comparación de jugadores.
+  Broadcasts :player_comparison_ready via PubSub when loading completes,
+  allowing the frontend to display the player comparison.
   """
   use Oban.Worker, queue: :default, max_attempts: 3
 
   require Logger
 
-  @api_url "https://v3.football.api-sports.io"
+  defp api_url, do: Application.get_env(:colloq, :api_football_url, "https://v3.football.api-sports.io")
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{
@@ -59,7 +58,7 @@ defmodule Colloq.Workers.PlayerStatsWorker do
 
     query = URI.encode_query(params)
 
-    case Req.get("#{@api_url}/players?#{query}",
+    case Req.get("#{api_url()}/players?#{query}",
            headers: %{
              "x-apisports-key" => api_key,
              "accept" => "application/json"

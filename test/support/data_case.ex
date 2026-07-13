@@ -11,6 +11,7 @@ defmodule Colloq.DataCase do
       import Ecto.Changeset
       import Ecto.Query
       import Colloq.DataCase
+      import Colloq.Factory
     end
   end
 

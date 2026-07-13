@@ -1,38 +1,38 @@
 <section class="space-y-6">
-  <h1 class="text-2xl font-bold text-white">Comparar Jugadores</h1>
+  <h1 class="text-2xl font-bold text-heading"><%= gettext("Compare Players") %></h1>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
     <div>
-      <label class="block text-sm font-medium text-gray-300 mb-1">Jugador A</label>
+      <label class="block text-sm font-medium text-body mb-1"><%= gettext("Player A") %></label>
       <input
         type="text"
         name="player_a"
-        placeholder="Buscar jugador..."
+        placeholder={gettext("Search player...")}
         phx-change="search-players"
         phx-debounce="300"
-        class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
       />
     </div>
     <div>
-      <label class="block text-sm font-medium text-gray-300 mb-1">Jugador B</label>
+      <label class="block text-sm font-medium text-body mb-1"><%= gettext("Player B") %></label>
       <input
         type="text"
         name="player_b"
-        placeholder="Buscar jugador..."
+        placeholder={gettext("Search player...")}
         phx-change="search-players"
         phx-debounce="300"
-        class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
       />
     </div>
   </div>
 
   <div class="flex items-center gap-4">
     <div>
-      <label class="block text-sm font-medium text-gray-300 mb-1">Temporada</label>
+      <label class="block text-sm font-medium text-body mb-1"><%= gettext("Season") %></label>
       <select
         name="season"
         phx-change="select-season"
-        class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
       >
         <%= for {label, value} <- @seasons do %>
           <option value={value} selected={@season == value}><%= label %></option>
@@ -40,52 +40,52 @@
       </select>
     </div>
 
-    <.button phx-click="compare">Comparar</.button>
+    <.button phx-click="compare"><%= gettext("Compare") %></.button>
   </div>
 
   <%= if @comparing do %>
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-[#1a2035]">
-            <th class="text-left py-3 px-4 text-gray-400 font-medium">Estadística</th>
-            <th class="text-center py-3 px-4 text-blue-400 font-medium">Jugador A</th>
-            <th class="text-center py-3 px-4 text-purple-400 font-medium">Jugador B</th>
+          <tr class="border-b border-border">
+            <th class="text-left py-3 px-4 text-muted font-medium"><%= gettext("Statistic") %></th>
+            <th class="text-center py-3 px-4 text-accent font-medium"><%= gettext("Player A") %></th>
+            <th class="text-center py-3 px-4 text-purple-400 font-medium"><%= gettext("Player B") %></th>
           </tr>
         </thead>
         <tbody>
           <%= for section <- @comparison_stats do %>
             <tr>
-              <td colspan="3" class="py-2 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <td colspan="3" class="py-2 px-4 text-xs font-semibold text-muted uppercase tracking-wider">
                 <%= section.label %>
               </td>
             </tr>
             <%= for stat <- section.stats do %>
-              <tr class="border-b border-[#1a2035]/50">
-                <td class="py-2 px-4 text-gray-300">
+              <tr class="border-b border-border/50">
+                <td class="py-2 px-4 text-body">
                   <%= stat.emoji %> <%= stat.label %>
                 </td>
                 <% a_val = get_in(@player_a_stats || %{}, [stat.key]) || 0 %>
                 <% b_val = get_in(@player_b_stats || %{}, [stat.key]) || 0 %>
-                <td class="py-2 px-4 text-center text-white tabular-nums">
+                <td class="py-2 px-4 text-center text-heading tabular-nums">
                   <span class="inline-flex items-center gap-1">
                     <%= if a_val > b_val do %>
-                      <.badge color="green">mejor</.badge>
+                      <.badge color="green"><%= gettext("better") %></.badge>
                     <% end %>
                     <%= a_val %>
                   </span>
-                  <div class="w-full bg-[#1a2035] rounded-full h-1 mt-1">
+                  <div class="w-full bg-border rounded-full h-1 mt-1">
                     <div class="bg-blue-500 h-1 rounded-full" style={"width: #{bar_width(a_val, b_val)}%"}></div>
                   </div>
                 </td>
-                <td class="py-2 px-4 text-center text-white tabular-nums">
+                <td class="py-2 px-4 text-center text-heading tabular-nums">
                   <span class="inline-flex items-center gap-1">
                     <%= if b_val > a_val do %>
-                      <.badge color="green">mejor</.badge>
+                      <.badge color="green"><%= gettext("better") %></.badge>
                     <% end %>
                     <%= b_val %>
                   </span>
-                  <div class="w-full bg-[#1a2035] rounded-full h-1 mt-1">
+                  <div class="w-full bg-border rounded-full h-1 mt-1">
                     <div class="bg-purple-500 h-1 rounded-full" style={"width: #{bar_width(b_val, a_val)}%"}></div>
                   </div>
                 </td>
@@ -95,30 +95,30 @@
         </tbody>
       </table>
 
-      <div class="mt-4 p-3 rounded-lg bg-[#1a2035] border border-[#253048] text-center">
-        <p class="text-sm text-gray-400">
-          Victorias: Jugador A <span class="text-blue-400 font-bold"><%= win_count(@player_a_stats, @player_b_stats) %></span>
+      <div class="mt-4 p-3 rounded-lg bg-border border border-border-hover text-center">
+        <p class="text-sm text-muted">
+          <%= gettext("Wins: Player A") %> <span class="text-accent font-bold"><%= win_count(@player_a_stats, @player_b_stats) %></span>
           ·
-          Jugador B <span class="text-purple-400 font-bold"><%= win_count(@player_b_stats, @player_a_stats) %></span>
+          <%= gettext("Player B") %> <span class="text-purple-400 font-bold"><%= win_count(@player_b_stats, @player_a_stats) %></span>
           ·
-          Empates <span class="text-gray-400 font-bold"><%= tie_count(@player_a_stats, @player_b_stats) %></span>
+          <%= gettext("Draws") %> <span class="text-muted font-bold"><%= tie_count(@player_a_stats, @player_b_stats) %></span>
         </p>
       </div>
 
-      <div class="mt-4 p-3 rounded-lg bg-[#0f1420] border border-[#1a2035]">
-        <p class="text-xs text-gray-400 mb-1">Compartir esta comparación:</p>
+      <div class="mt-4 p-3 rounded-lg bg-surface border border-border">
+        <p class="text-xs text-muted mb-1"><%= gettext("Share this comparison:") %></p>
         <input
           type="text"
           readonly
           value={url(~p"/comparar?a=#{(@player_a && @player_a.id) || ''}&b=#{(@player_b && @player_b.id) || ''}&season=#{@season}")}
           onclick="this.select()"
-          class="w-full rounded-lg border border-[#1a2035] bg-[#1a2035] text-gray-300 px-3 py-2 text-xs focus:outline-none cursor-pointer"
+          class="w-full rounded-lg border border-border bg-border text-body px-3 py-2 text-xs focus:outline-none cursor-pointer"
         />
       </div>
     </div>
   <% else %>
     <.card>
-      <p class="text-sm text-gray-400">Seleccioná dos jugadores y una temporada para comparar sus estadísticas.</p>
+      <p class="text-sm text-muted"><%= gettext("Select two players and a season to compare their stats.") %></p>
     </.card>
   <% end %>
 </section>

@@ -5,14 +5,15 @@ defmodule ColloqWeb.Router do
 
   @moduledoc """
   Router for Colloq.
-  
+
   Pipelines:
   - :browser → standard browser requests
   - :api → JSON API requests
-  - :admin_network → IP-restricted admin routes
-  
-  Note: Bot detection is handled by heuristic checks in Moderation context,
-  not by an external service.
+  - :admin_base → auth + admin role check (no IP restriction)
+  - :super_admin_network → IP-restricted + auth + admin role check
+
+  2FA verification is enforced on admin routes for users with TOTP enabled.
+  IP restriction (WireGuard/Tailscale) is enforced only for super_admin routes.
   """
 
   pipeline :browser do
@@ -22,7 +23,7 @@ defmodule ColloqWeb.Router do
     plug :put_root_layout, html: {ColloqWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers, %{
-      "content-security-policy" => "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' ws: wss:; media-src 'self' https:;"
+      "content-security-policy" => "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://platform.twitter.com https://cdn.syndication.twimg.com; style-src 'self' 'unsafe-inline' https://platform.twitter.com https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ws: wss: https://syndication.twitter.com https://cdn.syndication.twimg.com; media-src 'self' https:; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://platform.twitter.com https://twitter.com https://x.com https://open.spotify.com https://w.soundcloud.com https://www.facebook.com https://web.facebook.com https://www.instagram.com;"
     }
     plug :fetch_current_user
   end
@@ -32,10 +33,31 @@ defmodule ColloqWeb.Router do
     plug :fetch_session
   end
 
-  pipeline :admin_network do
+  # Admin base pipeline — auth + role check, NO IP restriction
+  pipeline :admin_base do
+    plug :require_authenticated_user
+    plug :require_admin_user
+    plug :require_2fa_verified
+  end
+
+  # Super admin pipeline — IP-restricted (WireGuard/Tailscale) + auth + role
+  pipeline :super_admin_network do
     plug ColloqWeb.Plugs.VpnOnly
     plug :require_authenticated_user
     plug :require_admin_user
+    plug :require_2fa_verified
+  end
+
+  pipeline :require_moderator do
+    plug ColloqWeb.Plugs.RequirePermission, :view_users
+  end
+
+  pipeline :require_admin do
+    plug ColloqWeb.Plugs.RequirePermission, :view_dashboard
+  end
+
+  pipeline :require_super_admin do
+    plug ColloqWeb.Plugs.RequirePermission, :assign_roles
   end
 
   # --- PUBLIC ROUTES ---
@@ -46,16 +68,31 @@ defmodule ColloqWeb.Router do
     live "/c/:slug", ForumLive.Index, :category
     live "/t/:id", ForumLive.Topic, :show
     live "/t/:id/:slug", ForumLive.Topic, :show
+    live "/u/:username", UserLive.Profile, :show
+
+    live "/members", MembersLive, :index
+    live "/leaderboard", LeaderboardLive, :index
+    live "/badges", BadgesLive, :index
+    live "/about", StaticLive, :about
+    live "/guidelines", StaticLive, :guidelines
 
     get "/go", LinkController, :redirect
+
+    # Session management (for LiveView login)
+    get "/session", SessionController, :create
+    get "/session/2fa", SessionController, :create_with_2fa
+    get "/session/2fa/complete", SessionController, :finalize_2fa
+    get "/logout", SessionController, :delete
 
     # Guest can view but not post — auth checked at LiveView level
     live "/register", UserLive.Registration, :new
     live "/login", UserLive.Login, :new
+    live "/2fa", UserLive.TwoFactor, :new
     live "/forgot-password", UserLive.ForgotPassword, :new
     live "/reset-password", UserLive.ResetPassword, :edit
 
-    # OAuth callbacks
+    # OAuth (Ueberauth)
+    get "/auth/:provider", AuthController, :request
     get "/auth/:provider/callback", AuthController, :callback
     get "/auth/failure", AuthController, :failure
   end
@@ -64,11 +101,18 @@ defmodule ColloqWeb.Router do
   scope "/", ColloqWeb do
     pipe_through [:browser, :require_authenticated_user]
 
+    post "/api/upload", UploadController, :create
+    post "/api/chat/upload", UploadController, :attachment
+    get "/api/users/search", MentionController, :search
+    get "/api/emojis", MentionController, :emojis
+    get "/api/tags/search", MentionController, :tags
+
     live "/forum/new", ForumLive.Index, :new_topic
     live "/messages", UserLive.Messages, :index
     live "/messages/:id", UserLive.Messages, :show
-    live "/u/:username", UserLive.Profile, :show
+    live "/notifications", UserLive.Notifications, :index
     live "/settings", UserLive.Settings, :edit
+    live "/bookmarks", UserLive.Bookmarks, :index
 
     live "/comparar", PlayerComparisonLive, :show
     live "/predicciones", PredictionsLive, :index
@@ -83,9 +127,22 @@ defmodule ColloqWeb.Router do
     post "/automations/:id/trigger", AutomationController, :trigger
   end
 
-  # --- ADMIN (IP-restricted) ---
+  # --- ADMIN: Moderator+ (moderator, admin, super_admin) ---
+  # No IP restriction — accessible from any network
   scope "/admin", ColloqWeb do
-    pipe_through [:browser, :admin_network]
+    pipe_through [:browser, :admin_base, :require_moderator]
+
+    live "/moderation", AdminLive.Moderation, :index
+    live "/users", AdminLive.Users, :index
+    live "/categories", AdminLive.Categories, :index
+    live "/categories/new", AdminLive.Categories, :new
+    live "/categories/:id/edit", AdminLive.Categories, :edit
+  end
+
+  # --- ADMIN: Admin+ (admin, super_admin) ---
+  # No IP restriction — accessible from any network
+  scope "/admin", ColloqWeb do
+    pipe_through [:browser, :admin_base, :require_admin]
 
     live "/", AdminLive.Dashboard, :index
     live "/automations", AdminLive.Automations, :index
@@ -94,8 +151,19 @@ defmodule ColloqWeb.Router do
     live "/bots", AdminLive.Bots, :index
     live "/bots/new", AdminLive.Bots, :new
     live "/bots/:id/edit", AdminLive.Bots, :edit
+    live "/badges", AdminLive.Badges, :index
+    live "/badges/new", AdminLive.Badges, :new
+    live "/badges/:id/edit", AdminLive.Badges, :edit
+    live "/emojis", AdminLive.Emojis, :index
     live "/settings/llm", AdminLive.LlmSettings, :edit
     live "/settings/x_feed", AdminLive.XFeedSettings, :edit
+  end
+
+  # --- ADMIN: Super Admin only (super_admin) ---
+  # IP-restricted via WireGuard/Tailscale — only accessible from VPN
+  scope "/admin", ColloqWeb do
+    pipe_through [:browser, :super_admin_network, :require_super_admin]
+
     live "/settings", AdminLive.Settings, :index
   end
 
@@ -107,6 +175,15 @@ defmodule ColloqWeb.Router do
       pipe_through :browser
       live_dashboard "/dashboard", metrics: ColloqWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview
+    end
+  end
+
+  # Voice rooms (experimental, behind feature flag)
+  if Application.compile_env(:colloq, :voice_rooms_enabled, false) do
+    scope "/", ColloqWeb do
+      pipe_through :browser
+
+      live "/voice/:slug", VoiceRoomLive, :show
     end
   end
 end

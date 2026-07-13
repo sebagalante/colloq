@@ -1,0 +1,105 @@
+<div class="max-w-4xl mx-auto px-4 py-6">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-heading"><%= gettext("Categories") %></h1>
+    <.button phx-click="open-new" class="text-sm">
+      + <%= gettext("New Category") %>
+    </.button>
+  </div>
+
+  <div class="space-y-2">
+    <div
+      :for={category <- @categories}
+      class="flex items-center gap-4 p-4 rounded-lg bg-surface border border-border"
+    >
+      <div
+        class="w-3 h-3 rounded-full flex-shrink-0"
+        style={"background-color: #{category.color || "#3b82f6"}"}
+      />
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span :if={category.icon} class="text-lg"><%= category.icon %></span>
+          <span class="font-semibold text-heading"><%= category.name %></span>
+          <span class="text-xs text-muted">/<%= category.slug %></span>
+        </div>
+        <p :if={category.description} class="text-xs text-muted mt-1 truncate">
+          <%= category.description %>
+        </p>
+      </div>
+      <div class="flex items-center gap-2 text-xs text-muted">
+        <span><%= category.topic_count %> <%= gettext("topics") %></span>
+        <span>·</span>
+        <span>TL<%= category.required_trust_level %>+</span>
+      </div>
+      <div class="flex items-center gap-1">
+        <button
+          phx-click="edit"
+          phx-value-id={category.id}
+          class="px-2 py-1 text-xs text-muted hover:text-heading transition-colors"
+        >
+          <%= gettext("Edit") %>
+        </button>
+        <button
+          phx-click="delete"
+          phx-value-id={category.id}
+          data-confirm={gettext("Delete this category?")}
+          class="px-2 py-1 text-xs text-muted hover:text-danger transition-colors"
+        >
+          <%= gettext("Delete") %>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <p :if={@categories == []} class="text-muted text-center py-8">
+    <%= gettext("No categories yet.") %>
+  </p>
+
+  <%!-- Modal --%>
+  <.modal :if={@show_modal} id="category-modal" show on_cancel={JS.push("close-modal")}>
+    <h2 class="text-lg font-bold text-heading mb-4">
+      <%= if @editing, do: gettext("Edit Category"), else: gettext("New Category") %>
+    </h2>
+
+    <.form for={@form} phx-submit="save" class="space-y-4">
+      <.input field={@form[:name]} type="text" label={gettext("Name")} placeholder={gettext("Category name")} required />
+      <.input field={@form[:slug]} type="text" label="Slug" placeholder="category-slug" required />
+      <.input field={@form[:description]} type="textarea" label={gettext("Description")} placeholder={gettext("Short description...")} />
+      <div>
+        <label class="block text-sm font-medium text-body mb-1"><%= gettext("Parent category") %></label>
+        <select
+          name="category[parent_id]"
+          class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+        >
+          <option value=""><%= gettext("None (top-level)") %></option>
+          <option
+            :for={cat <- parent_options(@categories, @editing)}
+            value={cat.id}
+            selected={to_string(@form[:parent_id].value) == to_string(cat.id)}
+          >
+            <%= cat.name %>
+          </option>
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <.input field={@form[:icon]} type="text" label={gettext("Icon")} placeholder="⚽" />
+        <.input field={@form[:color]} type="color" label={gettext("Color")} />
+      </div>
+      <.input field={@form[:position]} type="number" label={gettext("Position")} />
+      <.input field={@form[:required_trust_level]} type="number" label={gettext("Minimum trust level")} min="0" max="4" />
+      <div class="flex items-center gap-4">
+        <label class="flex items-center gap-2 text-sm text-body">
+          <input type="checkbox" name="category[read_restricted]" value="true" checked={@form[:read_restricted].value == "true"} class="rounded" />
+          <%= gettext("Read restricted") %>
+        </label>
+        <label class="flex items-center gap-2 text-sm text-body">
+          <input type="checkbox" name="category[write_restricted]" value="true" checked={@form[:write_restricted].value == "true"} class="rounded" />
+          <%= gettext("Write restricted") %>
+        </label>
+      </div>
+      <div class="flex gap-2 pt-2">
+        <.button type="submit" class="text-sm"><%= gettext("Save") %></.button>
+        <button type="button" phx-click="close-modal" class="text-sm text-muted hover:text-heading transition-colors"><%= gettext("Cancel") %></button>
+      </div>
+    </.form>
+  </.modal>
+</div>

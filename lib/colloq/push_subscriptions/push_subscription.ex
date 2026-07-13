@@ -1,9 +1,9 @@
 defmodule Colloq.PushSubscriptions.PushSubscription do
   @moduledoc """
-  Esquema de suscripción a notificaciones push web.
+  Web push notification subscription schema.
 
-  Almacena el endpoint, las claves de cifrado (p256dh, auth)
-  y los equipos a los que está suscrito el usuario.
+  Stores the endpoint, encryption keys (p256dh, auth),
+  and the teams the user is subscribed to.
   """
   use Ecto.Schema
   import Ecto.Changeset

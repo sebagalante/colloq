@@ -1,10 +1,10 @@
 defmodule Colloq.Workers.LinkValidatorWorker do
   @moduledoc """
-  Worker de validación de links en posts.
+  Post link validation worker.
 
-  Extrae todas las URLs del cuerpo de un post, verifica que cada una
-  responda (HEAD request) y que el dominio no esté bloqueado.
-  Si encuentra links rotos o bloqueados, reporta el post y notifica al autor.
+  Extracts all URLs from a post body, verifies each one responds
+  (HEAD request) and that the domain is not blocked.
+  Reports the post and notifies the author if broken or blocked links are found.
   """
   use Oban.Worker, queue: :default, max_attempts: 3
 

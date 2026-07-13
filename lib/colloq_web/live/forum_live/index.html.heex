@@ -7,11 +7,11 @@
         phx-value-slug=""
         class={[
           "flex-shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors",
-          is_nil(@selected_category_slug) && "bg-blue-600 text-white",
-          !is_nil(@selected_category_slug) && "bg-[#1a2035] text-gray-400 hover:bg-[#253048] hover:text-white"
+          is_nil(@selected_category_slug) && "bg-accent text-white",
+          !is_nil(@selected_category_slug) && "bg-border text-muted hover:bg-border-hover hover:text-heading"
         ]}
       >
-        Todos
+        <%= gettext("All") %>
       </button>
       <button
         :for={cat <- @categories}
@@ -19,8 +19,8 @@
         phx-value-slug={cat.slug}
         class={[
           "flex-shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors",
-          @selected_category_slug == cat.slug && "bg-blue-600 text-white",
-          @selected_category_slug != cat.slug && "bg-[#1a2035] text-gray-400 hover:bg-[#253048] hover:text-white"
+          @selected_category_slug == cat.slug && "bg-accent text-white",
+          @selected_category_slug != cat.slug && "bg-border text-muted hover:bg-border-hover hover:text-heading"
         ]}
       >
         <%= cat.name %>
@@ -28,17 +28,34 @@
     </div>
   </div>
 
-  <%!-- Action bar --%>
-  <div class="flex items-center justify-between mb-6">
-    <h2 class="text-xl font-semibold text-white">
-      <%= if @selected_category_slug do %>
-        <%= category_name(@categories, @selected_category_slug) %>
-      <% else %>
-        Temas recientes
-      <% end %>
-    </h2>
+  <%!-- Action bar: sort tabs + new topic --%>
+  <div class="flex items-center justify-between mb-6 gap-4">
+    <div class="flex items-center gap-1 border-b border-border">
+      <button
+        phx-click="set-order"
+        phx-value-order="latest"
+        class={[
+          "px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+          (@order || :latest) == :latest && "border-accent text-heading",
+          (@order || :latest) != :latest && "border-transparent text-muted hover:text-heading"
+        ]}
+      >
+        <%= gettext("Latest") %>
+      </button>
+      <button
+        phx-click="set-order"
+        phx-value-order="top"
+        class={[
+          "px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+          @order == :top && "border-accent text-heading",
+          @order != :top && "border-transparent text-muted hover:text-heading"
+        ]}
+      >
+        <%= gettext("Top") %>
+      </button>
+    </div>
     <.button :if={@current_user} phx-click="open-modal">
-      Nuevo tema
+      <%= gettext("New topic") %>
     </.button>
   </div>
 
@@ -49,13 +66,17 @@
       href={~p"/t/#{topic.id}/#{topic.slug}"}
       class="block group"
     >
-      <.card class="hover:border-[#253048] transition-colors cursor-pointer">
+      <.card class="hover:border-border-hover transition-colors cursor-pointer">
         <div class="flex items-start gap-4">
           <%!-- Avatar --%>
           <div class="flex-shrink-0">
-            <div class="w-10 h-10 rounded-full bg-[#1a2035] flex items-center justify-center text-sm font-bold text-gray-400 group-hover:text-white transition-colors">
-              <%= String.slice(topic.user.display_name || topic.user.username, 0..0) |> String.upcase() %>
-            </div>
+            <%= if topic.user.avatar_url do %>
+              <img src={topic.user.avatar_url} alt="" class="w-10 h-10 rounded-full object-cover" loading="lazy" />
+            <% else %>
+              <div class="w-10 h-10 rounded-full bg-border flex items-center justify-center text-sm font-bold text-muted group-hover:text-heading transition-colors">
+                <%= String.slice(topic.user.display_name || topic.user.username, 0..0) |> String.upcase() %>
+              </div>
+            <% end %>
           </div>
 
           <%!-- Content --%>
@@ -64,24 +85,41 @@
               <.badge color={topic.category.color || "blue"}>
                 <%= topic.category.name %>
               </.badge>
-              <.badge :if={topic.is_match_thread} color="green">Partido</.badge>
-              <.badge :if={topic.pinned} color="amber">Fijado</.badge>
+              <.badge :if={topic.is_match_thread} color="green"><%= gettext("Match") %></.badge>
+              <.badge :if={topic.pinned} color="amber"><%= gettext("Pinned") %></.badge>
+              <span
+                :if={topic.posts_count >= 3}
+                class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs rounded-full bg-danger-soft text-danger"
+              >🔥 <%= gettext("Hot") %></span>
+              <span
+                :for={tag <- Map.get(@topic_tags, topic.id, [])}
+                class="inline-flex items-center px-1.5 py-0.5 text-xs rounded-full"
+                style={"background-color: #{tag.color || "#6b7280"}20; color: #{tag.color || "#6b7280"}"}
+              >
+                #<%= tag.name %>
+              </span>
             </div>
 
-            <h3 class="text-white font-semibold group-hover:text-blue-400 transition-colors truncate">
+            <h3 class="text-heading font-semibold group-hover:text-accent transition-colors truncate">
               <%= topic.title %>
             </h3>
 
-            <div class="flex items-center gap-4 mt-2 text-xs text-gray-500">
+            <div class="flex items-center gap-3 mt-2 text-xs text-muted">
               <span>@<%= topic.user.username %></span>
-              <span><%= topic.posts_count %> respuestas</span>
-              <span>hace <%= format_age(topic.bumped_at) %></span>
+              <span><%= max(topic.posts_count - 1, 0) %> <%= gettext("replies") %></span>
+              <span><%= format_age(topic.bumped_at) %></span>
+              <span
+                :if={topic.last_post && topic.last_post.user && topic.last_post.user_id != topic.user_id}
+                class="hidden sm:inline"
+              >
+                · <%= gettext("last:") %> @<%= topic.last_post.user.username %>
+              </span>
             </div>
           </div>
 
           <%!-- Post count pill --%>
           <div class="flex-shrink-0">
-            <span class="inline-flex items-center justify-center rounded-full bg-[#1a2035] px-2.5 py-1 text-xs font-medium text-gray-400">
+            <span class="inline-flex items-center justify-center rounded-full bg-border px-2.5 py-1 text-xs font-medium text-muted">
               <%= topic.posts_count %>
             </span>
           </div>
@@ -92,8 +130,8 @@
 
   <%!-- Empty state --%>
   <div :if={@topics == []} class="text-center py-16">
-    <p class="text-gray-500 text-lg mb-2">No hay temas todavía.</p>
-    <p class="text-gray-600 text-sm">¡Sé el primero en crear uno!</p>
+    <p class="text-muted text-lg mb-2"><%= gettext("No topics yet.") %></p>
+    <p class="text-gray-600 text-sm"><%= gettext("Be the first to create one!") %></p>
   </div>
 
   <%!-- Pagination --%>
@@ -102,40 +140,64 @@
       :if={@page > 1}
       phx-click="change-page"
       phx-value-page={@page - 1}
-      class="inline-flex items-center gap-1 rounded-lg px-4 py-2 text-sm bg-[#1a2035] text-gray-400 hover:bg-[#253048] hover:text-white transition-colors"
+      class="inline-flex items-center gap-1 rounded-lg px-4 py-2 text-sm bg-border text-muted hover:bg-border-hover hover:text-heading transition-colors"
     >
-      ← Anterior
+      <%= gettext("← Previous") %>
     </button>
-    <span :if={@page == 1} class="px-4 py-2 text-sm text-gray-600">← Anterior</span>
+    <span :if={@page == 1} class="px-4 py-2 text-sm text-gray-600"><%= gettext("← Previous") %></span>
 
-    <span class="text-sm text-gray-500">
-      Página <%= @page %> de <%= @total_pages %>
+    <span class="text-sm text-muted">
+      <%= gettext("Page") %> <%= @page %> <%= gettext("of") %> <%= @total_pages %>
     </span>
 
     <button
       :if={@page < @total_pages}
       phx-click="change-page"
       phx-value-page={@page + 1}
-      class="inline-flex items-center gap-1 rounded-lg px-4 py-2 text-sm bg-[#1a2035] text-gray-400 hover:bg-[#253048] hover:text-white transition-colors"
+      class="inline-flex items-center gap-1 rounded-lg px-4 py-2 text-sm bg-border text-muted hover:bg-border-hover hover:text-heading transition-colors"
     >
-      Siguiente →
+      <%= gettext("Next →") %>
     </button>
-    <span :if={@page >= @total_pages} class="px-4 py-2 text-sm text-gray-600">Siguiente →</span>
+    <span :if={@page >= @total_pages} class="px-4 py-2 text-sm text-gray-600"><%= gettext("Next →") %></span>
   </div>
 </div>
 
 <%!-- New topic modal --%>
 <.modal id="new-topic-modal" show={@show_modal} on_cancel={JS.push("close-modal")}>
-  <:title>Nuevo tema</:title>
+  <:title><%= gettext("New topic") %></:title>
   <form phx-submit="create-topic">
-    <.input id="form-title" name="title" label="Título" value={assigns[:form_title]} />
+    <div class="relative">
+      <.input id="form-title" name="title" label={gettext("Title")} value={assigns[:form_title]} />
+      <button
+        type="button"
+        id="form-title-emoji"
+        phx-hook="EmojiInsert"
+        data-target="form-title"
+        title={gettext("Add emoji")}
+        class="absolute right-2 bottom-2 p-1 rounded text-muted hover:text-accent transition-colors"
+      >
+        <.icon name="smile" class="w-5 h-5" />
+      </button>
+    </div>
     <div class="mb-4">
-      <label for="form-category" class="block text-sm font-medium text-gray-300 mb-1">Categoría</label>
-      <select id="form-category" name="category_id" class="w-full rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+      <label for="form-category" class="block text-sm font-medium text-body mb-1"><%= gettext("Category") %></label>
+      <select id="form-category" name="category_id" class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
         <option :for={cat <- @categories} value={cat.id}><%= cat.name %></option>
       </select>
     </div>
-    <.textarea id="form-body" name="body" label="Contenido" value={assigns[:form_body]} />
-    <.button type="submit">Crear tema</.button>
+    <.textarea id="form-body" name="body" label={gettext("Content")} value={assigns[:form_body]} />
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-body mb-1"><%= gettext("Tags") %></label>
+      <div
+        id="form-tags"
+        phx-hook="TagInput"
+        phx-update="ignore"
+        data-name="tags"
+        data-initial={assigns[:form_tags]}
+      >
+      </div>
+      <p class="text-xs text-muted mt-1"><%= gettext("Type to search existing tags or create a new one.") %></p>
+    </div>
+    <.button type="submit"><%= gettext("Create topic") %></.button>
   </form>
 </.modal>

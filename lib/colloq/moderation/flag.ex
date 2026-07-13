@@ -1,8 +1,8 @@
 defmodule Colloq.Moderation.Flag do
   @moduledoc """
-  Schema de reporte (flag) de un post.
+  Post flag (report) schema.
 
-  Un usuario reporta un post con una razón. Un moderador lo resuelve.
+  A user flags a post with a reason. A moderator resolves it.
   """
   use Ecto.Schema
   import Ecto.Changeset
@@ -28,7 +28,7 @@ defmodule Colloq.Moderation.Flag do
       :post_id, :topic_id, :user_id, :resolved_by_id
     ])
     |> validate_required([:reason, :post_id, :user_id])
-    |> validate_inclusion(:reason, ~w(spam inapropiado off_topic acoso otro))
+    |> validate_inclusion(:reason, ~w(spam inappropriate off_topic harassment other))
     |> foreign_key_constraint(:post_id)
     |> foreign_key_constraint(:user_id)
   end

@@ -1,42 +1,42 @@
 <section class="space-y-6 max-w-2xl">
-  <h1 class="text-2xl font-bold text-white">Configuración de X Feed</h1>
+  <h1 class="text-2xl font-bold text-white"><%= gettext("X Feed Settings") %></h1>
   <p class="text-sm text-gray-400">
-    Configurá la integración con X (Twitter) vía Nitter para monitorear cuentas y palabras clave
-    y publicar automáticamente en un tema del foro.
+    <%= gettext("Configure X (Twitter) integration via Nitter to monitor accounts and keywords") %>
+    <%= gettext("and automatically post to a forum topic.") %>
   </p>
 
   <.card>
     <form phx-submit="save" class="space-y-4">
       <.input
-        label="URL de la instancia Nitter"
+        label={gettext("Nitter instance URL")}
         name="nitter_url"
         value={@form.nitter_url}
         placeholder="https://nitter.net"
       />
 
       <.textarea
-        label="Cuentas a monitorear (separadas por coma)"
+        label={gettext("Accounts to monitor (comma-separated)")}
         name="accounts"
         value={@form.accounts}
         placeholder="RacingClub, pelotaRC, ..."
       />
 
       <.textarea
-        label="Palabras clave (separadas por coma)"
+        label={gettext("Keywords (comma-separated)")}
         name="keywords"
         value={@form.keywords}
         placeholder="#Racing, #VamosRacing, Academia, ..."
       />
 
       <.input
-        label="ID del tema destino"
+        label={gettext("Target topic ID")}
         name="target_topic_id"
         value={@form.target_topic_id}
         type="number"
-        placeholder="ID del topic donde se publicarán los tweets"
+        placeholder={gettext("Topic ID where tweets will be posted")}
       />
 
-      <.button type="submit">Guardar</.button>
+      <.button type="submit"><%= gettext("Save") %></.button>
     </form>
   </.card>
 </section>

@@ -1,30 +1,30 @@
 <section class="space-y-6">
-  <h1 class="text-2xl font-bold text-white">Predicciones</h1>
+  <h1 class="text-2xl font-bold text-heading"><%= gettext("Predictions") %></h1>
 
   <%= if @next_match do %>
     <.card>
-      <h2 class="text-lg font-semibold text-white mb-1">Próximo Partido</h2>
+      <h2 class="text-lg font-semibold text-heading mb-1"><%= gettext("Next Match") %></h2>
       <div class="flex items-center justify-center gap-6 my-4">
         <div class="text-center">
-          <p class="text-xl font-bold text-white"><%= @next_match.home_team %></p>
+          <p class="text-xl font-bold text-heading"><%= @next_match.home_team %></p>
         </div>
         <div class="text-center">
-          <p class="text-3xl font-bold text-gray-500">vs</p>
+          <p class="text-3xl font-bold text-muted">vs</p>
           <%= if @next_match.match_date do %>
-            <p class="text-xs text-gray-500"><%= Calendar.strftime(@next_match.match_date, "%d/%m %H:%M") %></p>
+            <p class="text-xs text-muted"><%= Calendar.strftime(@next_match.match_date, "%d/%m %H:%M") %></p>
           <% end %>
         </div>
         <div class="text-center">
-          <p class="text-xl font-bold text-white"><%= @next_match.away_team %></p>
+          <p class="text-xl font-bold text-heading"><%= @next_match.away_team %></p>
         </div>
       </div>
 
-      <form phx-submit="predict" class="space-y-4 mt-4 pt-4 border-t border-[#1a2035]">
-        <h3 class="text-sm font-semibold text-gray-300">Tu Predicción</h3>
+      <form phx-submit="predict" class="space-y-4 mt-4 pt-4 border-t border-border">
+        <h3 class="text-sm font-semibold text-body"><%= gettext("Your Prediction") %></h3>
 
         <div class="grid grid-cols-2 gap-4">
           <.input
-            label="Goles Local"
+            label={gettext("Home Goals")}
             name="home_score"
             type="number"
             min="0"
@@ -32,7 +32,7 @@
             placeholder="0"
           />
           <.input
-            label="Goles Visitante"
+            label={gettext("Away Goals")}
             name="away_score"
             type="number"
             min="0"
@@ -43,54 +43,54 @@
 
         <div class="grid grid-cols-2 gap-4">
           <.input
-            label="Primer Goleador"
+            label={gettext("First Scorer")}
             name="first_scorer"
             value={@form_first_scorer}
-            placeholder="Nombre del jugador"
+            placeholder={gettext("Player name")}
           />
           <.input
-            label="Jugador del Partido"
+            label={gettext("Man of the Match")}
             name="motm"
             value={@form_motm}
-            placeholder="Nombre del jugador"
+            placeholder={gettext("Player name")}
           />
         </div>
 
         <.button type="submit" disabled={@submitting}>
-          Enviar Predicción
+          <%= gettext("Submit Prediction") %>
         </.button>
       </form>
     </.card>
   <% else %>
     <.card>
-      <p class="text-sm text-gray-400">No hay partidos próximos programados. ¡Volvé cuando haya fecha!</p>
+      <p class="text-sm text-muted"><%= gettext("No upcoming matches scheduled. Come back when there's a fixture!") %></p>
     </.card>
   <% end %>
 
   <%= if @user_history != [] do %>
     <.card>
-      <h2 class="text-lg font-semibold text-white mb-3">Tu Historial</h2>
+      <h2 class="text-lg font-semibold text-heading mb-3"><%= gettext("Your History") %></h2>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
-            <tr class="border-b border-[#1a2035]">
-              <th class="text-left py-2 px-3 text-gray-400 font-medium">Partido</th>
-              <th class="text-center py-2 px-3 text-gray-400 font-medium">Resultado</th>
-              <th class="text-center py-2 px-3 text-gray-400 font-medium">Puntos</th>
-              <th class="text-right py-2 px-3 text-gray-400 font-medium">Fecha</th>
+            <tr class="border-b border-border">
+              <th class="text-left py-2 px-3 text-muted font-medium"><%= gettext("Match") %></th>
+              <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Result") %></th>
+              <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Points") %></th>
+              <th class="text-right py-2 px-3 text-muted font-medium"><%= gettext("Date") %></th>
             </tr>
           </thead>
           <tbody>
             <%= for pred <- @user_history do %>
-              <tr class="border-b border-[#1a2035]/50">
-                <td class="py-2 px-3 text-gray-300 truncate max-w-[200px]"><%= pred.match_title %></td>
-                <td class="py-2 px-3 text-center text-white tabular-nums">
+              <tr class="border-b border-border/50">
+                <td class="py-2 px-3 text-body truncate max-w-[200px]"><%= pred.match_title %></td>
+                <td class="py-2 px-3 text-center text-heading tabular-nums">
                   <%= pred.home_score %> - <%= pred.away_score %>
                 </td>
                 <td class="py-2 px-3 text-center">
                   <.badge color={if pred.points > 0, do: "green", else: "gray"}><%= pred.points %> pts</.badge>
                 </td>
-                <td class="py-2 px-3 text-right text-gray-500 text-xs">
+                <td class="py-2 px-3 text-right text-muted text-xs">
                   <%= if pred.inserted_at, do: Calendar.strftime(pred.inserted_at, "%d/%m/%Y") %>
                 </td>
               </tr>
@@ -102,34 +102,34 @@
   <% end %>
 
   <.card>
-    <h2 class="text-lg font-semibold text-white mb-3">Tabla de Posiciones</h2>
+    <h2 class="text-lg font-semibold text-heading mb-3"><%= gettext("Leaderboard") %></h2>
 
     <%= if @leaderboard == [] do %>
-      <p class="text-sm text-gray-400">Todavía no hay predicciones puntuadas en esta temporada.</p>
+      <p class="text-sm text-muted"><%= gettext("No scored predictions this season yet.") %></p>
     <% else %>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
-            <tr class="border-b border-[#1a2035]">
-              <th class="text-left py-2 px-3 text-gray-400 font-medium w-10">#</th>
-              <th class="text-left py-2 px-3 text-gray-400 font-medium">Usuario</th>
-              <th class="text-center py-2 px-3 text-gray-400 font-medium">Puntos</th>
-              <th class="text-center py-2 px-3 text-gray-400 font-medium">Racha</th>
-              <th class="text-right py-2 px-3 text-gray-400 font-medium"></th>
+            <tr class="border-b border-border">
+              <th class="text-left py-2 px-3 text-muted font-medium w-10">#</th>
+              <th class="text-left py-2 px-3 text-muted font-medium"><%= gettext("User") %></th>
+              <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Points") %></th>
+              <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Streak") %></th>
+              <th class="text-right py-2 px-3 text-muted font-medium"></th>
             </tr>
           </thead>
           <tbody>
             <%= for entry <- @leaderboard do %>
-              <tr class="border-b border-[#1a2035]/50">
-                <td class="py-2 px-3 text-gray-500">
+              <tr class="border-b border-border/50">
+                <td class="py-2 px-3 text-muted">
                   <%= if entry.rank <= 3 do %>
                     <.badge color="amber"><%= entry.rank %></.badge>
                   <% else %>
-                    <span class="text-gray-500"><%= entry.rank %></span>
+                    <span class="text-muted"><%= entry.rank %></span>
                   <% end %>
                 </td>
-                <td class="py-2 px-3 text-white font-medium"><%= entry.username %></td>
-                <td class="py-2 px-3 text-center text-white font-bold tabular-nums"><%= entry.points %></td>
+                <td class="py-2 px-3 text-heading font-medium"><%= entry.username %></td>
+                <td class="py-2 px-3 text-center text-heading font-bold tabular-nums"><%= entry.points %></td>
                 <td class="py-2 px-3 text-center">
                   <%= if entry.streak > 0 do %>
                     <span class="text-emerald-400">🔥 <%= entry.streak %></span>
@@ -140,9 +140,9 @@
                 <td class="py-2 px-3 text-right">
                   <a
                     href={~p"/comparar"}
-                    class="text-xs text-blue-400 hover:text-blue-300"
+                    class="text-xs text-accent hover:text-accent-hover"
                   >
-                    Comparar con...
+                    <%= gettext("Compare with...") %>
                   </a>
                 </td>
               </tr>

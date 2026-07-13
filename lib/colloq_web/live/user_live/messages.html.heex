@@ -1,111 +1,368 @@
-<div class="max-w-5xl mx-auto px-4 py-6">
-  <div class="flex h-[calc(100vh-140px)] border border-[#1a2035] rounded-xl overflow-hidden bg-[#0f1420]">
+<div class="max-w-6xl mx-auto px-4 py-6">
+  <div class="flex h-[calc(100vh-140px)] border border-border rounded-2xl overflow-hidden bg-surface shadow-sm">
     <%!-- Conversation list sidebar --%>
-    <div class="w-80 border-r border-[#1a2035] flex flex-col flex-shrink-0">
-      <div class="px-4 py-3 border-b border-[#1a2035]">
-        <h2 class="text-lg font-semibold text-white">Conversaciones</h2>
+    <div class="w-80 border-r border-border flex flex-col flex-shrink-0 bg-surface">
+      <div class="px-4 h-16 flex-shrink-0 border-b border-border flex items-center justify-between">
+        <h2 class="text-lg font-bold text-heading"><%= gettext("Conversations") %></h2>
+        <button
+          phx-click="open-new-conversation"
+          class="inline-flex items-center gap-1 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover transition-colors"
+        >
+          <.icon name="plus" class="w-3.5 h-3.5" /><%= gettext("New") %>
+        </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto">
-        <div :if={@conversations == []} class="px-4 py-8 text-center">
-          <p class="text-gray-500 text-sm">No tenés conversaciones.</p>
+      <div class="flex-1 overflow-y-auto py-1">
+        <div :if={@conversations == []} class="px-6 py-10 text-center">
+          <div class="w-12 h-12 mx-auto mb-3 rounded-full bg-accent-soft flex items-center justify-center">
+            <.icon name="mail" class="w-6 h-6 text-accent" />
+          </div>
+          <p class="text-muted text-sm"><%= gettext("You have no conversations.") %></p>
+          <p class="text-muted text-xs mt-1"><%= gettext("Tap “+ New” above to start one.") %></p>
         </div>
 
-        <div :for={conv <- @conversations} class="border-b border-[#1a2035] last:border-b-0">
+        <div
+          :for={conv <- @conversations}
+          id={"conv-row-#{conv.id}"}
+          class={[
+            "group relative mx-1.5 my-0.5 rounded-xl flex items-stretch transition-colors",
+            (@active_conversation && @active_conversation.id == conv.id && "bg-accent-soft") || "hover:bg-border/60"
+          ]}
+        >
+          <% u = other_user(conv, @current_user) %>
           <button
             phx-click="select_conversation"
             phx-value-id={conv.id}
-            class={[
-              "w-full px-4 py-3 text-left hover:bg-[#1a2035] transition-colors flex items-start gap-3",
-              @active_conversation && @active_conversation.id == conv.id && "bg-[#1a2035]"
-            ]}
+            class="flex-1 min-w-0 px-3 py-2.5 text-left flex items-center gap-3"
           >
-            <div class="flex-shrink-0">
-              <div class="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-sm font-bold text-white">
-                <%= String.slice(other_user(conv, @current_user).display_name || other_user(conv, @current_user).username, 0..0) |> String.upcase() %>
+            <div class="relative flex-shrink-0">
+              <img
+                :if={u.avatar_url}
+                src={u.avatar_url}
+                alt=""
+                class="w-11 h-11 rounded-full object-cover"
+              />
+              <div
+                :if={!u.avatar_url}
+                class="w-11 h-11 rounded-full bg-gradient-to-br from-accent to-accent-hover flex items-center justify-center text-base font-bold text-white"
+              >
+                <%= String.slice(u.display_name || u.username, 0..0) |> String.upcase() %>
               </div>
+              <span
+                :if={online?(u.id)}
+                class="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-success ring-2 ring-surface"
+              >
+              </span>
             </div>
             <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-semibold text-white truncate">
-                  <%= other_user(conv, @current_user).display_name || other_user(conv, @current_user).username %>
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-semibold text-heading truncate flex-1">
+                  <%= u.display_name || u.username %>
                 </span>
-                <span :if={conv.last_message} class="text-xs text-gray-500 flex-shrink-0 ml-2">
+                <span :if={conv.last_message} class="text-[11px] text-muted flex-shrink-0">
                   <%= es_locale(conv.last_message.inserted_at) %>
                 </span>
               </div>
-              <p class="text-xs text-gray-500 truncate mt-0.5">
+              <p class="text-xs text-muted truncate mt-0.5 pr-5">
                 <%= last_message_preview(conv) %>
               </p>
             </div>
+          </button>
+          <button
+            phx-click="delete-conversation"
+            phx-value-id={conv.id}
+            data-confirm={gettext("Delete this conversation for you? The other person keeps their copy.")}
+            title={gettext("Delete conversation")}
+            class="absolute top-1/2 -translate-y-1/2 right-2 p-1.5 rounded-lg text-muted opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-surface transition-all"
+          >
+            <.icon name="trash-2" class="w-4 h-4" />
           </button>
         </div>
       </div>
     </div>
 
     <%!-- Message thread --%>
-    <div :if={@active_conversation} class="flex-1 flex flex-col">
+    <div :if={@active_conversation} class="flex-1 flex flex-col min-w-0">
+      <% other = other_user(@active_conversation, @current_user) %>
+      <% blocked? = other.id in @blocked_user_ids %>
+
       <%!-- Header --%>
-      <div class="px-4 py-3 border-b border-[#1a2035] flex items-center gap-3">
-        <div class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white">
-          <%= String.slice(other_user(@active_conversation, @current_user).display_name || other_user(@active_conversation, @current_user).username, 0..0) |> String.upcase() %>
+      <div class="px-4 h-16 flex-shrink-0 border-b border-border flex items-center gap-3 bg-surface">
+        <div class="relative flex-shrink-0">
+          <img
+            :if={other.avatar_url}
+            src={other.avatar_url}
+            alt=""
+            class="w-10 h-10 rounded-full object-cover"
+          />
+          <div
+            :if={!other.avatar_url}
+            class="w-10 h-10 rounded-full bg-gradient-to-br from-accent to-accent-hover flex items-center justify-center text-sm font-bold text-white"
+          >
+            <%= String.slice(other.display_name || other.username, 0..0) |> String.upcase() %>
+          </div>
+          <span
+            :if={online?(other.id)}
+            class="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-success ring-2 ring-surface"
+          >
+          </span>
         </div>
-        <div>
-          <p class="text-sm font-semibold text-white">
-            <%= other_user(@active_conversation, @current_user).display_name || other_user(@active_conversation, @current_user).username %>
+        <.link navigate={~p"/u/#{other.username}"} class="min-w-0 no-underline">
+          <p class="text-sm font-semibold text-heading truncate hover:underline">
+            <%= other.display_name || other.username %>
           </p>
-          <p class="text-xs text-gray-500">
-            @<%= other_user(@active_conversation, @current_user).username %>
+          <p class={["text-xs truncate", online?(other.id) && "text-success" || "text-muted"]}>
+            <%= if online?(other.id), do: gettext("online"), else: "@#{other.username}" %>
           </p>
+        </.link>
+
+        <%!-- Conversation menu: profile / ignore / block / delete --%>
+        <div class="relative ml-auto flex-shrink-0" id="conversation-menu">
+          <button
+            type="button"
+            phx-click={Phoenix.LiveView.JS.toggle(to: "#conversation-options")}
+            class="p-2 rounded-full text-muted hover:text-heading hover:bg-border transition-colors"
+            title={gettext("Options")}
+          >
+            <.icon name="more-horizontal" class="w-5 h-5" />
+          </button>
+          <div
+            id="conversation-options"
+            phx-click-away={Phoenix.LiveView.JS.hide()}
+            class="hidden absolute right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg py-1 min-w-[210px] z-20"
+          >
+            <.link
+              navigate={~p"/u/#{other.username}"}
+              class="flex items-center gap-2.5 px-3 py-2 text-sm text-body hover:bg-border transition-colors"
+            >
+              <.icon name="user" class="w-4 h-4" /> <%= gettext("View profile") %>
+            </.link>
+
+            <button
+              :if={!blocked?}
+              type="button"
+              phx-click="block-conversation"
+              phx-value-mode="ignore"
+              class="flex items-center gap-2.5 w-full text-left px-3 py-2 text-sm text-body hover:bg-border transition-colors"
+            >
+              <.icon name="bell-off" class="w-4 h-4" /> <%= gettext("Ignore") %>
+            </button>
+            <button
+              :if={!blocked?}
+              type="button"
+              phx-click="block-conversation"
+              phx-value-mode="block"
+              data-confirm={gettext("Block this user? Neither of you will be able to message the other.")}
+              class="flex items-center gap-2.5 w-full text-left px-3 py-2 text-sm text-danger hover:bg-danger-soft transition-colors"
+            >
+              <.icon name="ban" class="w-4 h-4" /> <%= gettext("Block") %>
+            </button>
+            <button
+              :if={blocked?}
+              type="button"
+              phx-click="unblock-conversation"
+              class="flex items-center gap-2.5 w-full text-left px-3 py-2 text-sm text-body hover:bg-border transition-colors"
+            >
+              <.icon name="check" class="w-4 h-4" /> <%= gettext("Unblock") %>
+            </button>
+
+            <div class="my-1 border-t border-border"></div>
+            <button
+              type="button"
+              phx-click="delete-conversation"
+              phx-value-id={@active_conversation.id}
+              data-confirm={gettext("Delete this conversation for you? The other person keeps their copy.")}
+              class="flex items-center gap-2.5 w-full text-left px-3 py-2 text-sm text-danger hover:bg-danger-soft transition-colors"
+            >
+              <.icon name="trash-2" class="w-4 h-4" /> <%= gettext("Delete conversation") %>
+            </button>
+          </div>
         </div>
+      </div>
+
+      <div :if={blocked?} class="px-4 py-2 bg-danger-soft border-b border-danger-border text-xs text-danger text-center">
+        <%= gettext("You blocked this user. They can't message you.") %>
       </div>
 
       <%!-- Messages --%>
-      <div id="messages-container" phx-hook="AutoScroll" class="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-        <div :for={msg <- @messages} class={["flex", msg.user_id == @current_user.id && "justify-end", msg.user_id != @current_user.id && "justify-start"]}>
-          <div class={[
-            "max-w-[70%] rounded-2xl px-4 py-2 text-sm",
-            msg.user_id == @current_user.id && "bg-blue-600 text-white rounded-br-md",
-            msg.user_id != @current_user.id && "bg-[#1a2035] text-gray-200 rounded-bl-md"
-          ]}>
-            <p class="whitespace-pre-wrap break-words"><%= msg.body %></p>
-            <p class={[
-              "text-xs mt-1",
-              msg.user_id == @current_user.id && "text-blue-300",
-              msg.user_id != @current_user.id && "text-gray-600"
+      <div id="messages-container" phx-hook="AutoScroll" class="flex-1 overflow-y-auto px-4 py-4 chat-pattern">
+        <div class="max-w-3xl mx-auto flex flex-col">
+          <div
+            :for={row <- message_rows(@messages, @current_user.id)}
+            id={"msg-row-#{row.msg.id}"}
+            class={[
+              "group flex items-end gap-1.5",
+              row.mine && "justify-end" || "justify-start",
+              row.top && "mt-3" || "mt-0.5"
+            ]}
+          >
+            <button
+              :if={row.mine}
+              type="button"
+              phx-click="delete-message"
+              phx-value-id={row.msg.id}
+              data-confirm={gettext("Delete this message?")}
+              title={gettext("Delete")}
+              class="opacity-0 group-hover:opacity-100 p-1 rounded text-muted hover:text-danger transition-opacity flex-shrink-0"
+            >
+              <.icon name="trash-2" class="w-4 h-4" />
+            </button>
+            <div class={[
+              "max-w-[78%] px-3 py-1.5 shadow-sm",
+              row.mine && "bg-accent text-white" || "bg-surface text-body border border-border",
+              # Telegram-style corners: round everything, flatten the tail corner.
+              row.mine && "rounded-2xl " <> ((row.tail && "rounded-br-md") || ""),
+              !row.mine && "rounded-2xl " <> ((row.tail && "rounded-bl-md") || "")
             ]}>
-              <%= es_locale(msg.inserted_at) %>
-            </p>
+              <%!-- Image attachment --%>
+              <a
+                :if={attachment_image?(row.msg)}
+                href={row.msg.attachment_url}
+                target="_blank"
+                rel="noopener"
+                class="block mb-1 -mx-1 -mt-0.5"
+              >
+                <img src={row.msg.attachment_url} alt={row.msg.attachment_name} class="max-h-64 rounded-xl" loading="lazy" />
+              </a>
+              <%!-- Non-image file attachment --%>
+              <a
+                :if={row.msg.attachment_url && !attachment_image?(row.msg)}
+                href={row.msg.attachment_url}
+                download={row.msg.attachment_name}
+                target="_blank"
+                rel="noopener"
+                class={[
+                  "flex items-center gap-2 mb-1 rounded-lg px-3 py-2",
+                  row.mine && "bg-white/15" || "bg-surface-alt"
+                ]}
+              >
+                <.icon name="file" class="w-5 h-5 flex-shrink-0" />
+                <span class="truncate"><%= row.msg.attachment_name || gettext("Attachment") %></span>
+                <.icon name="download" class="w-4 h-4 flex-shrink-0 ml-auto opacity-70" />
+              </a>
+              <%!-- Body + inline timestamp (Telegram-style, bottom-right) --%>
+              <div class="flex items-end gap-2">
+                <span :if={row.msg.body && row.msg.body != ""} class="text-sm whitespace-pre-wrap break-words min-w-0">
+                  <%= row.msg.body %>
+                </span>
+                <span class={[
+                  "text-[10px] leading-none whitespace-nowrap self-end pb-0.5 ml-auto",
+                  row.mine && "text-white/70" || "text-muted"
+                ]}>
+                  <%= es_locale(row.msg.inserted_at) %>
+                </span>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div :if={@messages == []} class="flex items-center justify-center h-full">
-          <p class="text-gray-500 text-sm">No hay mensajes todavía. ¡Escribí el primero!</p>
+          <div :if={@messages == []} class="flex flex-col items-center justify-center py-20 text-center">
+            <div class="w-14 h-14 rounded-full bg-surface border border-border flex items-center justify-center mb-3">
+              <.icon name="mail" class="w-7 h-7 text-muted" />
+            </div>
+            <p class="text-muted text-sm"><%= gettext("No messages yet. Write the first one!") %></p>
+          </div>
         </div>
       </div>
 
-      <%!-- Input --%>
-      <div class="px-4 py-3 border-t border-[#1a2035]">
-        <form phx-submit="send" class="flex items-end gap-2">
-          <textarea
-            name="body"
-            value={@message_body}
-            placeholder="Escribí un mensaje..."
-            class="flex-1 rounded-lg border border-[#1a2035] bg-[#0f1420] text-white px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            rows="1"
-            phx-keyup="js:if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); this.form.dispatchEvent(new Event('submit', {bubbles: true})); }"
-          ><%= @message_body %></textarea>
-          <.button type="submit" class="flex-shrink-0">Enviar</.button>
+      <%!-- Composer --%>
+      <div class="px-4 py-3 border-t border-border bg-surface">
+        <form
+          id="chat-form"
+          phx-submit="send"
+          phx-change="update_body"
+          phx-hook="ChatComposer"
+          class="flex items-end gap-2 max-w-3xl mx-auto"
+        >
+          <input type="file" id="chat-file" class="hidden" />
+          <div class="flex-1 flex items-end gap-1 rounded-2xl border border-border bg-bg px-1.5 py-1 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/40 transition-colors">
+            <button
+              type="button"
+              id="chat-file-btn"
+              title={gettext("Attach file")}
+              class="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-full text-muted hover:text-heading hover:bg-border transition-colors"
+            >
+              <.icon name="paperclip" class="w-5 h-5" />
+            </button>
+            <textarea
+              id="chat-input"
+              name="body"
+              placeholder={gettext("Write a message...")}
+              class="flex-1 bg-transparent border-0 text-heading px-1 py-2 text-sm resize-none focus:outline-none focus:ring-0 max-h-32"
+              rows="1"
+            ><%= @message_body %></textarea>
+            <button
+              type="button"
+              id="chat-emoji-btn"
+              title={gettext("Emoji")}
+              class="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-full text-muted hover:text-heading hover:bg-border transition-colors"
+            >
+              <.icon name="smile" class="w-5 h-5" />
+            </button>
+          </div>
+          <button
+            type="submit"
+            title={gettext("Send")}
+            class="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-accent text-white hover:bg-accent-hover active:scale-95 transition-all"
+          >
+            <.icon name="send" class="w-5 h-5" />
+          </button>
         </form>
       </div>
     </div>
 
     <%!-- Empty state (no conversation selected) --%>
-    <div :if={!@active_conversation} class="flex-1 flex items-center justify-center">
-      <div class="text-center">
-        <p class="text-gray-500 text-lg mb-2">Seleccioná una conversación</p>
-        <p class="text-gray-600 text-sm">Elegí un contacto de la lista para empezar a chatear.</p>
+    <div :if={!@active_conversation} class="flex-1 flex items-center justify-center chat-pattern">
+      <div class="text-center px-6">
+        <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-surface border border-border flex items-center justify-center">
+          <.icon name="mail" class="w-8 h-8 text-muted" />
+        </div>
+        <%= if @conversations == [] do %>
+          <p class="text-heading text-lg font-semibold mb-1"><%= gettext("No conversations yet") %></p>
+          <p class="text-muted text-sm"><%= gettext("Tap “+ New” to start one.") %></p>
+        <% else %>
+          <p class="text-heading text-lg font-semibold mb-1"><%= gettext("Select a conversation") %></p>
+          <p class="text-muted text-sm"><%= gettext("Choose a contact from the list to start chatting.") %></p>
+        <% end %>
       </div>
     </div>
   </div>
+
+  <%!-- New conversation modal --%>
+  <.modal :if={@show_new_conversation} id="new-conversation-modal" show={@show_new_conversation} on_cancel={JS.push("close-new-conversation")}>
+    <:title><%= gettext("New message") %></:title>
+    <form phx-change="search-users" phx-submit="search-users">
+      <input
+        type="text"
+        name="q"
+        value={@user_query}
+        autocomplete="off"
+        phx-debounce="200"
+        placeholder={gettext("Search users by name…")}
+        class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+      />
+    </form>
+
+    <div class="mt-3 max-h-72 overflow-y-auto">
+      <p :if={@user_query != "" && @user_results == []} class="text-sm text-muted py-3 text-center">
+        <%= gettext("No users found.") %>
+      </p>
+      <button
+        :for={u <- @user_results}
+        phx-click="start-conversation"
+        phx-value-username={u.username}
+        class="flex items-center gap-3 w-full text-left px-2 py-2 rounded-lg hover:bg-border transition-colors"
+      >
+        <div class="flex-shrink-0">
+          <img :if={u.avatar_url} src={u.avatar_url} alt="" class="w-9 h-9 rounded-full object-cover" />
+          <div :if={!u.avatar_url} class="w-9 h-9 rounded-full bg-accent flex items-center justify-center text-sm font-bold text-white">
+            <%= String.slice(u.display_name || u.username, 0..0) |> String.upcase() %>
+          </div>
+        </div>
+        <div class="min-w-0">
+          <div class="text-sm font-medium text-heading truncate"><%= u.display_name || u.username %></div>
+          <div class="text-xs text-muted truncate">@<%= u.username %></div>
+        </div>
+      </button>
+    </div>
+  </.modal>
 </div>

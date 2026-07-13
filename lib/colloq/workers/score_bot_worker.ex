@@ -13,7 +13,7 @@ defmodule Colloq.Workers.ScoreBotWorker do
   alias Colloq.Forum
   alias Colloq.Forum.Topic
 
-  @api_base "https://v3.football.api-sports.io"
+  defp api_base, do: Application.get_env(:colloq, :api_football_url, "https://v3.football.api-sports.io")
 
   @impl Oban.Worker
   def perform(%{args: %{"action" => "preview"}}) do
@@ -29,8 +29,8 @@ defmodule Colloq.Workers.ScoreBotWorker do
   end
 
   @impl Oban.Worker
-  def perform(%{args: %{"action" => "poll", "fixture_id" => fixture_id, "topic_id" => idea}}) do
-    {:ok, topic} = topic_id |> String.to_integer() |> (&Forum.get_topic!(&1)).()
+  def perform(%{args: %{"action" => "poll", "fixture_id" => fixture_id, "topic_id" => topic_id}}) do
+    topic = Forum.get_topic!(String.to_integer(topic_id))
 
     case fetch_live_events(fixture_id) do
       {:ok, events} ->
@@ -73,7 +73,7 @@ defmodule Colloq.Workers.ScoreBotWorker do
   defp fetch_live_events(fixture_id) do
     key = Application.get_env(:colloq, :api_football_key)
 
-    case Req.get("#{@api_base}/fixtures/events",
+    case Req.get("#{api_base()}/fixtures/events",
            params: [fixture: fixture_id],
            headers: %{"x-rapidapi-key" => key, "x-rapidapi-host" => "v3.football.api-sports.io"},
            receive_timeout: 8_000
@@ -97,7 +97,7 @@ defmodule Colloq.Workers.ScoreBotWorker do
   defp get_fixture_status(fixture_id) do
     key = Application.get_env(:colloq, :api_football_key)
 
-    case Req.get("#{@api_base}/fixtures",
+    case Req.get("#{api_base()}/fixtures",
            params: [id: fixture_id],
            headers: %{"x-rapidapi-key" => key, "x-rapidapi-host" => "v3.football.api-sports.io"},
            receive_timeout: 5_000

@@ -7,6 +7,9 @@ defmodule Colloq.MixProject do
       version: "0.1.0",
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
+      # Required for Phoenix live code reloading under Elixir 1.18+ Mix listeners.
+      # Without this the running server serves stale code after edits.
+      listeners: [Phoenix.CodeReloader],
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
@@ -38,8 +41,10 @@ defmodule Colloq.MixProject do
       {:phoenix, "~> 1.7"},
       {:phoenix_ecto, "~> 4.6"},
       {:phoenix_html, "~> 4.2"},
+      {:phoenix_html_helpers, "~> 1.0"},
       {:phoenix_live_reload, "~> 1.5", only: :dev},
       {:phoenix_live_view, "~> 1.0"},
+      {:phoenix_live_dashboard, "~> 0.8"},
       {:floki, ">= 0.36.0", only: :test},
       {:esbuild, "~> 0.9", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
@@ -51,6 +56,16 @@ defmodule Colloq.MixProject do
       # Auth
       {:bcrypt_elixir, "~> 3.2"},
       {:guardian, "~> 2.3"},
+      {:nimble_totp, "~> 1.0"},
+      {:eqrcode, "~> 0.1.10"},
+
+      # OAuth (Ueberauth)
+      {:ueberauth, "~> 0.10"},
+      {:ueberauth_google, "~> 0.12"},
+      {:ueberauth_microsoft, "~> 0.14"},
+      {:ueberauth_facebook, "~> 0.10"},
+      {:ueberauth_twitter, "~> 0.4"},
+      {:ueberauth_discord, "~> 0.7"},
 
       # Background jobs
       {:oban, "~> 2.18"},
@@ -62,7 +77,7 @@ defmodule Colloq.MixProject do
       {:req, "~> 0.5"},
 
       # Web Push (PWA)
-      {:web_push_encryption, "~> 0.4"},
+      {:web_push_encryption, "~> 0.3.1"},
 
       # JSON
       {:jason, "~> 1.4"},
@@ -75,10 +90,10 @@ defmodule Colloq.MixProject do
       {:telemetry_poller, "~> 1.1"},
 
       # Internationalization
-      {:gettext, "~> 0.26"},
+      {:gettext, "~> 0.25.0"},
 
       # Env loading (dev only)
-      {:dotenv, "~> 3.2", only: [:dev, :test]},
+      {:dotenv, "~> 3.1", only: [:dev, :test]},
 
       # Testing
       {:mox, "~> 1.2", only: :test},
@@ -99,11 +114,15 @@ defmodule Colloq.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
+      setup: ["deps.get", "ecto.setup", "assets.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
+      "assets.setup": [
+        "tailwind.install --if-missing",
+        "esbuild.install --if-missing",
+        "cmd npm install --prefix assets"
+      ],
       "assets.build": ["tailwind colloq", "esbuild colloq"],
       "assets.deploy": ["tailwind colloq --minify", "esbuild colloq --minify", "phx.digest"]
     ]

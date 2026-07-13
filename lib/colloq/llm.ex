@@ -1,35 +1,49 @@
 defmodule Colloq.Llm do
   @moduledoc """
-  Adaptador unificado de LLM para Colloq.
+  Unified LLM adapter for Colloq.
 
-  Soporta múltiples proveedores con endpoints compatibles con OpenAI API.
-  Cada proveedor lee su API key de Application.get_env(:colloq, :{provider}_api_key).
+  Supports multiple providers with OpenAI API-compatible endpoints.
+  Each provider reads its API key from Application.get_env(:colloq, :{provider}_api_key).
 
   Providers: groq, nvidia, anthropic, openrouter
 
-  Retorna {:ok, %{content: string}} o {:error, reason}.
-  En caso de rate limit, snoozea el job de Oban: {:snooze, 60}.
+  Returns {:ok, %{content, string}} or {:error, reason}.
+  On rate limit, snoozes the Oban job: {:snooze, 60}.
   """
 
   require Logger
 
-  @providers %{
-    "groq" => %{base_url: "https://api.groq.com/openai/v1", key_env: :groq_api_key},
-    "nvidia" => %{base_url: "https://integrate.api.nvidia.com/v1", key_env: :nvidia_nim_api_key},
-    "anthropic" => %{base_url: "https://api.anthropic.com/v1", key_env: :anthropic_api_key},
-    "openrouter" => %{base_url: "https://openrouter.ai/api/v1", key_env: :openrouter_api_key}
-  }
+  defp providers do
+    %{
+      "groq" => %{
+        base_url: Application.get_env(:colloq, :groq_api_url, "https://api.groq.com/openai/v1"),
+        key_env: :groq_api_key
+      },
+      "nvidia" => %{
+        base_url: Application.get_env(:colloq, :nvidia_api_url, "https://integrate.api.nvidia.com/v1"),
+        key_env: :nvidia_nim_api_key
+      },
+      "anthropic" => %{
+        base_url: Application.get_env(:colloq, :anthropic_api_url, "https://api.anthropic.com/v1"),
+        key_env: :anthropic_api_key
+      },
+      "openrouter" => %{
+        base_url: Application.get_env(:colloq, :openrouter_api_url, "https://openrouter.ai/api/v1"),
+        key_env: :openrouter_api_key
+      }
+    }
+  end
 
   @doc """
-  Envía un prompt de completado al proveedor LLM especificado.
+  Sends a completion prompt to the specified LLM provider.
 
-  Recibe:
+  Receives:
   - provider: string ("groq", "nvidia", "anthropic", "openrouter")
-  - messages: lista de maps %{role: "system"|"user"|"assistant", content: string}
-  - opts: keyword list o map, incluye al menos :model
+  - messages: list of maps %{role: "system"|"user"|"assistant", content: string}
+  - opts: keyword list or map, must include at least :model
 
-  Retorna {:ok, %{content: string}} o {:error, reason}.
-  Si el provider devuelve 429, retorna {:snooze, 60} para Oban.
+  Returns {:ok, %{content: string}} or {:error, reason}.
+  If the provider returns 429, returns {:snooze, 60} for Oban.
   """
   def complete(provider, messages, opts) when is_list(opts), do: complete(provider, messages, Map.new(opts))
   def complete(provider, messages, opts) when is_map(opts) do
@@ -40,7 +54,7 @@ defmodule Colloq.Llm do
   end
 
   defp get_provider_config(provider) do
-    case Map.get(@providers, provider) do
+    case Map.get(providers(), provider) do
       nil -> {:error, "proveedor no soportado: #{provider}"}
       config -> {:ok, config}
     end

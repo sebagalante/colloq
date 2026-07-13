@@ -1,0 +1,86 @@
+<div class="max-w-4xl mx-auto px-4 py-6">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-heading"><%= gettext("Custom emoji") %></h1>
+    <p class="text-sm text-muted mt-1">
+      <%= gettext("Upload images and reference them as :name: in posts and reactions.") %>
+    </p>
+  </div>
+
+  <%!-- Upload form --%>
+  <form
+    phx-submit="save"
+    phx-change="validate"
+    class="flex flex-wrap items-end gap-3 p-4 rounded-xl bg-surface border border-border mb-6"
+  >
+    <div class="flex-1 min-w-[160px]">
+      <label class="block text-sm font-medium text-muted mb-1"><%= gettext("Shortcode") %></label>
+      <div class="flex items-center rounded-lg border border-border bg-bg px-2 focus-within:border-accent">
+        <span class="text-muted text-sm">:</span>
+        <input
+          type="text"
+          name="name"
+          value={@name}
+          placeholder="racing"
+          autocomplete="off"
+          class="flex-1 bg-transparent px-1 py-2 text-sm text-body focus:outline-none"
+        />
+        <span class="text-muted text-sm">:</span>
+      </div>
+    </div>
+
+    <div class="flex-1 min-w-[160px]">
+      <label class="block text-sm font-medium text-muted mb-1"><%= gettext("Image") %></label>
+      <.live_file_input
+        upload={@uploads.image}
+        class="block w-full text-sm text-muted file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-accent file:text-white hover:file:bg-accent-hover file:cursor-pointer"
+      />
+    </div>
+
+    <.button type="submit" class="text-sm">
+      <.icon name="plus" class="w-4 h-4 mr-1" /><%= gettext("Add emoji") %>
+    </.button>
+  </form>
+
+  <div :if={@error} class="mb-4 rounded-lg bg-danger-soft border border-danger-border text-danger text-sm px-4 py-2">
+    <%= @error %>
+  </div>
+
+  <%!-- Upload preview / errors --%>
+  <div :for={entry <- @uploads.image.entries} class="mb-4 flex items-center gap-3 text-sm">
+    <.live_img_preview entry={entry} class="w-8 h-8 object-contain" />
+    <span class="text-muted"><%= entry.client_name %></span>
+    <button type="button" phx-click="cancel-upload" phx-value-ref={entry.ref} class="text-danger text-xs">
+      <%= gettext("Cancel") %>
+    </button>
+    <span :for={err <- upload_errors(@uploads.image, entry)} class="text-danger text-xs">
+      <%= friendly_upload_error(err) %>
+    </span>
+  </div>
+
+  <%!-- Emoji grid --%>
+  <div :if={@emojis == []} class="text-center py-12 text-muted text-sm">
+    <%= gettext("No custom emoji yet. Add your first one above.") %>
+  </div>
+
+  <div :if={@emojis != []} class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+    <div
+      :for={emoji <- @emojis}
+      class="flex items-center gap-3 p-3 rounded-lg bg-surface border border-border"
+    >
+      <img src={emoji.image_url} alt={emoji.name} class="w-8 h-8 object-contain flex-shrink-0" />
+      <div class="flex-1 min-w-0">
+        <span class="font-mono text-sm text-heading">:<%= emoji.name %>:</span>
+      </div>
+      <button
+        type="button"
+        phx-click="delete"
+        phx-value-id={emoji.id}
+        data-confirm={gettext("Delete :%{name}:?", name: emoji.name)}
+        class="text-muted hover:text-danger transition-colors"
+        title={gettext("Delete")}
+      >
+        <.icon name="trash-2" class="w-4 h-4" />
+      </button>
+    </div>
+  </div>
+</div>

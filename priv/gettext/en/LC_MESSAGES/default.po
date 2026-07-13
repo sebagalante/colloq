@@ -1,0 +1,1245 @@
+## "Language" header in .po/.pot files.
+msgid ""
+msgstr ""
+"Language: en\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: manually\n"
+
+## forum_live/topic.html.heex
+msgid "This topic was archived. No new replies can be added."
+msgstr "This topic was archived. No new replies can be added."
+
+msgid "This topic is closed:"
+msgstr "This topic is closed:"
+
+msgid "This topic is closed. No new replies can be added."
+msgstr "This topic is closed. No new replies can be added."
+
+msgid "Home"
+msgstr "Home"
+
+msgid "Away"
+msgstr "Away"
+
+msgid "Match"
+msgstr "Match"
+
+msgid "Created by"
+msgstr "Created by"
+
+msgid "replies"
+msgstr "replies"
+
+msgid "Reply"
+msgstr "Reply"
+
+msgid "Your reply"
+msgstr "Your reply"
+
+msgid "Write your reply..."
+msgstr "Write your reply..."
+
+msgid "Post reply"
+msgstr "Post reply"
+
+msgid "Log in to join the conversation."
+msgstr "Log in to join the conversation."
+
+msgid "Log in"
+msgstr "Log in"
+
+msgid "Conversation summary"
+msgstr "Conversation summary"
+
+msgid "Generate summary"
+msgstr "Generate summary"
+
+msgid "Generating summary with AI..."
+msgstr "Generating summary with AI..."
+
+msgid "Log in to generate a conversation summary."
+msgstr "Log in to generate a conversation summary."
+
+## forum_live/index.html.heex
+msgid "All"
+msgstr "All"
+
+msgid "Recent topics"
+msgstr "Recent topics"
+
+msgid "New topic"
+msgstr "New topic"
+
+msgid "Pinned"
+msgstr "Pinned"
+
+msgid "ago"
+msgstr "ago"
+
+msgid "No topics yet."
+msgstr "No topics yet."
+
+msgid "Be the first to create one!"
+msgstr "Be the first to create one!"
+
+msgid "← Previous"
+msgstr "← Previous"
+
+msgid "Page"
+msgstr "Page"
+
+msgid "of"
+msgstr "of"
+
+msgid "Next →"
+msgstr "Next →"
+
+msgid "Title"
+msgstr "Title"
+
+msgid "Category"
+msgstr "Category"
+
+msgid "Content"
+msgstr "Content"
+
+msgid "Create topic"
+msgstr "Create topic"
+
+## user_live/login.html.heex
+msgid "Username or email"
+msgstr "Username or email"
+
+msgid "Password"
+msgstr "Password"
+
+msgid "Sign in"
+msgstr "Sign in"
+
+msgid "Forgot your password?"
+msgstr "Forgot your password?"
+
+msgid "Don't have an account?"
+msgstr "Don't have an account?"
+
+msgid "Register"
+msgstr "Register"
+
+## user_live/registration.html.heex
+msgid "Create account"
+msgstr "Create account"
+
+msgid "Username"
+msgstr "Username"
+
+msgid "letters, numbers and _ only"
+msgstr "letters, numbers and _ only"
+
+msgid "Display name"
+msgstr "Display name"
+
+msgid "Your name on the forum"
+msgstr "Your name on the forum"
+
+msgid "minimum 8 characters"
+msgstr "minimum 8 characters"
+
+msgid "Confirm password"
+msgstr "Confirm password"
+
+msgid "Creating account..."
+msgstr "Creating account..."
+
+msgid "Sign up"
+msgstr "Sign up"
+
+msgid "Already have an account?"
+msgstr "Already have an account?"
+
+## user_live/settings.html.heex
+msgid "Settings"
+msgstr "Settings"
+
+msgid "Profile"
+msgstr "Profile"
+
+msgid "Bio"
+msgstr "Bio"
+
+msgid "Tell us about yourself..."
+msgstr "Tell us about yourself..."
+
+msgid "Location"
+msgstr "Location"
+
+msgid "Website"
+msgstr "Website"
+
+msgid "Preferences"
+msgstr "Preferences"
+
+msgid "Theme"
+msgstr "Theme"
+
+msgid "Dark"
+msgstr "Dark"
+
+msgid "Light"
+msgstr "Light"
+
+msgid "Language"
+msgstr "Language"
+
+msgid "Spanish"
+msgstr "Spanish"
+
+msgid "English"
+msgstr "English"
+
+msgid "Notifications"
+msgstr "Notifications"
+
+msgid "Receive email notifications"
+msgstr "Receive email notifications"
+
+msgid "Appearance"
+msgstr "Appearance"
+
+msgid "Save changes"
+msgstr "Save changes"
+
+msgid "Back to profile"
+msgstr "Back to profile"
+
+## user_live/profile.html.heex
+msgid "Admin"
+msgstr "Admin"
+
+msgid "Posts"
+msgstr "Posts"
+
+msgid "Member since"
+msgstr "Member since"
+
+msgid "Recent posts"
+msgstr "Recent posts"
+
+msgid "No posts yet."
+msgstr "No posts yet."
+
+msgid "User not found"
+msgstr "User not found"
+
+msgid "The user you're looking for doesn't exist."
+msgstr "The user you're looking for doesn't exist."
+
+## user_live/forgot_password.html.heex
+msgid "Reset password"
+msgstr "Reset password"
+
+msgid "Enter your email and we'll send you instructions to reset it."
+msgstr "Enter your email and we'll send you instructions to reset it."
+
+msgid "Sending..."
+msgstr "Sending..."
+
+msgid "Send instructions"
+msgstr "Send instructions"
+
+msgid "If the email exists, you'll receive a link to reset your password."
+msgstr "If the email exists, you'll receive a link to reset your password."
+
+msgid "Back to login"
+msgstr "Back to login"
+
+## user_live/reset_password.html.heex
+msgid "New password"
+msgstr "New password"
+
+msgid "Choose a new password for your account."
+msgstr "Choose a new password for your account."
+
+msgid "Saving..."
+msgstr "Saving..."
+
+msgid "Change password"
+msgstr "Change password"
+
+msgid "The reset link is invalid or has expired."
+msgstr "The reset link is invalid or has expired."
+
+msgid "Password changed! You can now"
+msgstr "Password changed! You can now"
+
+msgid "log in"
+msgstr "log in"
+
+## user_live/messages.html.heex
+msgid "Conversations"
+msgstr "Conversations"
+
+msgid "You have no conversations."
+msgstr "You have no conversations."
+
+msgid "No messages yet. Write the first one!"
+msgstr "No messages yet. Write the first one!"
+
+msgid "Write a message..."
+msgstr "Write a message..."
+
+msgid "Send"
+msgstr "Send"
+
+msgid "Select a conversation"
+msgstr "Select a conversation"
+
+msgid "Choose a contact from the list to start chatting."
+msgstr "Choose a contact from the list to start chatting."
+
+## predictions_live.html.heex
+msgid "Predictions"
+msgstr "Predictions"
+
+msgid "Next Match"
+msgstr "Next Match"
+
+msgid "Your Prediction"
+msgstr "Your Prediction"
+
+msgid "Home Goals"
+msgstr "Home Goals"
+
+msgid "Away Goals"
+msgstr "Away Goals"
+
+msgid "First Scorer"
+msgstr "First Scorer"
+
+msgid "Player name"
+msgstr "Player name"
+
+msgid "Man of the Match"
+msgstr "Man of the Match"
+
+msgid "Submit Prediction"
+msgstr "Submit Prediction"
+
+msgid "No upcoming matches scheduled. Come back when there's a fixture!"
+msgstr "No upcoming matches scheduled. Come back when there's a fixture!"
+
+msgid "Your History"
+msgstr "Your History"
+
+msgid "Result"
+msgstr "Result"
+
+msgid "Points"
+msgstr "Points"
+
+msgid "Date"
+msgstr "Date"
+
+msgid "Leaderboard"
+msgstr "Leaderboard"
+
+msgid "No scored predictions this season yet."
+msgstr "No scored predictions this season yet."
+
+msgid "User"
+msgstr "User"
+
+msgid "Streak"
+msgstr "Streak"
+
+msgid "Compare with..."
+msgstr "Compare with..."
+
+## player_comparison_live.html.heex
+msgid "Compare Players"
+msgstr "Compare Players"
+
+msgid "Player A"
+msgstr "Player A"
+
+msgid "Search player..."
+msgstr "Search player..."
+
+msgid "Player B"
+msgstr "Player B"
+
+msgid "Season"
+msgstr "Season"
+
+msgid "Compare"
+msgstr "Compare"
+
+msgid "Statistic"
+msgstr "Statistic"
+
+msgid "better"
+msgstr "better"
+
+msgid "Wins: Player A"
+msgstr "Wins: Player A"
+
+msgid "Draws"
+msgstr "Draws"
+
+msgid "Share this comparison:"
+msgstr "Share this comparison:"
+
+msgid "Select two players and a season to compare their stats."
+msgstr "Select two players and a season to compare their stats."
+
+## admin_live/dashboard.html.heex
+msgid "Dashboard"
+msgstr "Dashboard"
+
+msgid "Total Users"
+msgstr "Total Users"
+
+msgid "Total Topics"
+msgstr "Total Topics"
+
+msgid "Total Posts"
+msgstr "Total Posts"
+
+msgid "Online Users"
+msgstr "Online Users"
+
+msgid "User Growth"
+msgstr "User Growth"
+
+msgid "New users per day"
+msgstr "New users per day"
+
+msgid "Post Activity (30 days)"
+msgstr "Post Activity (30 days)"
+
+msgid "Posts per day"
+msgstr "Posts per day"
+
+msgid "Reaction Distribution"
+msgstr "Reaction Distribution"
+
+msgid "Reactions"
+msgstr "Reactions"
+
+msgid "Pending Reports"
+msgstr "Pending Reports"
+
+msgid "No pending reports."
+msgstr "No pending reports."
+
+msgid "by"
+msgstr "by"
+
+## admin_live/bots.html.heex
+msgid "Bots"
+msgstr "Bots"
+
+msgid "New Bot"
+msgstr "New Bot"
+
+msgid "No bots configured. Create a bot persona to get started."
+msgstr "No bots configured. Create a bot persona to get started."
+
+msgid "Active"
+msgstr "Active"
+
+msgid "Inactive"
+msgstr "Inactive"
+
+msgid "Edit"
+msgstr "Edit"
+
+msgid "Delete this bot?"
+msgstr "Delete this bot?"
+
+msgid "Delete"
+msgstr "Delete"
+
+msgid "Edit Bot"
+msgstr "Edit Bot"
+
+msgid "Name"
+msgstr "Name"
+
+msgid "Avatar URL"
+msgstr "Avatar URL"
+
+msgid "Description"
+msgstr "Description"
+
+msgid "Provider"
+msgstr "Provider"
+
+msgid "Model"
+msgstr "Model"
+
+msgid "Temperature"
+msgstr "Temperature"
+
+msgid "Reply when mentioned"
+msgstr "Reply when mentioned"
+
+msgid "Required Trust Level"
+msgstr "Required Trust Level"
+
+msgid "Rate Limit per User"
+msgstr "Rate Limit per User"
+
+msgid "Managed by Worker"
+msgstr "Managed by Worker"
+
+msgid "Save"
+msgstr "Save"
+
+msgid "Cancel"
+msgstr "Cancel"
+
+msgid "Test Prompt"
+msgstr "Test Prompt"
+
+msgid "Test prompt"
+msgstr "Test prompt"
+
+msgid "Write a test message..."
+msgstr "Write a test message..."
+
+msgid "Testing..."
+msgstr "Testing..."
+
+msgid "Test"
+msgstr "Test"
+
+msgid "Response:"
+msgstr "Response:"
+
+## admin_live/settings.html.heex
+msgid "Site Settings"
+msgstr "Site Settings"
+
+msgid "No settings in this group."
+msgstr "No settings in this group."
+
+msgid "True"
+msgstr "True"
+
+msgid "False"
+msgstr "False"
+
+## admin_live/automations.html.heex
+msgid "Automations"
+msgstr "Automations"
+
+msgid "New Automation"
+msgstr "New Automation"
+
+msgid "No automations configured. Create one to get started."
+msgstr "No automations configured. Create one to get started."
+
+msgid "Delete this automation?"
+msgstr "Delete this automation?"
+
+msgid "Edit Automation"
+msgstr "Edit Automation"
+
+msgid "Periodic"
+msgstr "Periodic"
+
+msgid "User Registered"
+msgstr "User Registered"
+
+msgid "User Promoted"
+msgstr "User Promoted"
+
+msgid "Post Created"
+msgstr "Post Created"
+
+msgid "Stale Topic"
+msgstr "Stale Topic"
+
+msgid "Point in Time"
+msgstr "Point in Time"
+
+msgid "API Call"
+msgstr "API Call"
+
+msgid "Trigger Config (JSON)"
+msgstr "Trigger Config (JSON)"
+
+msgid "Send DM"
+msgstr "Send DM"
+
+msgid "Create Post"
+msgstr "Create Post"
+
+msgid "Reply with LLM"
+msgstr "Reply with LLM"
+
+msgid "Close Topic"
+msgstr "Close Topic"
+
+msgid "Pin Topic"
+msgstr "Pin Topic"
+
+msgid "Report Post"
+msgstr "Report Post"
+
+msgid "Auto Tag"
+msgstr "Auto Tag"
+
+msgid "Script Config (JSON)"
+msgstr "Script Config (JSON)"
+
+## admin_live/llm_settings.html.heex
+msgid "LLM Settings"
+msgstr "LLM Settings"
+
+msgid "Manage API keys for LLM providers. Keys are stored encrypted."
+msgstr "Manage API keys for LLM providers. Keys are stored encrypted."
+
+msgid "Configured"
+msgstr "Configured"
+
+msgid "Not configured"
+msgstr "Not configured"
+
+msgid "Enter API key"
+msgstr "Enter API key"
+
+msgid "Test connection"
+msgstr "Test connection"
+
+msgid "Last test:"
+msgstr "Last test:"
+
+msgid "Connection successful"
+msgstr "Connection successful"
+
+## admin_live/x_feed_settings.html.heex
+msgid "X Feed Settings"
+msgstr "X Feed Settings"
+
+msgid "Configure X (Twitter) integration via Nitter to monitor accounts and keywords"
+msgstr "Configure X (Twitter) integration via Nitter to monitor accounts and keywords"
+
+msgid "and automatically post to a forum topic."
+msgstr "and automatically post to a forum topic."
+
+msgid "Nitter instance URL"
+msgstr "Nitter instance URL"
+
+msgid "Accounts to monitor (comma-separated)"
+msgstr "Accounts to monitor (comma-separated)"
+
+msgid "Keywords (comma-separated)"
+msgstr "Keywords (comma-separated)"
+
+msgid "Target topic ID"
+msgstr "Target topic ID"
+
+msgid "Topic ID where tweets will be posted"
+msgstr "Topic ID where tweets will be posted"
+
+## Shared / Common
+msgid "Loading..."
+msgstr "Loading..."
+
+msgid "Error"
+msgstr "Error"
+
+msgid "Success"
+msgstr "Success"
+
+## Flash messages from LiveView .ex files
+msgid "Incorrect email or password."
+msgstr "Incorrect email or password."
+
+msgid "Email is required"
+msgstr "Email is required"
+
+msgid "Password is required"
+msgstr "Password is required"
+
+## login.ex inline render
+msgid "Welcome"
+msgstr "Welcome"
+
+msgid "The Argentine football community"
+msgstr "The Argentine football community"
+
+msgid "You must log in to make predictions."
+msgstr "You must log in to make predictions."
+
+msgid "Goals must be valid numbers."
+msgstr "Goals must be valid numbers."
+
+msgid "Prediction saved!"
+msgstr "Prediction saved!"
+
+msgid "The match has started. No more predictions accepted."
+msgstr "The match has started. No more predictions accepted."
+
+msgid "Could not post the reply."
+msgstr "Could not post the reply."
+
+msgid "You cannot reply to this topic."
+msgstr "You cannot reply to this topic."
+
+msgid "You must log in to access this page."
+msgstr "You must log in to access this page."
+
+msgid "Access denied."
+msgstr "Access denied."
+
+msgid "Could not create the topic. Check the fields."
+msgstr "Could not create the topic. Check the fields."
+
+msgid "You don't have access to this conversation."
+msgstr "You don't have access to this conversation."
+
+msgid "Could not send the message."
+msgstr "Could not send the message."
+
+msgid "Could not save '{key}'."
+msgstr "Could not save '{key}'."
+
+msgid "Bot deleted."
+msgstr "Bot deleted."
+
+msgid "Could not delete the bot."
+msgstr "Could not delete the bot."
+
+msgid "Bot created."
+msgstr "Bot created."
+
+msgid "Bot updated."
+msgstr "Bot updated."
+
+msgid "Automation created."
+msgstr "Automation created."
+
+msgid "Automation updated."
+msgstr "Automation updated."
+
+msgid "Could not change the status."
+msgstr "Could not change the status."
+
+msgid "Automation deleted."
+msgstr "Automation deleted."
+
+msgid "Could not delete the automation."
+msgstr "Could not delete the automation."
+
+msgid "API key saved."
+msgstr "API key saved."
+
+msgid "Could not save the API key."
+msgstr "Could not save the API key."
+
+msgid "Connection error."
+msgstr "Connection error."
+
+msgid "Settings saved."
+msgstr "Settings saved."
+
+msgid "Error saving settings."
+msgstr "Error saving settings."
+
+msgid "Profile updated successfully."
+msgstr "Profile updated successfully."
+
+msgid "Could not save. Check the fields."
+msgstr "Could not save. Check the fields."
+
+msgid "%{username} is typing..."
+msgstr "%{username} is typing..."
+
+msgid "%{first} and %{second} are typing..."
+msgstr "%{first} and %{second} are typing..."
+
+msgid "%{first}, %{second} and others are typing..."
+msgstr "%{first}, %{second} and others are typing..."
+
+## registration.ex
+msgid "Passwords do not match"
+msgstr "Passwords do not match"
+
+msgid "Password must be at least 8 characters"
+msgstr "Password must be at least 8 characters"
+
+msgid "Account created! Welcome to Colloq."
+msgstr "Account created! Welcome to Colloq."
+
+msgid "Could not create the account."
+msgstr "Could not create the account."
+
+msgid "Account created! You can now log in."
+msgstr "Account created! You can now log in."
+
+## Ecto validation messages (schemas)
+msgid "invalid email"
+msgstr "invalid email"
+
+msgid "letters, numbers and underscores only"
+msgstr "letters, numbers and underscores only"
+
+msgid "must be at least 8 characters"
+msgstr "must be at least 8 characters"
+
+msgid "passwords do not match"
+msgstr "passwords do not match"
+
+msgid "must start with http:// or https://"
+msgstr "must start with http:// or https://"
+
+msgid "already reacted with this emoji"
+msgstr "already reacted with this emoji"
+
+msgid "invalid trigger. Valid: %{triggers}"
+msgstr "invalid trigger. Valid: %{triggers}"
+
+msgid "invalid script. Valid: %{scripts}"
+msgstr "invalid script. Valid: %{scripts}"
+
+msgid "must be a valid URL"
+msgstr "must be a valid URL"
+
+## registration.ex additional
+msgid "Email"
+msgstr "Email"
+
+msgid "Your name"
+msgstr "Your name"
+
+msgid "Repeat password"
+msgstr "Repeat password"
+
+## Polls
+msgid "Create poll"
+msgstr "Create poll"
+
+msgid "Poll question"
+msgstr "Poll question"
+
+msgid "Option %{n}"
+msgstr "Option %{n}"
+
+msgid "Add option"
+msgstr "Add option"
+
+msgid "Post with poll"
+msgstr "Post with poll"
+
+msgid "Add poll"
+msgstr "Add poll"
+
+msgid "Closed"
+msgstr "Closed"
+
+msgid "votes"
+msgstr "votes"
+
+msgid "to vote."
+msgstr "to vote."
+
+msgid "You already voted in this poll."
+msgstr "You already voted in this poll."
+
+msgid "This poll is closed."
+msgstr "This poll is closed."
+
+## Voice rooms
+msgid "Voice room not found."
+msgstr "Voice room not found."
+
+msgid "Linked to"
+msgstr "Linked to"
+
+msgid "Requires trust level"
+msgstr "Requires trust level"
+
+msgid "Join"
+msgstr "Join"
+
+msgid "Leave"
+msgstr "Leave"
+
+msgid "to join the voice room."
+msgstr "to join the voice room."
+
+msgid "Participants"
+msgstr "Participants"
+
+msgid "No one is in the voice room yet."
+msgstr "No one is in the voice room yet."
+
+## OAuth
+msgid "or continue with"
+msgstr "or continue with"
+
+msgid "Welcome!"
+msgstr "Welcome!"
+
+msgid "Could not create account. Please try again."
+msgstr "Could not create account. Please try again."
+
+msgid "Authentication failed."
+msgstr "Authentication failed."
+
+## Admin categories
+msgid "Categories"
+msgstr "Categories"
+
+msgid "New Category"
+msgstr "New Category"
+
+msgid "Category created."
+msgstr "Category created."
+
+msgid "Category updated."
+msgstr "Category updated."
+
+msgid "Category deleted."
+msgstr "Category deleted."
+
+msgid "Cannot delete category with topics. Move or delete them first."
+msgstr "Cannot delete category with topics. Move or delete them first."
+
+msgid "Delete this category?"
+msgstr "Delete this category?"
+
+msgid "No categories yet."
+msgstr "No categories yet."
+
+msgid "topics"
+msgstr "topics"
+
+msgid "Edit Category"
+msgstr "Edit Category"
+
+msgid "Category name"
+msgstr "Category name"
+
+msgid "Short description..."
+msgstr "Short description..."
+
+msgid "Icon"
+msgstr "Icon"
+
+msgid "Color"
+msgstr "Color"
+
+msgid "Position"
+msgstr "Position"
+
+msgid "Minimum trust level"
+msgstr "Minimum trust level"
+
+msgid "Read restricted"
+msgstr "Read restricted"
+
+msgid "Write restricted"
+msgstr "Write restricted"
+
+## Bookmarks
+msgid "Bookmarks"
+msgstr "Bookmarks"
+
+msgid "Bookmark"
+msgstr "Bookmark"
+
+msgid "Bookmarked"
+msgstr "Bookmarked"
+
+msgid "No bookmarks yet."
+msgstr "No bookmarks yet."
+
+msgid "Click the star icon on any post to save it here."
+msgstr "Click the star icon on any post to save it here."
+
+msgid "Remove bookmark"
+msgstr "Remove bookmark"
+
+## Flagging
+msgid "Report"
+msgstr "Report"
+
+msgid "Why are you reporting this?"
+msgstr "Why are you reporting this?"
+
+msgid "Spam"
+msgstr "Spam"
+
+msgid "Inappropriate"
+msgstr "Inappropriate"
+
+msgid "Off topic"
+msgstr "Off topic"
+
+msgid "Harassment"
+msgstr "Harassment"
+
+msgid "Other"
+msgstr "Other"
+
+msgid "Report submitted. Thank you."
+msgstr "Report submitted. Thank you."
+
+msgid "Could not submit report."
+msgstr "Could not submit report."
+
+## Sharing
+msgid "Share"
+msgstr "Share"
+
+msgid "Copy link"
+msgstr "Copy link"
+
+msgid "Link copied!"
+msgstr "Link copied!"
+
+## Badges
+msgid "Badges"
+msgstr "Badges"
+
+msgid "New Badge"
+msgstr "New Badge"
+
+msgid "Badge created."
+msgstr "Badge created."
+
+msgid "Badge updated."
+msgstr "Badge updated."
+
+msgid "Badge deleted."
+msgstr "Badge deleted."
+
+msgid "Could not delete badge."
+msgstr "Could not delete badge."
+
+msgid "Delete this badge?"
+msgstr "Delete this badge?"
+
+msgid "No badges yet."
+msgstr "No badges yet."
+
+msgid "Badge name"
+msgstr "Badge name"
+
+msgid "Icon (emoji)"
+msgstr "Icon (emoji)"
+
+msgid "Grant to user"
+msgstr "Grant to user"
+
+msgid "Grant badge to user"
+msgstr "Grant badge to user"
+
+msgid "Enter username..."
+msgstr "Enter username..."
+
+msgid "Grant"
+msgstr "Grant"
+
+msgid "Badge granted."
+msgstr "Badge granted."
+
+msgid "User already has this badge."
+msgstr "User already has this badge."
+
+msgid "Could not grant badge."
+msgstr "Could not grant badge."
+
+msgid "Badge revoked."
+msgstr "Badge revoked."
+
+msgid "Could not revoke badge."
+msgstr "Could not revoke badge."
+
+msgid "User not found."
+msgstr "User not found."
+
+## Flair
+msgid "Flair"
+msgstr "Flair"
+
+msgid "Short text or emoji shown next to your name"
+msgstr "Short text or emoji shown next to your name"
+
+## Tags
+msgid "Tags"
+msgstr "Tags"
+
+msgid "e.g. transferencias, lesiones, táctica"
+msgstr "e.g. transfers, injuries, tactics"
+
+msgid "Comma-separated. Leave empty for no tags."
+msgstr "Comma-separated. Leave empty for no tags."
+
+## User moderation
+msgid "Your account has been banned."
+msgstr "Your account has been banned."
+
+msgid "Your account is suspended."
+msgstr "Your account is suspended."
+
+msgid "Users"
+msgstr "Users"
+
+msgid "Search by username, email, or name..."
+msgstr "Search by username, email, or name..."
+
+msgid "posts"
+msgstr "posts"
+
+msgid "Until"
+msgstr "Until"
+
+msgid "Warn"
+msgstr "Warn"
+
+msgid "Suspend"
+msgstr "Suspend"
+
+msgid "Ban"
+msgstr "Ban"
+
+msgid "Reinstate"
+msgstr "Reinstate"
+
+msgid "No users found."
+msgstr "No users found."
+
+msgid "Warn user"
+msgstr "Warn user"
+
+msgid "Suspend user"
+msgstr "Suspend user"
+
+msgid "Ban user"
+msgstr "Ban user"
+
+msgid "Reinstate user"
+msgstr "Reinstate user"
+
+msgid "Reason"
+msgstr "Reason"
+
+msgid "Reason for this action..."
+msgstr "Reason for this action..."
+
+msgid "Duration"
+msgstr "Duration"
+
+msgid "2 hours"
+msgstr "2 hours"
+
+msgid "6 hours"
+msgstr "6 hours"
+
+msgid "1 day"
+msgstr "1 day"
+
+msgid "3 days"
+msgstr "3 days"
+
+msgid "7 days"
+msgstr "7 days"
+
+msgid "30 days"
+msgstr "30 days"
+
+msgid "90 days"
+msgstr "90 days"
+
+msgid "This will clear the suspension or ban and restore full access."
+msgstr "This will clear the suspension or ban and restore full access."
+
+msgid "Issue warning"
+msgstr "Issue warning"
+
+msgid "Warning issued."
+msgstr "Warning issued."
+
+msgid "User suspended."
+msgstr "User suspended."
+
+msgid "User banned."
+msgstr "User banned."
+
+msgid "User reinstated."
+msgstr "User reinstated."
+
+msgid "Action failed."
+msgstr "Action failed."
+
+msgid "Banned"
+msgstr "Banned"
+
+msgid "Suspended"
+msgstr "Suspended"
+
+msgid "Warned"
+msgstr "Warned"
+
+## Avatar upload
+msgid "Profile picture"
+msgstr "Profile picture"
+
+msgid "Upload photo"
+msgstr "Upload photo"
+
+msgid "JPG, PNG, GIF or WebP. Max 2MB."
+msgstr "JPG, PNG, GIF or WebP. Max 2MB."
+
+msgid "Remove photo"
+msgstr "Remove photo"
+
+msgid "Avatar removed."
+msgstr "Avatar removed."
+
+msgid "Could not remove avatar."
+msgstr "Could not remove avatar."
+
+msgid "File is too large (max 2MB)."
+msgstr "File is too large (max 2MB)."
+
+msgid "File type not accepted."
+msgstr "File type not accepted."
+
+msgid "Only one file allowed."
+msgstr "Only one file allowed."
+
+msgid "Upload error: %{err}"
+msgstr "Upload error: %{err}"
+
+## Blocking
+msgid "Block"
+msgstr "Block"
+
+msgid "Unblock"
+msgstr "Unblock"
+
+msgid "Blocked user"
+msgstr "Blocked user"
+
+msgid "You won't see posts from this user."
+msgstr "You won't see posts from this user."
+
+msgid "Unblock user"
+msgstr "Unblock user"
+
+msgid "Blocked users"
+msgstr "Blocked users"
+
+msgid "You haven't blocked any users."
+msgstr "You haven't blocked any users."
+
+msgid "You don't have permission for this action."
+msgstr "You don't have permission for this action."

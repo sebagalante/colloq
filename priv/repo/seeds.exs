@@ -130,7 +130,7 @@ bot_system_entries = [
 ]
 
 Enum.each(bot_system_entries, fn attrs ->
-  now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+  now = DateTime.utc_now()
 
   data = Map.merge(attrs, %{
     api_key: nil,
@@ -152,15 +152,15 @@ end)
 # =============================================================================
 trust_levels = [
   %{level: 0, name: "Nuevo", min_posts: 0, min_days_registered: 0,
-    can_create_topics: false, can_send_pms: false, can_edit_posts: false,
-    can_upload_images: false, daily_post_limit: 10, daily_reaction_limit: 20},
-  %{level: 1, name: "Básico", min_posts: 5, min_days_registered: 1,
+    can_create_topics: true, can_send_pms: false, can_edit_posts: false,
+    can_upload_images: false, daily_post_limit: 100, daily_reaction_limit: 100},
+  %{level: 1, name: "Básico", min_posts: 10, min_days_registered: 1,
     can_create_topics: true, can_send_pms: true, can_edit_posts: false,
-    can_upload_images: false, daily_post_limit: 20, daily_reaction_limit: 50},
-  %{level: 2, name: "Miembro", min_posts: 15, min_days_registered: 3,
+    can_upload_images: false, daily_post_limit: 200, daily_reaction_limit: 200},
+  %{level: 2, name: "Miembro", min_posts: 50, min_days_registered: 7,
     can_create_topics: true, can_send_pms: true, can_edit_posts: true,
-    can_upload_images: true, daily_post_limit: 0, daily_reaction_limit: 0},
-  %{level: 3, name: "Regular", min_posts: 30, min_days_registered: 7,
+    can_upload_images: true, daily_post_limit: 500, daily_reaction_limit: 500},
+  %{level: 3, name: "Regular", min_posts: 200, min_days_registered: 30,
     can_create_topics: true, can_send_pms: true, can_edit_posts: true,
     can_upload_images: true, daily_post_limit: 0, daily_reaction_limit: 0},
   %{level: 4, name: "Líder", min_posts: 0, min_days_registered: 0,
@@ -169,38 +169,131 @@ trust_levels = [
 ]
 
 Enum.each(trust_levels, fn attrs ->
+  now = DateTime.utc_now()
+
   case Repo.get_by(Colloq.Trust.TrustLevel, level: attrs.level) do
     nil ->
       Repo.insert_all(Colloq.Trust.TrustLevel, [Map.merge(attrs, %{
-        inserted_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second),
-        updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+        inserted_at: now,
+        updated_at: now
       })])
       IO.puts("  ✓ Trust Level: #{attrs.name} (TL#{attrs.level})")
-    _ ->
-      :ok
+
+    existing ->
+      existing
+      |> Ecto.Changeset.change(attrs)
+      |> Repo.update!()
+      IO.puts("  ↻ Trust Level updated: #{attrs.name} (TL#{attrs.level})")
   end
 end)
+
+# =============================================================================
+# Sofascore — Player squads (from API)
+# =============================================================================
+IO.puts("⚽ Fetching Sofascore squads from API...")
+
+case Colloq.Sofascore.fetch_and_seed_all() do
+  {:ok, results} ->
+    Enum.each(results, fn
+      {team, :skipped} -> IO.puts("  ⚠ #{team}: ya tiene jugadores, saltado")
+      {team, {:ok, count}} -> IO.puts("  ✓ #{team}: #{count} jugadores")
+      {team, {:error, reason}} -> IO.puts("  ✗ #{team}: #{inspect(reason)} (reintentar con Colloq.Sofascore.fetch_and_seed_squad(:#{team}))")
+    end)
+  {:error, reason} ->
+    IO.puts("  ✗ Error fetching squads: #{inspect(reason)}")
+    IO.puts("    Reintentar manualmente: Colloq.Sofascore.fetch_and_seed_all(force: true)")
+end
 
 # =============================================================================
 # Admin user (if no users exist)
 # =============================================================================
 if Repo.aggregate(User, :count, :id) == 0 do
+  admin_password = System.get_env("ADMIN_PASSWORD") ||
+    (:crypto.strong_rand_bytes(12) |> Base.url_encode64(padding: false))
+
   admin = %User{}
     |> User.registration_changeset(%{
       email: "admin@colloq.local",
       username: "admin",
       display_name: "Administrador",
-      password: "adminchangeit",
-      password_confirmation: "adminchangeit"
+      password: admin_password,
+      password_confirmation: admin_password
     })
     |> Ecto.Changeset.change(
       is_admin: true,
+      role: "super_admin",
       trust_level: 4,
       oauth_provider: "local"
     )
     |> Repo.insert!()
 
-  IO.puts("  ✓ Admin user: #{admin.email} / adminchangeit")
+  IO.puts("  ✓ Admin user: #{admin.email}")
+  IO.puts("  🔑 Admin password: #{admin_password}")
+  IO.puts("     (Set ADMIN_PASSWORD env var to control this)")
+end
+
+# =============================================================================
+# Sample topics + replies (only if the forum is empty)
+# =============================================================================
+alias Colloq.Forum
+alias Colloq.Forum.Topic
+
+if Repo.aggregate(Topic, :count, :id) == 0 do
+  author = Repo.get_by(User, username: "admin")
+  cats = Repo.all(Category) |> Map.new(fn c -> {c.slug, c} end)
+
+  sample_topics = [
+    {"racing",
+     "¡Bienvenidos a Colloq, la casa de la Academia! 🔵⚪",
+     "Arrancamos este foro para hablar de todo lo que nos apasiona: Racing, el fútbol argentino y el mundo. Presentate y contanos desde cuándo sos hincha.",
+     ["¡Vamos Racing! Hincha desde que tengo memoria.",
+      "Genial la iniciativa, hacía falta un lugar así."]},
+    {"racing",
+     "Análisis: el mediocampo de Racing esta temporada",
+     "¿Cómo ven el funcionamiento del medio? Me parece que ganamos equilibrio pero perdimos algo de creatividad. Opiniones.",
+     ["Coincido, falta un enganche que rompa líneas."]},
+    {"futbol-argentino",
+     "Liga Profesional: la fecha que viene promete",
+     "Se vienen partidazos el finde. ¿Cuáles son los que más esperan y qué resultados esperan?",
+     ["El clásico va a estar durísimo.", "Yo miro todos, soy adicto al fútbol argentino."]},
+    {"futbol-internacional",
+     "Mercado de pases: rumores y fichajes",
+     "Abro el hilo para seguir el mercado europeo. ¿Qué movimientos les parecen los más picantes?",
+     ["El que suena para el Madrid me sorprendió."]},
+    {"off-topic",
+     "¿Qué serie están viendo? 🍿",
+     "Fuera del fútbol, ¿qué recomiendan para maratonear el fin de semana?",
+     ["Estoy con una policial nórdica, tremenda.", "Yo re enganchado con una de ciencia ficción."]},
+    {"sugerencias",
+     "Ideas para mejorar el foro",
+     "Dejen acá sus sugerencias, bugs y funcionalidades que les gustaría ver. ¡Se lee todo!",
+     ["Estaría bueno un modo claro/oscuro con toggle.", "Sumaría notificaciones push."]}
+  ]
+
+  if author do
+    Enum.each(sample_topics, fn {slug, title, body, replies} ->
+      case Map.get(cats, slug) do
+        nil ->
+          :ok
+
+        cat ->
+          case Forum.create_topic(author, %{"title" => title, "category_id" => cat.id, "body" => body}) do
+            {:ok, topic} ->
+              Enum.each(replies, fn reply_body ->
+                fresh = Repo.get!(Topic, topic.id)
+                Forum.create_post(fresh, author, %{"body" => reply_body})
+              end)
+
+              IO.puts("  ✓ Topic: #{title}")
+
+            {:error, reason} ->
+              IO.puts("  ⚠ Topic failed (#{title}): #{inspect(reason)}")
+          end
+      end
+    end)
+  else
+    IO.puts("  ⚠ No author user found — skipping sample topics.")
+  end
 end
 
 IO.puts("✅ Seeding complete.")
