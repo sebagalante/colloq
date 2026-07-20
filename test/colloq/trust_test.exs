@@ -8,19 +8,24 @@ defmodule Colloq.TrustTest do
     levels = [
       %{level: 0, name: "Nuevo", min_posts: 0, min_days_registered: 0,
         can_create_topics: true, can_send_pms: false, can_edit_posts: false,
-        can_upload_images: false, daily_post_limit: 100, daily_reaction_limit: 100},
-      %{level: 1, name: "Básico", min_posts: 10, min_days_registered: 1,
+        can_upload_images: false, daily_post_limit: 100, daily_reaction_limit: 100,
+        max_tags_per_topic: 0},
+      %{level: 1, name: "Básico", min_posts: 1_000, min_days_registered: 1,
         can_create_topics: true, can_send_pms: true, can_edit_posts: false,
-        can_upload_images: false, daily_post_limit: 200, daily_reaction_limit: 200},
-      %{level: 2, name: "Miembro", min_posts: 50, min_days_registered: 7,
+        can_upload_images: false, daily_post_limit: 200, daily_reaction_limit: 200,
+        max_tags_per_topic: 5},
+      %{level: 2, name: "Miembro", min_posts: 2_500, min_days_registered: 7,
         can_create_topics: true, can_send_pms: true, can_edit_posts: true,
-        can_upload_images: true, daily_post_limit: 500, daily_reaction_limit: 500},
-      %{level: 3, name: "Regular", min_posts: 200, min_days_registered: 30,
+        can_upload_images: true, daily_post_limit: 500, daily_reaction_limit: 500,
+        max_tags_per_topic: 10},
+      %{level: 3, name: "Regular", min_posts: 6_500, min_days_registered: 0,
         can_create_topics: true, can_send_pms: true, can_edit_posts: true,
-        can_upload_images: true, daily_post_limit: 0, daily_reaction_limit: 0},
-      %{level: 4, name: "Líder", min_posts: 0, min_days_registered: 0,
+        can_upload_images: true, daily_post_limit: 0, daily_reaction_limit: 0,
+        max_tags_per_topic: 15},
+      %{level: 4, name: "Líder", min_posts: 10_000, min_days_registered: 0,
         can_create_topics: true, can_send_pms: true, can_edit_posts: true,
-        can_upload_images: true, daily_post_limit: 0, daily_reaction_limit: 0}
+        can_upload_images: true, daily_post_limit: 0, daily_reaction_limit: 0,
+        max_tags_per_topic: -1}
     ]
 
     Enum.each(levels, fn attrs ->
@@ -114,6 +119,26 @@ defmodule Colloq.TrustTest do
 
     test "TL2+ can upload" do
       assert Trust.can_upload_images?(2) == true
+    end
+  end
+
+  describe "max_tags_per_topic/1" do
+    test "TL0 may not tag at all" do
+      assert Trust.max_tags_per_topic(0) == 0
+    end
+
+    test "the cap widens with each level" do
+      assert Trust.max_tags_per_topic(1) == 5
+      assert Trust.max_tags_per_topic(2) == 10
+      assert Trust.max_tags_per_topic(3) == 15
+    end
+
+    test "TL4 is unlimited (stored as -1, not 0)" do
+      assert Trust.max_tags_per_topic(4) == :unlimited
+    end
+
+    test "an unknown level denies rather than granting unlimited" do
+      assert Trust.max_tags_per_topic(99) == 0
     end
   end
 end

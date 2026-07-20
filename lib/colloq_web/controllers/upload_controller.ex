@@ -6,7 +6,7 @@ defmodule ColloqWeb.UploadController do
   use ColloqWeb, :controller
 
   @max_bytes 5_000_000
-  @allowed ~w(image/png image/jpeg image/gif image/webp)
+  @allowed ~w(image/png image/jpeg image/gif image/webp image/svg+xml)
 
   def create(conn, %{"file" => %Plug.Upload{} = upload}) do
     with :ok <- validate(upload),

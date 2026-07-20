@@ -4,39 +4,65 @@ defmodule ColloqWeb.AdminLive.LlmSettings do
   alias Colloq.SiteSettings
   alias Colloq.Llm
 
+  # API keys are NOT stored here — they come from the environment (`.env` in
+  # dev, Infisical-injected env vars in prod). This page only reflects which
+  # providers are configured and lets you pick the summarizer provider/model.
   @providers [
-    %{key: "llm_api_key_groq", name: "Groq", slug: "groq", test_model: "llama-3.1-8b-instant"},
-    %{key: "llm_api_key_nvidia", name: "NVIDIA NIM", slug: "nvidia", test_model: "nvidia/llama-3.1-nemotron-70b-instruct"},
-    %{key: "llm_api_key_anthropic", name: "Anthropic", slug: "anthropic", test_model: "claude-3-haiku-20240307"},
-    %{key: "llm_api_key_openrouter", name: "OpenRouter", slug: "openrouter", test_model: "openai/gpt-4o-mini"}
+    %{name: "Groq", slug: "groq", env_var: "GROQ_API_KEY", test_model: "llama-3.1-8b-instant"},
+    %{name: "NVIDIA NIM", slug: "nvidia", env_var: "NVIDIA_NIM_API_KEY", test_model: "nvidia/llama-3.1-nemotron-70b-instruct"},
+    %{name: "DeepSeek", slug: "deepseek", env_var: "DEEPSEEK_API_KEY", test_model: "deepseek-chat"},
+    %{name: "OpenRouter", slug: "openrouter", env_var: "OPENROUTER_API_KEY", test_model: "openai/gpt-4o-mini"},
+    %{name: "Google Gemma", slug: "gemma", env_var: "GEMMA_API_KEY", test_model: "gemma-3-12b-it"}
   ]
 
   @impl true
   def mount(_params, _session, socket) do
-    providers = load_providers()
-
     socket =
       socket
       |> assign(:page_title, gettext("LLM Settings"))
-      |> assign(:providers, providers)
+      |> assign(:providers, load_providers())
       |> assign(:testing_provider, nil)
+      |> assign(:provider_choices, configured_choices())
+      |> load_summarizer()
 
     {:ok, socket}
   end
 
-  @impl true
-  def handle_event("save", %{"key" => key, "value" => api_key}, socket) do
-    case SiteSettings.put(key, api_key, type: "secret", group: "llm") do
-      {:ok, _} ->
-        providers = load_providers()
-        {:noreply, socket |> assign(:providers, providers) |> put_flash(:info, gettext("API key saved."))}
+  # Only providers with a key in the environment can be picked as summarizer.
+  defp configured_choices do
+    configured = Llm.configured_providers()
 
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, gettext("Could not save the API key."))}
+    @providers
+    |> Enum.filter(&(&1.slug in configured))
+    |> Enum.map(&{&1.name, &1.slug})
+  end
+
+  defp load_summarizer(socket) do
+    socket
+    |> assign(:summarizer_provider, SiteSettings.get("summarizer_provider") || "")
+    |> assign(:summarizer_model, SiteSettings.get("summarizer_model") || "")
+  end
+
+  @impl true
+  def handle_event("save-summarizer", %{"provider" => provider, "model" => model}, socket) do
+    model = String.trim(model)
+
+    results = [
+      SiteSettings.put("summarizer_provider", provider, group: "llm"),
+      SiteSettings.put("summarizer_model", model, group: "llm")
+    ]
+
+    if Enum.all?(results, &match?({:ok, _}, &1)) do
+      {:noreply,
+       socket
+       |> load_summarizer()
+       |> put_flash(:info, gettext("Summarizer settings saved."))}
+    else
+      {:noreply, put_flash(socket, :error, gettext("Could not save summarizer settings."))}
     end
   end
 
-  def handle_event("test", %{"key" => setting_key, "provider" => slug}, socket) do
+  def handle_event("test", %{"provider" => slug}, socket) do
     provider_info = Enum.find(@providers, &(&1.slug == slug))
 
     socket =
@@ -79,14 +105,11 @@ defmodule ColloqWeb.AdminLive.LlmSettings do
 
   defp load_providers do
     Enum.map(@providers, fn provider ->
-      setting = SiteSettings.get(provider.key)
-      configured = setting != nil
-
       %{
-        key: provider.key,
         name: provider.name,
         slug: provider.slug,
-        configured: configured,
+        env_var: provider.env_var,
+        configured: Llm.provider_configured?(provider.slug),
         test_model: provider.test_model,
         test_result: nil,
         tested_at: nil

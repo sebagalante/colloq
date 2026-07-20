@@ -22,7 +22,8 @@ defmodule ColloqWeb.AdminLive.Automations do
     {"Close Topic", "close_topic"},
     {"Pin Topic", "pin_topic"},
     {"Flag Post", "flag_post"},
-    {"Auto Tag", "auto_tag"}
+    {"Auto Tag", "auto_tag"},
+    {"Recompute Scores", "recompute_scores"}
   ]
 
   @impl true
@@ -79,6 +80,24 @@ defmodule ColloqWeb.AdminLive.Automations do
       {:error, _} ->
         {:noreply, put_flash(socket, :error, gettext("Could not change the status."))}
     end
+  end
+
+  # Run the automation's script immediately, skipping trigger evaluation — a
+  # manual "run now" should fire regardless of the trigger type. Reloads the
+  # list so the updated "Last run" shows.
+  def handle_event("run-now", %{"id" => id}, socket) do
+    automation = Enum.find(socket.assigns.automations, &(&1.id == String.to_integer(id)))
+
+    flash =
+      case Automations.run_automation(automation) do
+        {:error, reason} -> {:error, gettext("Run failed: %{reason}", reason: inspect(reason))}
+        _ -> {:info, gettext("Automation ran.")}
+      end
+
+    {:noreply,
+     socket
+     |> assign(:automations, Automations.list_automations())
+     |> put_flash(elem(flash, 0), elem(flash, 1))}
   end
 
   def handle_event("delete", %{"id" => id}, socket) do

@@ -22,6 +22,7 @@ defmodule ColloqWeb.Components.Navigation do
   attr :current_user, :any, default: nil
   attr :unread_notifications, :integer, default: 0
   attr :unread_messages, :integer, default: 0
+  attr :search_query, :string, default: ""
 
   @doc "Top header bar: logo, search, notifications, and the user / auth menu."
   def app_header(assigns) do
@@ -41,17 +42,28 @@ defmodule ColloqWeb.Components.Navigation do
           <span class="text-accent">◆</span> Colloq
         </.link>
 
-        <div class="hidden sm:flex flex-1 max-w-md">
-          <.link
-            navigate={~p"/"}
-            class="flex items-center gap-2 w-full rounded-lg bg-surface-alt border border-border px-3 py-1.5 text-sm text-muted hover:text-heading hover:border-border-hover transition-colors"
-          >
-            <.icon name="search" class="w-4 h-4" />
-            <span>{gettext("Search…")}</span>
-          </.link>
-        </div>
+        <form action={~p"/search"} method="get" class="hidden sm:flex flex-1 max-w-md">
+          <div class="flex items-center gap-2 w-full rounded-lg bg-surface-alt border border-border px-3 py-1.5 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent transition-colors">
+            <.icon name="search" class="w-4 h-4 text-muted flex-shrink-0" />
+            <input
+              type="text"
+              name="q"
+              value={@search_query}
+              autocomplete="off"
+              placeholder={gettext("Search…")}
+              class="flex-1 bg-transparent text-sm text-heading placeholder:text-muted focus:outline-none"
+            />
+          </div>
+        </form>
 
         <div class="flex items-center gap-2 ml-auto">
+          <.link
+            navigate={~p"/search"}
+            class="sm:hidden p-2 rounded-lg text-muted hover:text-heading hover:bg-surface-alt transition-colors"
+            title={gettext("Search")}
+          >
+            <.icon name="search" class="w-5 h-5" />
+          </.link>
           <%= if @current_user do %>
             <.link
               navigate={~p"/notifications"}
@@ -140,8 +152,9 @@ defmodule ColloqWeb.Components.Navigation do
 
   attr :current_user, :any, default: nil
   attr :categories, :list, default: []
+  attr :sidebar_tags, :list, default: []
 
-  @doc "Left sidebar: primary links and category list."
+  @doc "Left sidebar: primary links, category list and public tag list."
   def sidebar(assigns) do
     ~H"""
     <aside
@@ -152,7 +165,6 @@ defmodule ColloqWeb.Components.Navigation do
         <div class="space-y-1">
           <.nav_link navigate={~p"/"} icon="home" label={gettext("Forum")} />
           <.nav_link navigate={~p"/predicciones"} icon="trending-up" label={gettext("Predictions")} />
-          <.nav_link navigate={~p"/comparar"} icon="users" label={gettext("Compare")} />
           <.nav_link :if={@current_user} navigate={~p"/bookmarks"} icon="bookmark" label={gettext("Bookmarks")} />
 
           <%!-- More (expandable) --%>
@@ -183,25 +195,77 @@ defmodule ColloqWeb.Components.Navigation do
           <h3 class="px-3 mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
             {gettext("Categories")}
           </h3>
-          <div class="space-y-1">
+          <div id="category-tree" phx-hook="CategoryTree" class="space-y-1">
             <div :for={cat <- top_level_categories(@categories)}>
-              <.link
-                navigate={~p"/c/#{cat.slug}"}
-                class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-muted hover:text-heading hover:bg-surface-alt transition-colors"
+              <% children = child_categories(@categories, cat.id) %>
+              <%!-- The category name stays a link; the chevron is a separate
+                    control, so opening the list never costs you the ability to
+                    click through to the parent. --%>
+              <div class="flex items-center gap-1">
+                <.link
+                  navigate={~p"/c/#{cat.slug}"}
+                  title={cat.name}
+                  class="flex-1 min-w-0 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-muted hover:text-heading hover:bg-surface-alt transition-colors"
+                >
+                  <span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={"background-color: #{cat.color}"}></span>
+                  <span class="truncate">{cat.name}</span>
+                </.link>
+                <%!-- Toggling is owned by the CategoryTree hook, not JS.toggle:
+                      a client-side class change gets reverted by the next
+                      LiveView patch, so the list snapped shut on every
+                      navigation. --%>
+                <button
+                  :if={children != []}
+                  type="button"
+                  data-cat-toggle={cat.id}
+                  aria-controls={"subcats-#{cat.id}"}
+                  aria-expanded="false"
+                  aria-label={gettext("Show subcategories of %{name}", name: cat.name)}
+                  class="flex-shrink-0 p-1 mr-1 rounded text-muted hover:text-heading hover:bg-surface-alt transition-colors"
+                >
+                  <.icon name="chevron-right" class="w-3.5 h-3.5 transition-transform" />
+                </button>
+              </div>
+
+              <%!-- Collapsed by default: Racing alone has four children, which
+                    pushed every other category below the fold. --%>
+              <div
+                :if={children != []}
+                id={"subcats-#{cat.id}"}
+                data-cat-subs={cat.id}
+                class="hidden mt-0.5 space-y-0.5"
               >
-                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style={"background-color: #{cat.color}"}></span>
-                <span class="truncate">{cat.name}</span>
-              </.link>
-              <%!-- Sub-categories --%>
-              <.link
-                :for={child <- child_categories(@categories, cat.id)}
-                navigate={~p"/c/#{child.slug}"}
-                class="flex items-center gap-2 pl-7 pr-3 py-1 rounded-lg text-sm text-muted hover:text-heading hover:bg-surface-alt transition-colors"
-              >
-                <span class="w-2 h-2 rounded-full flex-shrink-0" style={"background-color: #{child.color}"}></span>
-                <span class="truncate">{child.name}</span>
-              </.link>
+                <.link
+                  :for={child <- children}
+                  navigate={~p"/c/#{child.slug}"}
+                  title={child.name}
+                  class="flex items-start gap-2 pl-7 pr-3 py-1 rounded-lg text-sm text-muted hover:text-heading hover:bg-surface-alt transition-colors"
+                >
+                  <span class="w-2 h-2 mt-1.5 rounded-sm flex-shrink-0" style={"background-color: #{child.color}"}></span>
+                  <%!-- Wraps instead of truncating: "Competencias y Partidos"
+                        was rendering as "Competencias y Parti…". --%>
+                  <span class="leading-snug">{child.name}</span>
+                </.link>
+              </div>
             </div>
+          </div>
+        </div>
+
+        <%!-- Tags: public, sits directly under Categories. Unlike the admin
+              "Tags" entry below, this is a browse affordance for everyone. --%>
+        <div :if={@sidebar_tags != []}>
+          <h3 class="px-3 mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+            {gettext("Tags")}
+          </h3>
+          <div class="flex flex-wrap gap-1.5 px-3">
+            <.link
+              :for={tag <- @sidebar_tags}
+              navigate={~p"/tag/#{tag.slug}"}
+              class="inline-flex items-center gap-1 rounded-full bg-surface-alt border border-border px-2 py-0.5 text-xs text-muted hover:text-heading hover:border-border-hover transition-colors"
+            >
+              <span class="truncate max-w-[9rem]">{tag.name}</span>
+              <span class="tabular-nums opacity-60">{tag.topic_count}</span>
+            </.link>
           </div>
         </div>
 
@@ -235,6 +299,12 @@ defmodule ColloqWeb.Components.Navigation do
               label={gettext("Categories")}
             />
             <.nav_link
+              :if={Permissions.can?(@current_user, :manage_categories)}
+              navigate={~p"/admin/tags"}
+              icon="tag"
+              label={gettext("Tags")}
+            />
+            <.nav_link
               :if={Permissions.can?(@current_user, :manage_badges)}
               navigate={~p"/admin/badges"}
               icon="star"
@@ -247,10 +317,28 @@ defmodule ColloqWeb.Components.Navigation do
               label={gettext("Emoji")}
             />
             <.nav_link
+              :if={Permissions.can?(@current_user, :view_dashboard)}
+              navigate={~p"/admin/stickers"}
+              icon="sticker"
+              label={gettext("Stickers")}
+            />
+            <.nav_link
               :if={Permissions.can?(@current_user, :manage_bots)}
               navigate={~p"/admin/bots"}
               icon="zap"
               label={gettext("Bots")}
+            />
+            <.nav_link
+              :if={Permissions.can?(@current_user, :view_llm_settings)}
+              navigate={~p"/admin/settings/llm"}
+              icon="cpu"
+              label={gettext("LLM / IA")}
+            />
+            <.nav_link
+              :if={Permissions.can?(@current_user, :view_dashboard)}
+              navigate={~p"/admin/sofascore"}
+              icon="activity"
+              label="Sofascore"
             />
             <.nav_link
               :if={Permissions.can?(@current_user, :manage_automations)}

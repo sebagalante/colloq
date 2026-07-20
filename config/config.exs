@@ -15,6 +15,12 @@ config :colloq,
 # Phoenix endpoint
 config :phoenix, :json_library, Jason
 
+# Register the .tgs (gzipped Lottie / Telegram sticker) MIME type so
+# LiveView's allow_upload accepts the extension.
+config :mime, :types, %{
+  "application/x-tgsticker" => ["tgs"]
+}
+
 config :colloq, ColloqWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Phoenix.Endpoint.Cowboy2Adapter,
@@ -44,7 +50,13 @@ config :colloq, Oban,
      crontab: [
        {"0 9 * * *", Colloq.Workers.DigestWorker},
        {"0 9 * * *", Colloq.Workers.ScoreBotWorker, args: %{action: "preview"}},
-       {"0 2 * * *", Colloq.Workers.TrustPromotionWorker}
+       {"0 2 * * *", Colloq.Workers.TrustPromotionWorker},
+       # 03:00, after promotions: sweeps any fixture the full-time hook missed
+       # and posts the daily prediction leaderboard.
+       {"0 3 * * *", Colloq.Workers.PredictionDigestWorker},
+       # Ticks every minute; fans out to enabled recurring automations on their
+       # own intervals (e.g. the "Recompute scores" automation every 5 min).
+       {"* * * * *", Colloq.Workers.AutomationSchedulerWorker}
      ]}
   ],
   queues: [

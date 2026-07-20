@@ -35,6 +35,13 @@
                 Trigger: <%= auto.trigger %> ·
                 Script: <%= auto.script %>
               </p>
+              <p class="text-xs text-muted">
+                <%= if auto.last_run_at do %>
+                  <%= gettext("Last run: %{when}", when: Calendar.strftime(auto.last_run_at, "%d/%m %H:%M")) %>
+                <% else %>
+                  <%= gettext("Never run") %>
+                <% end %>
+              </p>
             </div>
           </div>
 
@@ -42,6 +49,9 @@
             <.badge color={if auto.enabled, do: "green", else: "gray"}>
               <%= if auto.enabled, do: gettext("Active"), else: gettext("Inactive") %>
             </.badge>
+            <button phx-click="run-now" phx-value-id={auto.id} class="text-muted hover:text-heading text-sm">
+              <%= gettext("Run now") %>
+            </button>
             <button phx-click="edit" phx-value-id={auto.id} class="text-muted hover:text-heading text-sm">
               <%= gettext("Edit") %>
             </button>
@@ -107,6 +117,7 @@
           <option value="pin_topic" selected={@form.script == "pin_topic"}><%= gettext("Pin Topic") %></option>
           <option value="flag_post" selected={@form.script == "flag_post"}><%= gettext("Report Post") %></option>
           <option value="auto_tag" selected={@form.script == "auto_tag"}><%= gettext("Auto Tag") %></option>
+          <option value="recompute_scores" selected={@form.script == "recompute_scores"}><%= gettext("Recompute Scores") %></option>
         </select>
       </div>
 

@@ -4,11 +4,8 @@ defmodule ColloqWeb.PredictionsLive do
   alias Colloq.Repo
   alias Phoenix.PubSub
 
-  @max_points_home_score 1
-  @max_points_away_score 1
-  @max_points_result 2
-  @max_points_first_scorer 3
-  @max_points_motm 3
+  # Point values live in Colloq.Predictions.Scorer (`weights/0`) — this module
+  # used to carry its own unused copy describing a different ladder entirely.
 
   @impl true
   def mount(_params, _session, socket) do
@@ -46,39 +43,53 @@ defmodule ColloqWeb.PredictionsLive do
     user = socket.assigns.current_user
     match = socket.assigns.next_match
 
-    unless user do
-      {:noreply, put_flash(socket, :error, gettext("You must log in to make predictions."))}
-    else
-      with {:ok, home} <- parse_score(home_score),
-           {:ok, away} <- parse_score(away_score) do
+    cond do
+      is_nil(user) ->
+        {:noreply, put_flash(socket, :error, gettext("You must log in to make predictions."))}
 
-        prediction = %{
-          user_id: user.id,
-          fixture_id: match.fixture_id,
-          home_score: home,
-          away_score: away,
-          first_scorer: String.trim(first_scorer),
-          motm: String.trim(motm)
-        }
+      is_nil(match) ->
+        {:noreply, put_flash(socket, :error, gettext("There is no match open for predictions."))}
 
-        case save_prediction(prediction) do
-          {:ok, _} ->
-            {:noreply,
-             socket
-             |> assign(:user_history, get_user_history(user.id))
-             |> assign(:leaderboard, get_leaderboard())
-             |> assign(:form_home_score, "")
-             |> assign(:form_away_score, "")
-             |> assign(:form_first_scorer, "")
-             |> assign(:form_motm, "")
-             |> put_flash(:info, gettext("Prediction saved!"))}
+      # Re-check against the DB rather than trusting the assign: the match may
+      # have kicked off since this client mounted, and a stale tab must not be
+      # able to submit a prediction for a match in progress.
+      not open_for_predictions?(match.fixture_id) ->
+        {:noreply,
+         socket
+         |> assign(:next_match, nil)
+         |> put_flash(:error, gettext("The match has started. No more predictions are accepted."))}
 
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, reason)}
+      true ->
+        with {:ok, home} <- parse_score(home_score),
+             {:ok, away} <- parse_score(away_score) do
+          prediction = %{
+            user_id: user.id,
+            fixture_id: match.fixture_id,
+            home_score: home,
+            away_score: away,
+            first_scorer: String.trim(first_scorer),
+            motm: String.trim(motm)
+          }
+
+          case save_prediction(prediction) do
+            {:ok, _} ->
+              {:noreply,
+               socket
+               |> assign(:user_history, get_user_history(user.id))
+               |> assign(:leaderboard, get_leaderboard())
+               |> assign(:form_home_score, "")
+               |> assign(:form_away_score, "")
+               |> assign(:form_first_scorer, "")
+               |> assign(:form_motm, "")
+               |> put_flash(:info, gettext("Prediction saved!"))}
+
+            {:error, reason} ->
+              {:noreply, put_flash(socket, :error, reason)}
+          end
+        else
+          :error ->
+            {:noreply, put_flash(socket, :error, gettext("Goals must be valid numbers."))}
         end
-      else
-        :error -> {:noreply, put_flash(socket, :error, gettext("Goals must be valid numbers."))}
-      end
     end
   end
 
@@ -93,6 +104,21 @@ defmodule ColloqWeb.PredictionsLive do
 
   def handle_info(_, socket), do: {:noreply, socket}
 
+  # Authoritative deadline: predictions close the moment the thread leaves
+  # "prematch". Checked at submit time, not just when rendering the form.
+  defp open_for_predictions?(nil), do: false
+
+  defp open_for_predictions?(fixture_id) do
+    import Ecto.Query
+
+    Repo.exists?(
+      from(t in Colloq.Forum.Topic,
+        where:
+          t.is_match_thread == true and t.match_id == ^fixture_id and t.match_mode == "prematch"
+      )
+    )
+  end
+
   defp parse_score(str) do
     case Integer.parse(str) do
       {n, _} when n >= 0 -> {:ok, n}
@@ -100,13 +126,18 @@ defmodule ColloqWeb.PredictionsLive do
     end
   end
 
+  # Only prematch threads are open for predictions. "live" used to be included,
+  # which meant anyone loading the page after kickoff got a prediction form for
+  # a match already in progress — with the running score visible on the same
+  # page. The {:match_started, _} handler only closes the form for clients
+  # already connected, so it was never a real deadline.
   defp get_next_match do
     import Ecto.Query
 
     query =
       from(t in Colloq.Forum.Topic,
         where: t.is_match_thread == true,
-        where: t.match_mode in ["prematch", "live"],
+        where: t.match_mode == "prematch",
         order_by: [desc: t.inserted_at],
         limit: 1
       )

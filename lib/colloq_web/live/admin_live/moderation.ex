@@ -11,6 +11,7 @@ defmodule ColloqWeb.AdminLive.Moderation do
   """
   use ColloqWeb, :live_view
 
+  alias Colloq.Forum
   alias Colloq.Moderation
   alias Colloq.Repo
 
@@ -23,6 +24,7 @@ defmodule ColloqWeb.AdminLive.Moderation do
        |> assign(:tab, "reports")
        |> load_reports()
        |> load_hidden()
+       |> load_deleted_topics()
        |> load_sanctioned()}
     else
       {:ok,
@@ -33,8 +35,26 @@ defmodule ColloqWeb.AdminLive.Moderation do
   end
 
   @impl true
-  def handle_event("switch-tab", %{"tab" => tab}, socket) when tab in ~w(reports hidden banned) do
+  def handle_event("switch-tab", %{"tab" => tab}, socket)
+      when tab in ~w(reports hidden deleted_topics banned) do
     {:noreply, assign(socket, :tab, tab)}
+  end
+
+  # Restore a soft-deleted topic (moderator+).
+  def handle_event("restore-topic", %{"id" => id}, socket) do
+    if Colloq.Permissions.can?(socket.assigns.current_user, :delete_topics) do
+      case Repo.get(Colloq.Forum.Topic, String.to_integer(id)) do
+        nil -> :ok
+        topic -> Forum.restore_topic(topic)
+      end
+
+      {:noreply,
+       socket
+       |> load_deleted_topics()
+       |> put_flash(:info, gettext("Topic restored."))}
+    else
+      {:noreply, put_flash(socket, :error, gettext("You don't have permission for this action."))}
+    end
   end
 
   # Lift a ban/suspension (reinstate — super_admin only).
@@ -83,7 +103,7 @@ defmodule ColloqWeb.AdminLive.Moderation do
   def handle_event("hide-flagged-post", %{"id" => id, "post_id" => post_id}, socket) do
     case Repo.get(Colloq.Forum.Post, String.to_integer(post_id)) do
       nil -> :ok
-      post -> Moderation.hide_post(post)
+      post -> Moderation.hide_post(post, socket.assigns.current_user)
     end
 
     Moderation.resolve_flag(String.to_integer(id), socket.assigns.current_user.id, "post_hidden")
@@ -123,7 +143,7 @@ defmodule ColloqWeb.AdminLive.Moderation do
           topic_id: post && post.topic_id,
           topic_slug: post && post.topic && post.topic.slug,
           author: post && post.user && post.user.username,
-          hidden: post && post.deleted_at != nil,
+          hidden: post && post.hidden,
           excerpt: post && excerpt(post.body),
           reporter: if(Ecto.assoc_loaded?(flag.user) && flag.user, do: flag.user.username, else: nil)
         }
@@ -143,11 +163,34 @@ defmodule ColloqWeb.AdminLive.Moderation do
           topic_slug: post.topic && post.topic.slug,
           topic_title: post.topic && post.topic.title,
           author: post.user && post.user.username,
+          hidden_by:
+            cond do
+              !Ecto.assoc_loaded?(post.deleted_by) -> nil
+              post.deleted_by -> post.deleted_by.display_name || post.deleted_by.username
+              true -> gettext("automatic")
+            end,
           excerpt: excerpt(post.body)
         }
       end)
 
     assign(socket, :hidden, hidden)
+  end
+
+  defp load_deleted_topics(socket) do
+    topics =
+      Forum.list_deleted_topics()
+      |> Enum.map(fn t ->
+        %{
+          id: t.id,
+          title: t.title,
+          deleted_at: t.deleted_at,
+          category: t.category && t.category.name,
+          author: t.user && t.user.username,
+          deleted_by: t.deleted_by && (t.deleted_by.display_name || t.deleted_by.username)
+        }
+      end)
+
+    assign(socket, :deleted_topics, topics)
   end
 
   defp load_sanctioned(socket) do

@@ -40,6 +40,8 @@ module.exports = {
         "success-soft": "var(--success-soft)",
         warning: "var(--warning)",
         "warning-soft": "var(--warning-soft)",
+        orange: "var(--orange)",
+        "orange-soft": "var(--orange-soft)",
         racing: {
           blue: "#0038A8",
           celeste: "#5CB8E6",

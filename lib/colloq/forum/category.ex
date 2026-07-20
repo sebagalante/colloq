@@ -33,11 +33,30 @@ defmodule Colloq.Forum.Category do
       :name, :slug, :description, :color, :icon, :position, :parent_id,
       :read_restricted, :write_restricted, :required_trust_level
     ])
+    |> put_slug()
     |> validate_required([:name, :slug])
     |> validate_length(:name, max: 60)
+    |> validate_format(:slug, ~r/^[a-z0-9]+(-[a-z0-9]+)*$/,
+      message: "only lowercase letters, numbers and hyphens"
+    )
     |> prevent_self_parent()
     |> unique_constraint(:slug)
     |> foreign_key_constraint(:parent_id)
+  end
+
+  # Normalise whatever slug arrives, and fall back to the name when the field
+  # is left blank. The admin form asks for a slug by hand, which is how
+  # categories ended up stored as "El Club" and "Competencias y Partidos" —
+  # names copied verbatim, spaces and capitals included, producing URLs like
+  # /c/Competencias%20y%20Partidos.
+  defp put_slug(changeset) do
+    raw = get_field(changeset, :slug)
+    name = get_field(changeset, :name)
+
+    case Colloq.Slug.slugify(raw) || Colloq.Slug.slugify(name) do
+      nil -> changeset
+      slug -> put_change(changeset, :slug, slug)
+    end
   end
 
   # A category can't be its own parent (one level of nesting is enough here).

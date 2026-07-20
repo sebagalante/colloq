@@ -13,6 +13,7 @@ defmodule Colloq.Forum.Poll do
     field :closed, :boolean, default: false
     field :closed_at, :utc_datetime_usec
     field :multiple, :boolean, default: false
+    field :anonymous, :boolean, default: false
 
     belongs_to :post, Colloq.Forum.Post
     has_many :options, Colloq.Forum.PollOption, preload_order: [:position]
@@ -23,7 +24,7 @@ defmodule Colloq.Forum.Poll do
 
   def changeset(poll, attrs) do
     poll
-    |> cast(attrs, [:question, :multiple, :post_id])
+    |> cast(attrs, [:question, :multiple, :anonymous, :post_id])
     |> validate_required([:question, :post_id])
     |> validate_length(:question, min: 3, max: 300)
   end

@@ -1,0 +1,128 @@
+<div class="max-w-4xl mx-auto px-4 py-6">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-heading"><%= gettext("Stickers") %></h1>
+    <p class="text-sm text-muted mt-1">
+      <%= gettext("Create packs and upload sticker images. Usable in chat and posts. Static or animated (PNG/GIF/WebP).") %>
+    </p>
+  </div>
+
+  <div :if={@error} class="mb-4 rounded-lg bg-danger-soft border border-danger-border text-danger text-sm px-4 py-2">
+    <%= @error %>
+  </div>
+
+  <%!-- Create pack --%>
+  <form
+    phx-submit="create-pack"
+    phx-change="validate"
+    class="flex flex-wrap items-end gap-3 p-4 rounded-xl bg-surface border border-border mb-6"
+  >
+    <div class="flex-1 min-w-[200px]">
+      <label class="block text-sm font-medium text-muted mb-1"><%= gettext("New pack name") %></label>
+      <input
+        type="text"
+        name="pack_name"
+        value={@pack_name}
+        placeholder={gettext("e.g. Racing")}
+        autocomplete="off"
+        class="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-body focus:outline-none focus:border-accent"
+      />
+    </div>
+    <.button type="submit" class="text-sm">
+      <.icon name="plus" class="w-4 h-4 mr-1" /><%= gettext("Create pack") %>
+    </.button>
+  </form>
+
+  <div :if={@packs == []} class="text-center py-12 text-muted text-sm">
+    <%= gettext("No packs yet. Create your first pack above.") %>
+  </div>
+
+  <%!-- Pack tabs --%>
+  <div :if={@packs != []} class="flex flex-wrap gap-2 mb-4">
+    <button
+      :for={pack <- @packs}
+      type="button"
+      phx-click="select-pack"
+      phx-value-id={pack.id}
+      class={[
+        "px-3 py-1.5 rounded-full text-sm font-medium border transition-colors",
+        if(pack.id == @selected_pack_id,
+          do: "bg-accent text-white border-accent",
+          else: "bg-surface text-muted border-border hover:text-heading"
+        )
+      ]}
+    >
+      <%= pack.name %>
+      <span class="opacity-70">(<%= length(pack.stickers) %>)</span>
+    </button>
+  </div>
+
+  <%= if pack = selected_pack(assigns) do %>
+    <div class="rounded-xl bg-surface border border-border p-4">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="font-semibold text-heading"><%= pack.name %></h2>
+          <span class="font-mono text-xs text-muted"><%= pack.slug %></span>
+        </div>
+        <button
+          type="button"
+          phx-click="delete-pack"
+          phx-value-id={pack.id}
+          data-confirm={gettext("Delete pack \"%{name}\" and all its stickers?", name: pack.name)}
+          class="text-muted hover:text-danger transition-colors text-sm inline-flex items-center gap-1"
+        >
+          <.icon name="trash-2" class="w-4 h-4" /><%= gettext("Delete pack") %>
+        </button>
+      </div>
+
+      <%!-- Upload stickers into this pack --%>
+      <form phx-submit="save" phx-change="validate" class="mb-4">
+        <label class="block text-sm font-medium text-muted mb-1"><%= gettext("Add stickers") %></label>
+        <div class="flex flex-wrap items-center gap-3">
+          <.live_file_input
+            upload={@uploads.image}
+            class="block text-sm text-muted file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-accent file:text-white hover:file:bg-accent-hover file:cursor-pointer"
+          />
+          <.button type="submit" class="text-sm">
+            <.icon name="upload" class="w-4 h-4 mr-1" /><%= gettext("Upload") %>
+          </.button>
+        </div>
+
+        <div :for={entry <- @uploads.image.entries} class="mt-3 flex items-center gap-3 text-sm">
+          <.live_img_preview entry={entry} class="w-10 h-10 object-contain" />
+          <span class="text-muted truncate max-w-[160px]"><%= entry.client_name %></span>
+          <button type="button" phx-click="cancel-upload" phx-value-ref={entry.ref} class="text-danger text-xs">
+            <%= gettext("Cancel") %>
+          </button>
+          <span :for={err <- upload_errors(@uploads.image, entry)} class="text-danger text-xs">
+            <%= friendly_upload_error(err) %>
+          </span>
+        </div>
+      </form>
+
+      <%!-- Sticker grid --%>
+      <div :if={pack.stickers == []} class="text-center py-8 text-muted text-sm">
+        <%= gettext("This pack has no stickers yet.") %>
+      </div>
+      <div :if={pack.stickers != []} class="grid grid-cols-3 sm:grid-cols-5 gap-3">
+        <div :for={sticker <- pack.stickers} class="relative group">
+          <img
+            src={sticker.image_url}
+            alt="sticker"
+            class="w-full aspect-square object-contain rounded-lg bg-bg border border-border p-1"
+            loading="lazy"
+          />
+          <button
+            type="button"
+            phx-click="delete-sticker"
+            phx-value-id={sticker.id}
+            data-confirm={gettext("Delete this sticker?")}
+            class="absolute top-1 right-1 w-6 h-6 rounded-full bg-danger text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            title={gettext("Delete")}
+          >
+            <.icon name="x" class="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  <% end %>
+</div>

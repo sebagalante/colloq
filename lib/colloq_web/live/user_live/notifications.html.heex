@@ -9,8 +9,17 @@
       >
         <%= gettext("Mark all as read") %>
       </button>
+      <%!-- Archiving is offered before the destructive actions: same tidying
+            effect, but recoverable from the Archived tab. --%>
       <button
-        :if={@notifications != []}
+        :if={@view == "inbox" && @notifications != []}
+        phx-click="archive-read"
+        class="text-sm text-muted hover:text-heading transition-colors"
+      >
+        <%= gettext("Archive read") %>
+      </button>
+      <button
+        :if={@view == "inbox" && @notifications != []}
         phx-click="clear-read"
         class="text-sm text-muted hover:text-heading transition-colors"
       >
@@ -27,9 +36,31 @@
     </div>
   </div>
 
+  <%!-- Inbox / Archived --%>
+  <div class="flex items-center gap-6 border-b border-border mb-4">
+    <button
+      :for={{key, label} <- [{"inbox", gettext("Inbox")}, {"archived", gettext("Archived")}]}
+      phx-click="set-view"
+      phx-value-view={key}
+      class={[
+        "inline-flex items-center gap-1.5 pb-2 -mb-px text-sm font-medium border-b-2 transition-colors",
+        @view == key && "border-accent text-accent" || "border-transparent text-muted hover:text-heading"
+      ]}
+    >
+      <%= label %>
+      <span :if={key == "archived" && @archived_count > 0} class="tabular-nums text-xs opacity-70">
+        <%= @archived_count %>
+      </span>
+    </button>
+  </div>
+
   <div :if={@notifications == []} class="text-center py-16">
-    <.icon name="bell" class="w-10 h-10 mx-auto text-muted mb-3" />
-    <p class="text-muted"><%= gettext("You have no notifications.") %></p>
+    <.icon name={if @view == "archived", do: "archive", else: "bell"} class="w-10 h-10 mx-auto text-muted mb-3" />
+    <p class="text-muted">
+      <%= if @view == "archived",
+        do: gettext("You have no archived notifications."),
+        else: gettext("You have no notifications.") %>
+    </p>
   </div>
 
   <div :if={@notifications != []} class="space-y-1">
@@ -51,11 +82,33 @@
           <p class={["text-sm", !n.read && "font-semibold text-heading" || "text-body"]}>
             <%= n.title %>
           </p>
-          <p :if={n.body && n.body != ""} class="text-xs text-muted mt-0.5 truncate"><%= n.body %></p>
+          <%!-- line-clamp, not truncate: these bodies carry the reason a post
+                was hidden, and one-line truncation cut it off entirely. --%>
+          <p :if={n.body && n.body != ""} class="text-xs text-muted mt-0.5 line-clamp-3">
+            <%= n.body %>
+          </p>
           <p class="text-xs text-muted mt-1"><%= es_locale(n.inserted_at) %></p>
         </div>
       </button>
       <span :if={!n.read} class="flex-shrink-0 w-2 h-2 rounded-full bg-accent mt-2"></span>
+      <button
+        :if={@view == "inbox"}
+        phx-click="archive"
+        phx-value-id={n.id}
+        title={gettext("Archive")}
+        class="flex-shrink-0 p-1 rounded text-muted opacity-0 group-hover:opacity-100 hover:text-accent transition-all"
+      >
+        <.icon name="archive" class="w-4 h-4" />
+      </button>
+      <button
+        :if={@view == "archived"}
+        phx-click="unarchive"
+        phx-value-id={n.id}
+        title={gettext("Move to inbox")}
+        class="flex-shrink-0 p-1 rounded text-muted opacity-0 group-hover:opacity-100 hover:text-accent transition-all"
+      >
+        <.icon name="inbox" class="w-4 h-4" />
+      </button>
       <button
         phx-click="delete"
         phx-value-id={n.id}

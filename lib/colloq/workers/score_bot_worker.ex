@@ -195,7 +195,7 @@ defmodule Colloq.Workers.ScoreBotWorker do
   defp get_or_create_scorebot_user do
     case Colloq.Accounts.get_user_by_username("scorebot") do
       nil ->
-        {:ok, user} = Colloq.Accounts.register_user(%{
+        {:ok, user} = Colloq.Accounts.register_bot(%{
           email: "scorebot@colloq.local",
           username: "scorebot",
           display_name: "ScoreBot",

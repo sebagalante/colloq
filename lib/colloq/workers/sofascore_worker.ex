@@ -15,7 +15,7 @@ defmodule Colloq.Workers.SofascoreWorker do
 
   require Logger
 
-  @user_agent "Colloq/1.0"
+  @user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
   defp base_url, do: Application.get_env(:colloq, :sofascore_api_url, "https://www.sofascore.com/api/v1")
 

@@ -20,6 +20,16 @@ defmodule Colloq.Automations do
   end
 
   @doc """
+  Enabled automations with the `recurring` trigger — the ones the scheduler
+  fires on an interval (see Colloq.Workers.AutomationSchedulerWorker).
+  """
+  def list_enabled_recurring do
+    Automation
+    |> where(enabled: true, trigger: "recurring")
+    |> Repo.all()
+  end
+
+  @doc """
   Creates a new automation rule.
 
   Receives a map or keyword list with:
@@ -77,6 +87,7 @@ defmodule Colloq.Automations do
   defp dispatch_script("pin_topic", config), do: Colloq.Automations.Scripts.pin_topic(config)
   defp dispatch_script("flag_post", config), do: Colloq.Automations.Scripts.flag_post(config)
   defp dispatch_script("auto_tag", config), do: Colloq.Automations.Scripts.auto_tag(config)
+  defp dispatch_script("recompute_scores", config), do: Colloq.Automations.Scripts.recompute_scores(config)
   defp dispatch_script(unknown, _config), do: {:error, "unsupported script: #{unknown}"}
 end
 
@@ -178,6 +189,16 @@ defmodule Colloq.Automations.Scripts do
   end
 
   def auto_tag(_), do: {:error, "invalid configuration for auto_tag"}
+
+  @doc """
+  Recomputes every user's engagement/leaderboard score (Colloq.Gamification).
+  Takes no config. This is what powers the "puntos" leaderboard, run on an
+  interval by the recurring-automation scheduler.
+  """
+  def recompute_scores(_config) do
+    count = Colloq.Gamification.recompute_all()
+    {:ok, "recomputed scores for #{count} users"}
+  end
 
   defp find_system_user_id do
     case Accounts.get_user_by_username("sistema") do

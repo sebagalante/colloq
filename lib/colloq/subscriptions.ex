@@ -34,12 +34,27 @@ defmodule Colloq.Subscriptions do
   Set the level to `watching` only if the user has no explicit level yet
   (used when someone creates a topic or replies — Discourse auto-watch).
   """
-  def watch_if_new(user_id, topic_id) do
+  def watch_if_new(user_id, topic_id), do: set_if_new(user_id, topic_id, "watching")
+
+  @doc """
+  Set the level to `tracking` only if the user has no explicit level yet.
+
+  What replying to a topic should do. Tracking marks the topic as followed
+  without subscribing the person to every subsequent reply — they still get
+  notified when someone answers *them* or mentions them, which is what a
+  replier actually expects. Matches Discourse's
+  `default_other_notification_level_when_replying`, which also defaults to
+  Tracking.
+  """
+  def track_if_new(user_id, topic_id), do: set_if_new(user_id, topic_id, "tracking")
+
+  # Never overwrites a level the user chose for themselves.
+  defp set_if_new(user_id, topic_id, level) do
     unless Repo.exists?(
              from s in TopicSubscription,
                where: s.user_id == ^user_id and s.topic_id == ^topic_id
            ) do
-      set_level(user_id, topic_id, "watching")
+      set_level(user_id, topic_id, level)
     end
 
     :ok

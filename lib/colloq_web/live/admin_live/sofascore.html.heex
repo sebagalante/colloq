@@ -1,0 +1,57 @@
+<section class="space-y-6 max-w-2xl mx-auto px-4 py-6">
+  <div>
+    <h1 class="text-2xl font-bold text-heading"><%= gettext("Sofascore") %></h1>
+    <p class="text-sm text-muted mt-1">
+      <%= gettext("Manually trigger Sofascore data refreshes. Each button enqueues a background job; results appear in the server logs.") %>
+    </p>
+  </div>
+
+  <div class="rounded-lg bg-surface-alt border border-border px-4 py-3">
+    <form phx-submit="save-season" class="flex flex-wrap items-end gap-3">
+      <div class="flex-1 min-w-[180px]">
+        <label class="block text-xs font-medium text-muted mb-1">
+          <%= gettext("Season id (Liga Profesional, tournament 155)") %>
+        </label>
+        <input
+          type="number"
+          name="season_id"
+          value={@season_id}
+          placeholder={gettext("e.g. 57874")}
+          class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+        />
+      </div>
+      <.button type="submit" class="text-sm shrink-0"><%= gettext("Save season") %></.button>
+    </form>
+    <p :if={is_nil(@season_id)} class="text-xs text-danger mt-2">
+      <%= gettext("Not set — standings and stats need a season id.") %>
+    </p>
+  </div>
+
+  <div class="space-y-3">
+    <.sofascore_action
+      title={gettext("Refresh Racing fixtures")}
+      desc={gettext("Upcoming matches for Racing Club (team 174). Cached 12h.")}
+      event="refresh-racing-fixtures"
+      last={last_run(@last_runs, "racing_fixtures")}
+    />
+    <.sofascore_action
+      title={gettext("Refresh all fixtures")}
+      desc={gettext("Upcoming matches for every team that has players registered.")}
+      event="refresh-all-fixtures"
+      last={last_run(@last_runs, "all_fixtures")}
+    />
+    <.sofascore_action
+      title={gettext("Refresh squads")}
+      desc={gettext("Re-fetch player rosters for all known teams and update the local DB.")}
+      event="refresh-squads"
+      last={last_run(@last_runs, "squads")}
+    />
+    <.sofascore_action
+      title={gettext("Refresh standings")}
+      desc={gettext("League table for the current season. Requires the season id above.")}
+      event="refresh-standings"
+      last={last_run(@last_runs, "standings")}
+      disabled={is_nil(@season_id)}
+    />
+  </div>
+</section>

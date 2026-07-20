@@ -14,6 +14,20 @@ defmodule ColloqWeb.UserAuth do
 
   def on_mount(:default, _params, session, socket) do
     user = session["user_id"] && Accounts.get_user(session["user_id"])
+
+    cond do
+      # Suspended and banned accounts get logged out on their next mount: the
+      # controller drops the session and shows a Spanish banner with the end
+      # date. Halting here keeps them from interacting in the meantime.
+      user && interaction_blocked?(user) ->
+        {:halt, redirect(socket, to: "/session/suspended")}
+
+      true ->
+        mount_default_user(socket, user)
+    end
+  end
+
+  defp mount_default_user(socket, user) do
     locale = (user && user.locale) || "es"
     theme = (user && user.theme) || "dark"
     Gettext.put_locale(ColloqWeb.Gettext, locale)
@@ -25,7 +39,10 @@ defmodule ColloqWeb.UserAuth do
       |> assign(theme: theme)
       |> assign(unread_notifications: (user && Colloq.Notifications.unread_count(user.id)) || 0)
       |> assign(unread_messages: (user && Colloq.Messaging.unread_count(user.id)) || 0)
-      |> assign_new(:categories, fn -> Forum.list_categories() end)
+      # Restricted categories never reach the sidebar for non-staff.
+      |> assign_new(:categories, fn -> Forum.list_categories(user) end)
+      # Public: the sidebar tag list is visible to everyone, logged in or not.
+      |> assign_new(:sidebar_tags, fn -> Colloq.Tags.popular_tags() end)
 
     socket =
       if user && Phoenix.LiveView.connected?(socket) do
@@ -54,6 +71,13 @@ defmodule ColloqWeb.UserAuth do
   end
 
   defp live_badges_hook(_msg, socket, _user_id), do: {:cont, socket}
+
+  # Banned or actively-suspended accounts get no authenticated session.
+  # (Silenced users keep theirs — they may read and are blocked from posting
+  # by the domain-level check_can_post.)
+  defp interaction_blocked?(user) do
+    user.banned || Accounts.User.suspended?(user)
+  end
 
   def on_mount(:require_user, _params, session, socket) do
     case session["user_id"] do

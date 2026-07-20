@@ -8,7 +8,61 @@ defmodule Colloq.Bots do
   """
   import Ecto.Query, warn: false
   alias Colloq.Repo
+  alias Colloq.Accounts.User
   alias Colloq.Bots.BotSystem
+
+  @doc """
+  Ensures a forum `User` exists for a bot persona.
+
+  This is the link the whole mention flow depends on: `MentionTriggerWorker`
+  looks the mention up with `get_user_by_username/1`, and `LlmResponderWorker`
+  posts the reply *as* that user. Without it a bot can never be @mentioned or
+  reply (the worker logs "no existe usuario para persona").
+
+  The username must equal the persona slug. Creates the account on first call,
+  and keeps display name / avatar in sync afterwards. The password is random —
+  the account exists only to author posts, never to log in.
+
+  Returns `{:ok, user}` or `{:error, changeset}`.
+  """
+  def ensure_bot_user(%BotSystem{} = persona) do
+    avatar =
+      case Map.get(persona.config || %{}, "avatar_url") do
+        url when is_binary(url) and url != "" -> url
+        _ -> nil
+      end
+
+    case Repo.get_by(User, username: persona.slug) do
+      nil -> create_bot_user(persona, avatar)
+      user -> sync_bot_user(user, persona, avatar)
+    end
+  end
+
+  defp create_bot_user(persona, avatar) do
+    %User{}
+    |> User.registration_changeset(%{
+      username: persona.slug,
+      email: "#{persona.slug}@bots.colloq.local",
+      display_name: persona.name,
+      password: random_password()
+    })
+    # Bots start at full trust: they're system accounts, not people earning
+    # standing. TL2 was chosen only to dodge the TL0/TL1 spam cohort, which left
+    # them short of can_edit_posts/can_upload_images and on a tag cap. The BOT
+    # flair makes it visible that the author isn't a person, and is what
+    # excludes them from spam screening and trust promotion.
+    |> Ecto.Changeset.change(%{trust_level: 4, flair: "BOT", avatar_url: avatar})
+    |> Repo.insert()
+  end
+
+  defp sync_bot_user(user, persona, avatar) do
+    attrs = %{display_name: persona.name, flair: "BOT"}
+    attrs = if avatar, do: Map.put(attrs, :avatar_url, avatar), else: attrs
+
+    user |> User.update_changeset(attrs) |> Repo.update()
+  end
+
+  defp random_password, do: 24 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
 
   @doc """
   Gets a bot persona by its slug.

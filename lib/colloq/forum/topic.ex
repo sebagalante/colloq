@@ -24,8 +24,16 @@ defmodule Colloq.Forum.Topic do
     field :closed, :boolean, default: false
     field :closed_at, :utc_datetime_usec
     field :closed_reason, :string
+    # Set when this topic was auto-closed as a re-post; the banner links to it.
+    belongs_to :duplicate_of, Colloq.Forum.Topic
     field :archived, :boolean, default: false
     field :archived_at, :utc_datetime_usec
+    # Announcement mode: staff can post, regular users read only.
+    field :staff_only, :boolean, default: false
+
+    # Soft delete (Discourse-style): a deleted topic is hidden from regular
+    # users but recoverable by staff until a later purge. See Forum.delete_topic/2.
+    field :deleted_at, :utc_datetime_usec
 
     # Match day specific
     field :is_match_thread, :boolean, default: false
@@ -38,8 +46,16 @@ defmodule Colloq.Forum.Topic do
     field :continuation_topic_id, :integer
     field :parent_topic_id, :integer
 
+    # AI summary (persisted so it survives restarts and can be marked outdated
+    # when new posts arrive — see summary_post_number).
+    field :summary, :string
+    field :summary_model, :string
+    field :summary_generated_at, :utc_datetime_usec
+    field :summary_post_number, :integer
+
     # Relationships
     belongs_to :user, Colloq.Accounts.User
+    belongs_to :deleted_by, Colloq.Accounts.User
     belongs_to :category, Colloq.Forum.Category
     belongs_to :first_post, Colloq.Forum.Post
     belongs_to :last_post, Colloq.Forum.Post
@@ -56,8 +72,8 @@ defmodule Colloq.Forum.Topic do
       :title, :slug, :user_id, :category_id, :bumped_at,
       :is_match_thread, :match_id, :match_mode,
       :home_team, :away_team,
-      :pinned, :pinned_at, :closed, :closed_reason,
-      :archived, :continuation_topic_id, :parent_topic_id
+      :pinned, :pinned_at, :closed, :closed_reason, :duplicate_of_id,
+      :archived, :staff_only, :continuation_topic_id, :parent_topic_id
     ])
     |> validate_required([:title, :user_id, :category_id])
     |> validate_length(:title, min: 5, max: 200)

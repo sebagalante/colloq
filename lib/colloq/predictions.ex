@@ -33,26 +33,54 @@ defmodule Colloq.Predictions do
   end
 
   @doc """
-  Scores all predictions for a fixture by comparing them
-  with the actual result.
+  Scores all predictions for a fixture against the actual result.
+
+  `result` is a map with `:home_score` and `:away_score`, optionally
+  `:first_scorer` and `:motm` (see `Colloq.Predictions.Scorer`).
+
+  Only unscored predictions are touched, so this is safe to re-run — the
+  nightly sweep and the full-time hook can both fire for the same fixture
+  without double-scoring or resurrecting a prediction an admin has adjusted.
+  Returns `{:ok, count_scored}`.
   """
-  def score_predictions_for_fixture(fixture_id, home_score, away_score) do
-    predictions = for_fixture(fixture_id)
-    result = %{home_score: home_score, away_score: away_score}
+  def score_predictions_for_fixture(fixture_id, %{} = result) do
+    now = DateTime.utc_now()
+
+    predictions =
+      Prediction
+      |> where(fixture_id: ^fixture_id)
+      |> where([p], is_nil(p.scored_at))
+      |> Repo.all()
 
     Enum.each(predictions, fn pred ->
-      points =
-        Scorer.score(%{
-          prediction: pred,
-          result: result
-        })
+      points = Scorer.score(%{prediction: pred, result: result})
 
       pred
-      |> Ecto.Changeset.change(points: points, scored_at: DateTime.utc_now())
+      |> Ecto.Changeset.change(points: points, scored_at: now)
       |> Repo.update!()
     end)
 
     {:ok, length(predictions)}
+  end
+
+  @doc """
+  Score-only variant kept for callers that already hold the two numbers.
+  """
+  def score_predictions_for_fixture(fixture_id, home_score, away_score) do
+    score_predictions_for_fixture(fixture_id, %{home_score: home_score, away_score: away_score})
+  end
+
+  @doc """
+  Fixture ids that still have unscored predictions — the work list for the
+  nightly sweep. Ordered oldest first so a backlog drains in match order.
+  """
+  def unscored_fixture_ids do
+    Prediction
+    |> where([p], is_nil(p.scored_at))
+    |> group_by([p], p.fixture_id)
+    |> order_by([p], min(p.inserted_at))
+    |> select([p], p.fixture_id)
+    |> Repo.all()
   end
 
   @doc """
@@ -69,7 +97,11 @@ defmodule Colloq.Predictions do
     entries =
       Prediction
       |> filter_season(season)
-      |> where([p], p.points > 0)
+      # Scored predictions only — but keep the zero-point ones. Filtering on
+      # `points > 0` used to drop anyone whose guesses all missed, so a player
+      # with 10 wrong predictions vanished from the table instead of sitting at
+      # the bottom with 0, and `average_points` was averaged over hits alone.
+      |> where([p], not is_nil(p.scored_at))
       |> group_by([p], p.user_id)
       |> select([p], %{
         user_id: p.user_id,
@@ -77,7 +109,10 @@ defmodule Colloq.Predictions do
         predictions_count: count(p.id),
         average_points: avg(p.points)
       })
-      |> order_by(desc: :total_points)
+      # Order by the aggregate expression, not the select alias: `desc:
+      # :total_points` compiles to `p0."total_points"`, a column that doesn't
+      # exist, so this query raised 42703 for every caller.
+      |> order_by([p], desc: sum(p.points))
       |> limit(^limit)
       |> Repo.all()
 

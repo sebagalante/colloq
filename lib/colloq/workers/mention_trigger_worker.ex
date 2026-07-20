@@ -50,7 +50,20 @@ defmodule Colloq.Workers.MentionTriggerWorker do
     end
   end
 
+  # "Silenciado" promises the user is never notified about the topic, so a
+  # mention inside a muted topic must stay silent too. Self-mentions are
+  # dropped for the same reason a self-reply isn't a notification.
+  defp notify_mention(%{id: id}, %{user_id: id}), do: :ok
+
   defp notify_mention(mentioned_user, post) do
+    if Colloq.Subscriptions.get_level(mentioned_user.id, post.topic_id) == "muted" do
+      :ok
+    else
+      do_notify_mention(mentioned_user, post)
+    end
+  end
+
+  defp do_notify_mention(mentioned_user, post) do
     Notifications.create_notification(%{
       user_id: mentioned_user.id,
       type: "mention",

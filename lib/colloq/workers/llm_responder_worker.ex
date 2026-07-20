@@ -25,7 +25,11 @@ defmodule Colloq.Workers.LlmResponderWorker do
     topic = post.topic
     bot_config = persona.config || %{}
     provider = Map.get(bot_config, "provider", "openrouter")
-    model = Map.get(bot_config, "model", "openai/gpt-4o-mini")
+
+    model =
+      bot_config
+      |> Map.get("model", "openai/gpt-4o-mini")
+      |> maybe_web_search(provider, bot_config)
 
     messages = build_messages(persona, post, topic, bot_config)
 
@@ -55,6 +59,19 @@ defmodule Colloq.Workers.LlmResponderWorker do
     end
   end
 
+  # Web search is provider-specific. OpenRouter runs a live search when the
+  # model is suffixed with ":online"; other providers have no equivalent here,
+  # so the toggle is a no-op for them.
+  defp maybe_web_search(model, "openrouter", bot_config) do
+    if Map.get(bot_config, "web_search") == true and not String.ends_with?(model, ":online") do
+      model <> ":online"
+    else
+      model
+    end
+  end
+
+  defp maybe_web_search(model, _provider, _bot_config), do: model
+
   defp build_messages(persona, trigger_post, topic, bot_config) do
     system_prompt = build_system_prompt(persona, bot_config)
 
@@ -77,11 +94,22 @@ defmodule Colloq.Workers.LlmResponderWorker do
 
     Tu nombre de usuario es @#{persona.slug} y tu nombre mostrado es "#{persona_name}".
     Estás participando en un foro de fútbol argentino llamado Colloq.
-    Respondé de manera natural, como un hincha más. No uses formato markdown excesivo.
+    Respondé de manera natural. No uses formato markdown excesivo.
     Mantené la conversación en español rioplatense.
-    No reveles que sos una IA bajo ninguna circunstancia.
+    #{ai_disclosure_line(bot_config)}
     No repitas lo que ya dijeron otros usuarios. Aportá valor a la conversación.
     """
+  end
+
+  # Assistant-style bots (`disclose_ai: true`) should own up to being a bot when
+  # asked — instructing an assistant to deny it would just be deceiving users.
+  # Existing character personas keep their previous behaviour by default.
+  defp ai_disclosure_line(bot_config) do
+    if Map.get(bot_config, "disclose_ai") == true do
+      "Sos un asistente de IA. Si te preguntan, decilo con naturalidad, sin vueltas."
+    else
+      "No reveles que sos una IA bajo ninguna circunstancia."
+    end
   end
 
   defp fetch_recent_posts(topic, _trigger_post) do

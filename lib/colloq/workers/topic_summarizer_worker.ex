@@ -3,7 +3,8 @@ defmodule Colloq.Workers.TopicSummarizerWorker do
   LLM-based topic summarization worker.
 
   Generates a summary of the most recent posts in a topic
-  using an LLM model and caches it in Cachex.
+  using an LLM model and persists it on the topic (survives restarts;
+  marked outdated when new posts arrive).
 
   The summary is displayed at the bottom of the topic as a
   dedicated section, similar to the Discourse style.
@@ -16,7 +17,6 @@ defmodule Colloq.Workers.TopicSummarizerWorker do
   alias Colloq.Forum
   alias Colloq.Llm
 
-  @cache_ttl :timer.hours(4)
   @max_posts_for_summary 50
 
   @impl Oban.Worker
@@ -53,21 +53,38 @@ defmodule Colloq.Workers.TopicSummarizerWorker do
         }
       ]
 
-      provider = Application.get_env(:colloq, :summarizer_provider, "groq")
-      model = Application.get_env(:colloq, :summarizer_model, "llama-3.1-8b-instant")
+      provider = summarizer_provider()
+      model = summarizer_model()
 
+      if blank?(provider) or blank?(model) do
+        Logger.warning("[TopicSummarizer] Provider/model no configurados — configuralos en Admin ▸ LLM / IA")
+        ColloqWeb.Endpoint.broadcast("forum:topic:#{topic_id}", "summary_failed", %{reason: :not_configured})
+        {:discard, :not_configured}
+      else
       case Llm.complete(provider, messages, %{model: model, temperature: 0.3, max_tokens: 1024}) do
         {:ok, %{content: summary}} ->
-          cache_key = "summary:#{topic_id}"
           generated_at = DateTime.utc_now()
-          Cachex.put(:forum_cache, cache_key, %{summary: summary, generated_at: generated_at}, ttl: @cache_ttl)
+          label = "#{provider} · #{model}"
 
-          ColloqWeb.Endpoint.broadcast("forum:topic:#{topic_id}", "summary_ready", %{
+          payload = %{
             summary: summary,
-            generated_at: generated_at
+            generated_at: generated_at,
+            model: label,
+            post_number: topic.posts_count
+          }
+
+          # Persist so it survives restarts and can be marked outdated when new
+          # posts arrive (posts_count is captured as summary_post_number).
+          Forum.put_topic_summary(topic, %{
+            summary: summary,
+            model: label,
+            generated_at: generated_at,
+            post_number: topic.posts_count
           })
 
-          Logger.info("[TopicSummarizer] Resumen generado para topic #{topic_id}")
+          ColloqWeb.Endpoint.broadcast("forum:topic:#{topic_id}", "summary_ready", payload)
+
+          Logger.info("[TopicSummarizer] Resumen generado para topic #{topic_id} (#{provider}/#{model})")
           :ok
 
         {:error, :rate_limited} ->
@@ -75,7 +92,13 @@ defmodule Colloq.Workers.TopicSummarizerWorker do
 
         {:error, reason} ->
           Logger.warning("[TopicSummarizer] Error generando resumen para topic #{topic_id}: #{inspect(reason)}")
-          {:error, reason}
+
+          # Tell the LiveView so the loading card resolves instead of spinning
+          # forever. Config errors (missing key, bad model) won't fix on retry,
+          # so discard rather than burn Oban attempts.
+          ColloqWeb.Endpoint.broadcast("forum:topic:#{topic_id}", "summary_failed", %{reason: reason})
+          {:discard, reason}
+      end
       end
     end
   end
@@ -110,4 +133,31 @@ defmodule Colloq.Workers.TopicSummarizerWorker do
     |> String.trim()
     |> String.slice(0, 500)
   end
+
+  @doc """
+  Whether a summarizer provider *and* model are configured. When false, the UI
+  should show a "not set up" message rather than enqueue a job that can't run.
+  """
+  def configured? do
+    not blank?(summarizer_provider()) and not blank?(summarizer_model())
+  end
+
+  # Summarizer provider/model come ONLY from admin config (SiteSettings, then
+  # optional env override). No hardcoded model — whatever you set is what runs.
+  defp summarizer_provider do
+    setting("summarizer_provider") || Application.get_env(:colloq, :summarizer_provider)
+  end
+
+  defp summarizer_model do
+    setting("summarizer_model") || Application.get_env(:colloq, :summarizer_model)
+  end
+
+  defp setting(key) do
+    case Colloq.SiteSettings.get(key) do
+      v when is_binary(v) and v != "" -> v
+      _ -> nil
+    end
+  end
+
+  defp blank?(v), do: is_nil(v) or (is_binary(v) and String.trim(v) == "")
 end

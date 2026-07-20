@@ -4,7 +4,8 @@
 import { Socket } from "phoenix";
 import { LiveSocket } from "phoenix_live_view";
 import Hooks from "./hooks.js";
-import { initTwemoji, parseEmojis } from "./emojis.js";
+import { initTwemoji, parseEmojis, loadCustomEmojis } from "./emojis.js";
+import { initUserCard } from "./user_card.js";
 
 // PWA — Service Worker registration.
 // In development the cache-first service worker serves stale assets and masks
@@ -47,6 +48,9 @@ let liveSocket = new LiveSocket("/live", Socket, {
 document.addEventListener("DOMContentLoaded", () => {
   liveSocket.connect();
   parseEmojis(document.body);
+  // Async: re-parses once the map arrives.
+  loadCustomEmojis();
+  initUserCard();
 });
 
 window.liveSocket = liveSocket;

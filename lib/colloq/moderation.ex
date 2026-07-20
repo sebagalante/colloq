@@ -59,38 +59,62 @@ defmodule Colloq.Moderation do
   end
 
   @doc """
-  Hides a post by soft-deleting it (sets `deleted_at`).
+  Hides a post by soft-deleting it and flagging it as a moderation removal.
+
+  `actor` is the moderator who hid it, or `nil` for a system action (spam /
+  profanity auto-moderation). Setting `hidden: true` is what puts the post in
+  the moderation queue — user self-deletions (`Forum.delete_post/2`) stay out.
 
   Returns `{:ok, post}` or `{:error, changeset}`.
   """
-  def hide_post(%Post{} = post) do
+  def hide_post(%Post{} = post, actor \\ nil) do
     post
-    |> Ecto.Changeset.change(deleted_at: DateTime.utc_now())
+    |> Ecto.Changeset.change(
+      deleted_at: DateTime.utc_now(),
+      hidden: true,
+      deleted_by_id: actor && actor.id
+    )
     |> Repo.update()
+    # Hiding sets deleted_at directly rather than going through
+    # Forum.delete_post/2, so it has to resync the counters itself — otherwise
+    # a hidden post keeps being counted in the topic and on the author.
+    |> tap_resync()
   end
 
   @doc """
-  Restores a previously hidden (soft-deleted) post by clearing `deleted_at`.
+  Restores a previously hidden post: clears `deleted_at`, `hidden`, and
+  `deleted_by_id`.
 
   Returns `{:ok, post}` or `{:error, changeset}`.
   """
   def restore_post(%Post{} = post) do
     post
-    |> Ecto.Changeset.change(deleted_at: nil)
+    |> Ecto.Changeset.change(deleted_at: nil, hidden: false, deleted_by_id: nil)
     |> Repo.update()
+    |> tap_resync()
   end
 
-  @doc """
-  Lists hidden (soft-deleted) posts, most recently hidden first.
+  # Recompute the topic and author post counts from what's actually visible.
+  # Passing the result through unchanged keeps hide/restore's return contract.
+  defp tap_resync({:ok, %Post{} = post} = result) do
+    Colloq.Forum.resync_post_counts(post)
+    result
+  end
 
-  Returns `[%Post{}]` with `:user` and `:topic` preloaded.
+  defp tap_resync(other), do: other
+
+  @doc """
+  Lists posts hidden by moderation/system (not user self-deletions), most
+  recently hidden first.
+
+  Returns `[%Post{}]` with `:user`, `:topic`, and `:deleted_by` preloaded.
   """
   def list_hidden_posts(limit \\ 50) do
     Post
-    |> where([p], not is_nil(p.deleted_at))
+    |> where([p], p.hidden == true and not is_nil(p.deleted_at))
     |> order_by(desc: :deleted_at)
     |> limit(^limit)
-    |> preload([:user, :topic])
+    |> preload([:user, :topic, :deleted_by])
     |> Repo.all()
   end
 
@@ -194,23 +218,59 @@ defmodule Colloq.Moderation do
   alias Colloq.Permissions
 
   @doc """
-  Issues a warning to a user.
+  Issues a warning to a user, with an optional `reason` explaining why.
 
   Requires actor to have :warn_users permission.
-  Increments `warnings_count` and sets `last_warning_at`.
+  Increments `warnings_count`, records `last_warning_at`/`last_warning_reason`,
+  and notifies the warned user (with the reason so they know what to fix).
   Returns `{:ok, user}` or `{:error, changeset}`.
   """
-  def warn_user(%User{} = actor, %User{} = user) do
-    if Permissions.can?(actor, :warn_users) do
+  def warn_user(%User{} = actor, %User{} = user, reason \\ nil) do
+    cond do
+      not Permissions.can?(actor, :warn_users) -> {:error, :unauthorized}
+      not Permissions.can_moderate?(actor, user) -> {:error, :forbidden}
+      true -> do_warn_user(actor, user, reason)
+    end
+  end
+
+  defp do_warn_user(actor, user, reason) do
+    reason = normalize_reason(reason)
+
+    result =
       user
       |> Ecto.Changeset.change(
         warnings_count: user.warnings_count + 1,
-        last_warning_at: DateTime.utc_now()
+        last_warning_at: DateTime.utc_now(),
+        last_warning_reason: reason
       )
       |> Repo.update()
-    else
-      {:error, :unauthorized}
+
+    with {:ok, updated} <- result do
+      notify_warning(updated, actor, reason)
+      {:ok, updated}
     end
+  end
+
+  defp normalize_reason(nil), do: nil
+
+  defp normalize_reason(reason) when is_binary(reason) do
+    case String.trim(reason) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  # A warning must always reach the user, so the actor is stored under
+  # "moderator_id" (not "actor_id") to bypass the blocked-actor skip in
+  # create_notification.
+  defp notify_warning(%User{} = user, %User{} = actor, reason) do
+    Colloq.Notifications.create_notification(%{
+      user_id: user.id,
+      type: "warning",
+      title: "Recibiste una advertencia de moderación",
+      body: reason || "Revisá las normas de la comunidad.",
+      data: %{"moderator_id" => actor.id, "moderator_username" => actor.username}
+    })
   end
 
   @doc """
@@ -222,18 +282,21 @@ defmodule Colloq.Moderation do
   Returns `{:ok, user}` or `{:error, changeset}`.
   """
   def suspend_user(%User{} = actor, %User{} = user, duration, reason \\ nil) do
-    if Permissions.can?(actor, :suspend_users) do
-      suspended_until = parse_duration(duration)
+    cond do
+      not Permissions.can?(actor, :suspend_users) ->
+        {:error, :unauthorized}
 
-      user
-      |> Ecto.Changeset.change(
-        suspended_until: suspended_until,
-        suspended_at: DateTime.utc_now(),
-        suspension_reason: reason
-      )
-      |> Repo.update()
-    else
-      {:error, :unauthorized}
+      not Permissions.can_moderate?(actor, user) ->
+        {:error, :forbidden}
+
+      true ->
+        user
+        |> Ecto.Changeset.change(
+          suspended_until: parse_duration(duration),
+          suspended_at: DateTime.utc_now(),
+          suspension_reason: reason
+        )
+        |> Repo.update()
     end
   end
 
@@ -247,16 +310,21 @@ defmodule Colloq.Moderation do
   Returns `{:ok, user}` or `{:error, changeset | :unauthorized}`.
   """
   def silence_user(%User{} = actor, %User{} = user, duration, reason \\ nil) do
-    if Permissions.can?(actor, :silence_users) do
-      user
-      |> Ecto.Changeset.change(
-        silenced_until: parse_duration(duration),
-        silenced_at: DateTime.utc_now(),
-        silence_reason: reason
-      )
-      |> Repo.update()
-    else
-      {:error, :unauthorized}
+    cond do
+      not Permissions.can?(actor, :silence_users) ->
+        {:error, :unauthorized}
+
+      not Permissions.can_moderate?(actor, user) ->
+        {:error, :forbidden}
+
+      true ->
+        user
+        |> Ecto.Changeset.change(
+          silenced_until: parse_duration(duration),
+          silenced_at: DateTime.utc_now(),
+          silence_reason: reason
+        )
+        |> Repo.update()
     end
   end
 
@@ -283,16 +351,21 @@ defmodule Colloq.Moderation do
   Returns `{:ok, user}` or `{:error, changeset}`.
   """
   def ban_user(%User{} = actor, %User{} = user, reason \\ nil) do
-    if Permissions.can?(actor, :ban_users) do
-      user
-      |> Ecto.Changeset.change(
-        banned: true,
-        banned_at: DateTime.utc_now(),
-        ban_reason: reason
-      )
-      |> Repo.update()
-    else
-      {:error, :unauthorized}
+    cond do
+      not Permissions.can?(actor, :ban_users) ->
+        {:error, :unauthorized}
+
+      not Permissions.can_moderate?(actor, user) ->
+        {:error, :forbidden}
+
+      true ->
+        user
+        |> Ecto.Changeset.change(
+          banned: true,
+          banned_at: DateTime.utc_now(),
+          ban_reason: reason
+        )
+        |> Repo.update()
     end
   end
 

@@ -41,6 +41,17 @@
       <h2 class="text-lg font-semibold text-heading mb-4 border-b border-border pb-2"><%= gettext("Profile") %></h2>
 
       <.input
+        id="settings-username"
+        name="username"
+        label={gettext("Username (@)")}
+        value={@form_data["username"]}
+        placeholder="usuario"
+      />
+      <p class="mt-1 mb-4 text-xs text-muted">
+        <%= gettext("This is your @mention handle. 3–30 characters: letters, numbers and underscores.") %>
+      </p>
+
+      <.input
         id="settings-display-name"
         name="display_name"
         label={gettext("Display name")}
@@ -100,6 +111,9 @@
           <option value="racing_light" selected={@form_data["theme"] in ["racing_light"]}>Racing Light</option>
           <option value="racing_celeste" selected={@form_data["theme"] in ["racing_celeste"]}>Racing Celeste</option>
           <option value="racing_navy" selected={@form_data["theme"] in ["racing_navy", "racing"]}>Racing Navy</option>
+          <option value="racing_salmon" selected={@form_data["theme"] == "racing_salmon"}>Racing Salmon</option>
+          <option value="dracula" selected={@form_data["theme"] == "dracula"}>Dracula</option>
+          <option value="tokyo_night" selected={@form_data["theme"] == "tokyo_night"}>Tokyo Night</option>
         </select>
       </div>
 
@@ -221,6 +235,45 @@
           <div class="h-2 rounded w-5/6" style="background: #16304F"></div>
         </div>
         <p class="text-xs mt-3" style="color: #5CB8E6">La Academia · navy profundo</p>
+      </div>
+      <div :if={@form_data["theme"] == "racing_salmon"} class="rounded-xl p-6" style="background: #123050; border: 1px solid #1E4468">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-3 h-3 rounded-full" style="background: #FF8E72"></div>
+          <div class="w-3 h-3 rounded-full" style="background: #5CB8E6"></div>
+          <div class="w-3 h-3 rounded-full bg-white"></div>
+        </div>
+        <div class="space-y-2">
+          <div class="h-2 rounded w-3/4" style="background: #1E4468"></div>
+          <div class="h-2 rounded w-1/2" style="background: #1E4468"></div>
+          <div class="h-2 rounded w-5/6" style="background: #1E4468"></div>
+        </div>
+        <p class="text-xs mt-3" style="color: #FF8E72">Racing · azul y salmón</p>
+      </div>
+      <div :if={@form_data["theme"] == "dracula"} class="rounded-xl p-6" style="background: #282a36; border: 1px solid #44475a">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-3 h-3 rounded-full" style="background: #bd93f9"></div>
+          <div class="w-3 h-3 rounded-full" style="background: #ff79c6"></div>
+          <div class="w-3 h-3 rounded-full" style="background: #50fa7b"></div>
+        </div>
+        <div class="space-y-2">
+          <div class="h-2 rounded w-3/4" style="background: #44475a"></div>
+          <div class="h-2 rounded w-1/2" style="background: #44475a"></div>
+          <div class="h-2 rounded w-5/6" style="background: #44475a"></div>
+        </div>
+        <p class="text-xs mt-3" style="color: #bd93f9">Dracula</p>
+      </div>
+      <div :if={@form_data["theme"] == "tokyo_night"} class="rounded-xl p-6" style="background: #1a1b26; border: 1px solid #292e42">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-3 h-3 rounded-full" style="background: #7aa2f7"></div>
+          <div class="w-3 h-3 rounded-full" style="background: #bb9af7"></div>
+          <div class="w-3 h-3 rounded-full" style="background: #9ece6a"></div>
+        </div>
+        <div class="space-y-2">
+          <div class="h-2 rounded w-3/4" style="background: #292e42"></div>
+          <div class="h-2 rounded w-1/2" style="background: #292e42"></div>
+          <div class="h-2 rounded w-5/6" style="background: #292e42"></div>
+        </div>
+        <p class="text-xs mt-3" style="color: #7aa2f7">Tokyo Night</p>
       </div>
     </section>
 

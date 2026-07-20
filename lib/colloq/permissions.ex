@@ -16,17 +16,25 @@ defmodule Colloq.Permissions do
     hide_posts:            ["moderator", "admin", "super_admin"],
     restore_posts:         ["moderator", "admin", "super_admin"],
     edit_topics:           ["moderator", "admin", "super_admin"],
+    delete_topics:         ["moderator", "admin", "super_admin"],
     warn_users:            ["moderator", "admin", "super_admin"],
     silence_users:         ["moderator", "admin", "super_admin"],
     suspend_users:         ["moderator", "admin", "super_admin"],
     ban_users:             ["moderator", "admin", "super_admin"],
     reinstate_users:       ["super_admin"],
 
+    # Restricted ("staff only") categories: seeing them at all, and the topics
+    # inside them.
+    view_restricted_categories: ["moderator", "admin", "super_admin"],
+
     # User management
     view_users:            ["moderator", "admin", "super_admin"],
     search_users:          ["moderator", "admin", "super_admin"],
     edit_user_profile:     ["admin", "super_admin"],
-    assign_roles:          ["super_admin"],
+    # Admins may assign roles too, but `can_assign_role?/3` limits them to
+    # targets below their own rank and to roles no higher than their own — the
+    # permission alone would let an admin mint a super admin.
+    assign_roles:          ["admin", "super_admin"],
 
     # Content management
     manage_categories:     ["moderator", "admin", "super_admin"],
@@ -80,12 +88,72 @@ defmodule Colloq.Permissions do
   @doc "Returns all defined roles."
   def roles, do: @roles
 
+  @doc "Numeric privilege rank for a role (higher = more powerful)."
+  def rank("super_admin"), do: 3
+  def rank("admin"), do: 2
+  def rank("moderator"), do: 1
+  def rank(_), do: 0
+
+  @doc """
+  Whether `actor` may take a moderation action against `target`.
+
+  Staff can only sanction users strictly below them in rank, so a moderator
+  cannot warn/silence/suspend/ban an admin (or a fellow moderator), and an
+  admin cannot act on a super admin.
+  """
+  def can_moderate?(%{role: actor_role}, %{role: target_role}),
+    do: rank(actor_role) > rank(target_role)
+
+  def can_moderate?(_, _), do: false
+
+  @doc """
+  Whether `actor` may set `target`'s role to `new_role`.
+
+  Two independent limits, both required:
+
+    * the target must rank strictly below the actor — so an admin can't
+      re-role a fellow admin or a super admin, and can't demote someone who
+      outranks them
+    * the new role must not outrank the actor — otherwise an admin could
+      promote any account to super admin and then act through it
+
+  A super admin is unaffected: it outranks every target and every grantable
+  role, so it keeps assigning anything, including another super admin.
+  """
+  def can_assign_role?(actor, target, new_role) do
+    can?(actor, :assign_roles) and
+      can_moderate?(actor, target) and
+      rank(normalize_role(new_role)) <= rank(Map.get(actor, :role))
+  end
+
+  # The UI submits "none" for "no role"; treat the blank variants alike.
+  defp normalize_role(role) when role in [nil, "", "none", "user"], do: nil
+  defp normalize_role(role), do: role
+
   @doc "Returns human-readable role name."
   def role_name("super_admin"), do: "Super Admin"
   def role_name("admin"), do: "Admin"
   def role_name("moderator"), do: "Moderador"
   def role_name(nil), do: "Usuario"
   def role_name(_), do: "Usuario"
+
+  @doc """
+  Staff badge config for a role, or `nil` for regular users.
+
+  Returns `%{color, label}` used to render the Greek-helmet staff badge.
+  Colors map to the app's `.badge` palette:
+  gold for super admins, red for admins, green for moderators.
+  """
+  def staff_badge("super_admin"),
+    do: %{color: "gray", label: role_name("super_admin"), icon: :helmet, count: 2}
+
+  def staff_badge("admin"),
+    do: %{color: "blue", label: role_name("admin"), icon: :helmet, count: 1}
+
+  def staff_badge("moderator"),
+    do: %{color: "green", label: role_name("moderator"), icon: :hardhat, count: 1}
+
+  def staff_badge(_), do: nil
 
   @doc "Returns a human-readable permission name in Spanish."
   def permission_name(:view_flags), do: "Ver reportes"
@@ -98,6 +166,7 @@ defmodule Colloq.Permissions do
   def permission_name(:view_users), do: "Ver usuarios"
   def permission_name(:search_users), do: "Buscar usuarios"
   def permission_name(:assign_roles), do: "Asignar roles"
+  def permission_name(:view_restricted_categories), do: "Ver categorías restringidas"
   def permission_name(:manage_categories), do: "Gestionar categorías"
   def permission_name(:manage_badges), do: "Gestionar insignias"
   def permission_name(:manage_automations), do: "Gestionar automatizaciones"

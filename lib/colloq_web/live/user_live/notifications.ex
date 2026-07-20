@@ -20,6 +20,7 @@ defmodule ColloqWeb.UserLive.Notifications do
        socket
        |> assign(:current_user, current_user)
        |> assign(:page_title, gettext("Notifications"))
+       |> assign(:view, "inbox")
        |> load_notifications()}
     else
       {:ok, push_navigate(socket, to: ~p"/login")}
@@ -34,6 +35,33 @@ defmodule ColloqWeb.UserLive.Notifications do
      socket
      |> load_notifications()
      |> assign(:unread_notifications, 0)}
+  end
+
+  # Switch between the inbox and the archive.
+  def handle_event("set-view", %{"view" => view}, socket) when view in ~w(inbox archived) do
+    {:noreply, socket |> assign(:view, view) |> load_notifications()}
+  end
+
+  # Archive: keeps the row, drops it out of the inbox and the unread badge.
+  def handle_event("archive", %{"id" => id}, socket) do
+    Notifications.archive_notification(String.to_integer(id), socket.assigns.current_user.id)
+    {:noreply, load_notifications(socket)}
+  end
+
+  def handle_event("unarchive", %{"id" => id}, socket) do
+    Notifications.unarchive_notification(String.to_integer(id), socket.assigns.current_user.id)
+    {:noreply, load_notifications(socket)}
+  end
+
+  # Bulk archive of everything already read — the non-destructive counterpart
+  # to "Clear read".
+  def handle_event("archive-read", _params, socket) do
+    {count, _} = Notifications.archive_read(socket.assigns.current_user.id)
+
+    {:noreply,
+     socket
+     |> load_notifications()
+     |> put_flash(:info, gettext("Archived %{count} notifications.", count: count))}
   end
 
   # Remove a single notification from the DB.
@@ -67,7 +95,11 @@ defmodule ColloqWeb.UserLive.Notifications do
 
     if notification do
       unless notification.read, do: Notifications.mark_read!(notification.id)
-      {:noreply, push_navigate(socket, to: notification_path(notification))}
+      # Full navigation (not push_navigate): the target topic/profile lives in a
+      # different pipeline scope, where live navigation fails silently, and this
+      # also lets the browser honour the `#post-N` fragment so we land on the
+      # exact post.
+      {:noreply, redirect(socket, to: notification_path(notification))}
     else
       {:noreply, socket}
     end
@@ -75,11 +107,12 @@ defmodule ColloqWeb.UserLive.Notifications do
 
   defp load_notifications(socket) do
     user = socket.assigns.current_user
-    notifications = Notifications.list_notifications(user.id, limit: 50)
+    archived? = socket.assigns[:view] == "archived"
 
     socket
-    |> assign(:notifications, notifications)
+    |> assign(:notifications, Notifications.list_notifications(user.id, limit: 50, archived: archived?))
     |> assign(:unread_notifications, Notifications.unread_count(user.id))
+    |> assign(:archived_count, Notifications.archived_count(user.id))
   end
 
   # Build a link target from the notification's data map.
@@ -104,6 +137,7 @@ defmodule ColloqWeb.UserLive.Notifications do
       "reply" -> "reply"
       "reaction" -> "thumbs-up"
       "message" -> "mail"
+      "warning" -> "alert-triangle"
       _ -> "bell"
     end
   end

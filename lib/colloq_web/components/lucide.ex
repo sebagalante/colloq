@@ -76,6 +76,21 @@ defmodule ColloqWeb.Components.Lucide do
     ~s(<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>)
   ]
 
+  defp icon_paths("lock"), do: [
+    ~s(<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>),
+    ~s(<path d="M7 11V7a5 5 0 0 1 10 0v4"/>)
+  ]
+
+  defp icon_paths("lock-open"), do: [
+    ~s(<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>),
+    ~s(<path d="M7 11V7a5 5 0 0 1 9.9-1"/>)
+  ]
+
+  defp icon_paths("megaphone"), do: [
+    ~s(<path d="m3 11 18-5v12L3 14v-3z"/>),
+    ~s(<path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>)
+  ]
+
   defp icon_paths("ban"), do: [
     ~s(<circle cx="12" cy="12" r="10"/>),
     ~s(<path d="m4.9 4.9 14.2 14.2"/>)
@@ -155,6 +170,25 @@ defmodule ColloqWeb.Components.Lucide do
     ~s(<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>),
     ~s(<polyline points="16 17 21 12 16 7"/>),
     ~s(<line x1="21" x2="9" y1="12" y2="12"/>)
+  ]
+
+  defp icon_paths("chevron-right"), do: [
+    ~s(<path d="m9 18 6-6-6-6"/>)
+  ]
+
+  defp icon_paths("flame"), do: [
+    ~s(<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>)
+  ]
+
+  defp icon_paths("archive"), do: [
+    ~s(<rect width="20" height="5" x="2" y="3" rx="1"/>),
+    ~s(<path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/>),
+    ~s(<path d="M10 12h4"/>)
+  ]
+
+  defp icon_paths("inbox"), do: [
+    ~s(<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>),
+    ~s(<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>)
   ]
 
   defp icon_paths("bell"), do: [
@@ -298,6 +332,12 @@ defmodule ColloqWeb.Components.Lucide do
     ~s(<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>)
   ]
 
+  defp icon_paths("layers"), do: [
+    ~s(<polygon points="12 2 2 7 12 12 22 7 12 2"/>),
+    ~s(<polyline points="2 17 12 22 22 17"/>),
+    ~s(<polyline points="2 12 12 17 22 12"/>)
+  ]
+
   defp icon_paths("smile"), do: [
     ~s(<circle cx="12" cy="12" r="10"/>),
     ~s(<path d="M8 14s1.5 2 4 2 4-2 4-2"/>),
@@ -402,6 +442,27 @@ defmodule ColloqWeb.Components.Lucide do
   defp icon_paths("file"), do: [
     ~s(<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>),
     ~s(<path d="M14 2v4a2 2 0 0 0 2 2h4"/>)
+  ]
+
+  defp icon_paths("cpu"), do: [
+    ~s(<rect width="16" height="16" x="4" y="4" rx="2"/>),
+    ~s(<rect width="6" height="6" x="9" y="9" rx="1"/>),
+    ~s(<path d="M15 2v2"/>), ~s(<path d="M15 20v2"/>), ~s(<path d="M2 15h2"/>),
+    ~s(<path d="M2 9h2"/>), ~s(<path d="M20 15h2"/>), ~s(<path d="M20 9h2"/>),
+    ~s(<path d="M9 2v2"/>), ~s(<path d="M9 20v2"/>)
+  ]
+
+  defp icon_paths("tag"), do: [
+    ~s(<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/>),
+    ~s(<circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>)
+  ]
+
+  defp icon_paths("sticker"), do: [
+    ~s(<path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/>),
+    ~s(<path d="M15 3v6h6"/>),
+    ~s(<path d="M10 14a3.5 3.5 0 0 0 4 0"/>),
+    ~s(<path d="M9 12h.01"/>),
+    ~s(<path d="M15 12h.01"/>)
   ]
 
   # Fallback for unknown icon names

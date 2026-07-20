@@ -7,13 +7,6 @@ defmodule ColloqWeb.AdminLive.Bots do
   alias Colloq.Repo
   alias Phoenix.LiveView.JS
 
-  @provider_options [
-    {"Groq", "groq"},
-    {"NVIDIA NIM", "nvidia"},
-    {"Anthropic", "anthropic"},
-    {"OpenRouter", "openrouter"}
-  ]
-
   @impl true
   def mount(_params, _session, socket) do
     socket =
@@ -25,6 +18,11 @@ defmodule ColloqWeb.AdminLive.Bots do
       |> assign(:test_response, nil)
       |> assign(:test_loading, false)
       |> assign_form(nil)
+      |> allow_upload(:avatar,
+        accept: ~w(.jpg .jpeg .png .gif .webp),
+        max_entries: 1,
+        max_file_size: 2_000_000
+      )
 
     {:ok, socket}
   end
@@ -54,7 +52,10 @@ defmodule ColloqWeb.AdminLive.Bots do
     end
   end
 
+  # Required so the avatar upload registers file selection.
   @impl true
+  def handle_event("validate", _params, socket), do: {:noreply, socket}
+
   def handle_event("delete", %{"id" => id}, socket) do
     persona = Enum.find(socket.assigns.personas, &(&1.id == String.to_integer(id)))
 
@@ -73,12 +74,22 @@ defmodule ColloqWeb.AdminLive.Bots do
   end
 
   def handle_event("save", %{"bot" => attrs}, socket) do
+    # A freshly uploaded avatar overrides whatever is in the URL field.
+    attrs =
+      case consume_avatar(socket) do
+        nil -> attrs
+        url -> Map.put(attrs, "avatar_url", url)
+      end
+
     config = build_config(attrs)
 
+    # Slug doubles as the bot's @username, so it must satisfy both the mention
+    # regex (@[a-zA-Z0-9_]{3,30}) and User.validate_username — neither allows
+    # dashes, or "@mi-bot" would only ever match "mi".
     slug =
       (attrs["slug"] || "")
       |> String.downcase()
-      |> String.replace(~r/[^a-z0-9_-]/, "-")
+      |> String.replace(~r/[^a-z0-9_]/, "_")
 
     params = %{
       name: attrs["name"],
@@ -94,11 +105,12 @@ defmodule ColloqWeb.AdminLive.Bots do
 
         case Repo.insert(changeset) do
           {:ok, persona} ->
+            # Without a matching User the bot can't be @mentioned or reply.
             {:noreply,
              socket
              |> assign(:personas, [persona | socket.assigns.personas])
              |> assign(:show_modal, false)
-             |> put_flash(:info, gettext("Bot created."))}
+             |> bot_user_flash(persona)}
 
           {:error, changeset} ->
             {:noreply, put_changeset_flash(socket, changeset)}
@@ -113,7 +125,7 @@ defmodule ColloqWeb.AdminLive.Bots do
              socket
              |> assign(:personas, replace_in_list(socket.assigns.personas, updated))
              |> assign(:show_modal, false)
-             |> put_flash(:info, gettext("Bot updated."))}
+             |> bot_user_flash(updated)}
 
           {:error, changeset} ->
             {:noreply, put_changeset_flash(socket, changeset)}
@@ -187,6 +199,7 @@ defmodule ColloqWeb.AdminLive.Bots do
       model: "gpt-4o-mini",
       temperature: "0.7",
       max_tokens: "1024",
+      web_search: "false",
       trigger_on_mention: "true",
       allowed_trust_level: "0",
       rate_limit_per_user: "5",
@@ -208,6 +221,7 @@ defmodule ColloqWeb.AdminLive.Bots do
       model: Map.get(cfg, "model", "gpt-4o-mini"),
       temperature: to_string(Map.get(cfg, "temperature", 0.7)),
       max_tokens: to_string(Map.get(cfg, "max_tokens", 1024)),
+      web_search: to_string(Map.get(cfg, "web_search", false)),
       trigger_on_mention: to_string(Map.get(cfg, "trigger_on_mention", true)),
       allowed_trust_level: to_string(Map.get(cfg, "allowed_trust_level", 0)),
       rate_limit_per_user: to_string(Map.get(cfg, "rate_limit_per_user", 5)),
@@ -225,11 +239,32 @@ defmodule ColloqWeb.AdminLive.Bots do
       "model" => attrs["model"],
       "temperature" => parse_float(attrs["temperature"], 0.7),
       "max_tokens" => parse_int(attrs["max_tokens"], 1024),
+      "web_search" => attrs["web_search"] == "true",
       "trigger_on_mention" => attrs["trigger_on_mention"] == "true",
       "allowed_trust_level" => parse_int(attrs["allowed_trust_level"], 0),
       "rate_limit_per_user" => parse_int(attrs["rate_limit_per_user"], 5),
       "managed_by_worker" => attrs["managed_by_worker"] == "true"
     }
+  end
+
+  def upload_error_to_string(:too_large), do: gettext("File too large (max 2MB).")
+  def upload_error_to_string(:not_accepted), do: gettext("File type not allowed.")
+  def upload_error_to_string(:too_many_files), do: gettext("Only one image allowed.")
+  def upload_error_to_string(_), do: gettext("Upload error.")
+
+  # Uploads the chosen avatar to Media and returns its URL, or nil if none.
+  defp consume_avatar(socket) do
+    consume_uploaded_entries(socket, :avatar, fn %{path: path}, entry ->
+      ext = Path.extname(entry.client_name)
+      filename = "bot_avatar_#{System.unique_integer([:positive])}#{ext}"
+      data = File.read!(path)
+
+      case Colloq.Media.upload(data, filename: filename, content_type: entry.client_type) do
+        {:ok, %{url: url}} -> {:ok, url}
+        {:error, reason} -> {:postpone, {:error, reason}}
+      end
+    end)
+    |> Enum.find(&is_binary/1)
   end
 
   defp parse_float(str, default) do
@@ -243,6 +278,24 @@ defmodule ColloqWeb.AdminLive.Bots do
     case Integer.parse(str) do
       {val, _} -> val
       :error -> default
+    end
+  end
+
+  # Creating/updating the persona is only half of it — the bot also needs a
+  # forum account (username == slug) or it can never be mentioned.
+  defp bot_user_flash(socket, persona) do
+    case Bots.ensure_bot_user(persona) do
+      {:ok, user} ->
+        put_flash(socket, :info, gettext("Bot saved. Mention it with @%{u}.", u: user.username))
+
+      {:error, changeset} ->
+        put_flash(
+          socket,
+          :error,
+          gettext("Bot saved, but its account could not be created: %{e}",
+            e: inspect(changeset.errors)
+          )
+        )
     end
   end
 

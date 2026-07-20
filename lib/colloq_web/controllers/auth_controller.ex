@@ -42,6 +42,8 @@ defmodule ColloqWeb.AuthController do
           |> put_session(:pending_2fa_user_id, user.id)
           |> redirect(to: "/2fa")
         else
+          Accounts.record_login(user.id, conn.remote_ip)
+
           conn
           |> put_session(:user_id, user.id)
           |> put_flash(:info, gettext("Welcome!"))

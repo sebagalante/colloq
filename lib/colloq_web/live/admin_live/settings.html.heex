@@ -68,6 +68,40 @@
                       class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
                     />
 
+                  <% setting.type == "image" -> %>
+                    <div id={"img-setting-#{setting.key}"} phx-hook="SettingImageUpload" class="space-y-2">
+                      <div class="flex items-center gap-3">
+                        <img
+                          data-preview
+                          src={setting.value}
+                          alt={setting.key}
+                          class={[
+                            "h-12 w-12 object-contain rounded-lg border border-border bg-surface p-1 shrink-0",
+                            (setting.value in [nil, ""]) && "hidden"
+                          ]}
+                        />
+                        <label class="cursor-pointer inline-flex items-center gap-2 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-semibold px-3 py-2 transition-colors">
+                          <.icon name="upload" class="w-4 h-4" />
+                          <%= gettext("Choose image") %>
+                          <input
+                            data-file
+                            type="file"
+                            accept="image/png,image/svg+xml,image/jpeg,image/gif,image/webp"
+                            class="hidden"
+                          />
+                        </label>
+                        <span data-status class="text-xs text-muted"></span>
+                      </div>
+                      <input
+                        data-url
+                        type="text"
+                        name="value"
+                        value={setting.value}
+                        placeholder="/uploads/logo.svg — o pegá una URL"
+                        class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                      />
+                    </div>
+
                   <% true -> %>
                     <input
                       type="text"

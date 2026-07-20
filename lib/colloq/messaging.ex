@@ -116,7 +116,8 @@ defmodule Colloq.Messaging do
   Rules:
     - staff (moderator/admin/super_admin) can always message anyone;
     - otherwise the target must have `allow_messages` enabled;
-    - and neither user may have blocked the other.
+    - and neither user may have *blocked* the other. (A one-way "ignore" only
+      hides forum posts and does not sever the DM channel.)
 
   Returns `:ok`, `{:error, :blocked}`, or `{:error, :opted_out}`.
   """
@@ -125,7 +126,7 @@ defmodule Colloq.Messaging do
       actor.role in @staff_roles ->
         :ok
 
-      Colloq.Accounts.blocked?(target.id, actor.id) or Colloq.Accounts.blocked?(actor.id, target.id) ->
+      Colloq.Accounts.dm_blocked?(actor.id, target.id) ->
         {:error, :blocked}
 
       target.allow_messages == false ->
@@ -239,10 +240,19 @@ defmodule Colloq.Messaging do
   end
 
   def mark_read!(conversation_id, user_id) do
-    Message
-    |> where(conversation_id: ^conversation_id)
-    |> where([m], m.user_id != ^user_id)
-    |> where(read: false)
-    |> Repo.update_all(set: [read: true, read_at: DateTime.utc_now()])
+    {count, _} =
+      Message
+      |> where(conversation_id: ^conversation_id)
+      |> where([m], m.user_id != ^user_id)
+      |> where(read: false)
+      |> Repo.update_all(set: [read: true, read_at: DateTime.utc_now()])
+
+    # Tell the sender (also viewing this conversation) that their messages were
+    # read, so their delivery checks turn into blue double checks live.
+    if count > 0 do
+      ColloqWeb.Endpoint.broadcast("dm:#{conversation_id}", "read", %{reader_id: user_id})
+    end
+
+    count
   end
 end

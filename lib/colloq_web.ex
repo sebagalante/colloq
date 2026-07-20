@@ -89,6 +89,18 @@ defmodule ColloqWeb do
           true -> Calendar.strftime(datetime, "%d/%m/%Y")
         end
       end
+
+      # Absolute date, no time — dd/mm/yyyy.
+      defp es_date(nil), do: ""
+      defp es_date(datetime), do: Calendar.strftime(datetime, "%d/%m/%Y")
+
+      # Compact Spanish date like "3 jul" (day + short month, no year).
+      defp es_short_date(nil), do: ""
+
+      defp es_short_date(datetime) do
+        months = ~w(ene feb mar abr may jun jul ago sep oct nov dic)
+        "#{datetime.day} #{Enum.at(months, datetime.month - 1)}"
+      end
     end
   end
 

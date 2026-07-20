@@ -69,12 +69,18 @@ default_settings = [
     description: "Título del sitio mostrado en el header", public: true},
   %{key: "site_description", value: "Comunidad de Racing Club de Avellaneda",
     type: "string", group: "general", public: true},
+  %{key: "site_logo", value: "", type: "image", group: "general", public: true,
+    description: "Logo del sitio (PNG o SVG) mostrado en el header"},
+  %{key: "site_favicon", value: "", type: "image", group: "general", public: true,
+    description: "Favicon del sitio (PNG o SVG)"},
   %{key: "registration_mode", value: "open", type: "string", group: "security",
     description: "Modo de registro: open, invite, closed"},
   %{key: "max_post_length", value: "50000", type: "integer", group: "forum",
     description: "Longitud máxima de posts"},
   %{key: "min_post_length", value: "10", type: "integer", group: "forum",
     description: "Longitud mínima de posts"},
+  %{key: "min_trust_to_create_tags", value: "1", type: "integer", group: "forum",
+    description: "Nivel de confianza mínimo para crear etiquetas nuevas (aplicar existentes no requiere nivel)"},
   %{key: "auto_close_threshold", value: "50000", type: "integer", group: "forum",
     description: "Cantidad de posts antes de cerrar automáticamente un hilo"},
   %{key: "archive_after_days", value: "90", type: "integer", group: "forum",
@@ -150,22 +156,30 @@ end)
 # =============================================================================
 # Trust Levels
 # =============================================================================
+# `max_tags_per_topic`: -1 = unlimited, 0 = may not tag at all (see the
+# TrustLevel schema — this column does NOT use the daily_* 0-means-unlimited
+# convention). TL3/TL4 gate on post count alone, hence min_days_registered: 0.
 trust_levels = [
   %{level: 0, name: "Nuevo", min_posts: 0, min_days_registered: 0,
     can_create_topics: true, can_send_pms: false, can_edit_posts: false,
-    can_upload_images: false, daily_post_limit: 100, daily_reaction_limit: 100},
-  %{level: 1, name: "Básico", min_posts: 10, min_days_registered: 1,
+    can_upload_images: false, daily_post_limit: 100, daily_reaction_limit: 100,
+    max_tags_per_topic: 0},
+  %{level: 1, name: "Básico", min_posts: 1_000, min_days_registered: 1,
     can_create_topics: true, can_send_pms: true, can_edit_posts: false,
-    can_upload_images: false, daily_post_limit: 200, daily_reaction_limit: 200},
-  %{level: 2, name: "Miembro", min_posts: 50, min_days_registered: 7,
+    can_upload_images: false, daily_post_limit: 200, daily_reaction_limit: 200,
+    max_tags_per_topic: 5},
+  %{level: 2, name: "Miembro", min_posts: 2_500, min_days_registered: 7,
     can_create_topics: true, can_send_pms: true, can_edit_posts: true,
-    can_upload_images: true, daily_post_limit: 500, daily_reaction_limit: 500},
-  %{level: 3, name: "Regular", min_posts: 200, min_days_registered: 30,
+    can_upload_images: true, daily_post_limit: 500, daily_reaction_limit: 500,
+    max_tags_per_topic: 10},
+  %{level: 3, name: "Regular", min_posts: 6_500, min_days_registered: 0,
     can_create_topics: true, can_send_pms: true, can_edit_posts: true,
-    can_upload_images: true, daily_post_limit: 0, daily_reaction_limit: 0},
-  %{level: 4, name: "Líder", min_posts: 0, min_days_registered: 0,
+    can_upload_images: true, daily_post_limit: 0, daily_reaction_limit: 0,
+    max_tags_per_topic: 15},
+  %{level: 4, name: "Líder", min_posts: 10_000, min_days_registered: 0,
     can_create_topics: true, can_send_pms: true, can_edit_posts: true,
-    can_upload_images: true, daily_post_limit: 0, daily_reaction_limit: 0}
+    can_upload_images: true, daily_post_limit: 0, daily_reaction_limit: 0,
+    max_tags_per_topic: -1}
 ]
 
 Enum.each(trust_levels, fn attrs ->

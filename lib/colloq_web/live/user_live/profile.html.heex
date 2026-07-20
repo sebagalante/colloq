@@ -3,7 +3,7 @@
   <div class="rounded-2xl bg-surface border border-border p-6 mb-6">
     <div class="flex items-start gap-5">
       <%!-- Avatar --%>
-      <div class="flex-shrink-0 relative">
+      <div class={["flex-shrink-0 relative", @online && "avatar-online"]} title={@online && gettext("Online")}>
         <%= if @profile_user.avatar_url do %>
           <img src={@profile_user.avatar_url} alt="" class="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover" />
         <% else %>
@@ -11,12 +11,8 @@
             <%= initials(@profile_user) %>
           </div>
         <% end %>
-        <span
-          :if={@online}
-          class="absolute bottom-1 right-1 sm:bottom-1.5 sm:right-1.5 w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-success border-[3px] border-surface"
-          title={gettext("Online")}
-        >
-        </span>
+        <%!-- The ring is decorative CSS, so state the status in text too. --%>
+        <span :if={@online} class="sr-only"><%= gettext("Online") %></span>
       </div>
 
       <%!-- Main info --%>
@@ -87,6 +83,7 @@
                   <div class="text-xs text-muted"><%= gettext("You stop seeing their posts.") %></div>
                 </button>
                 <button
+                  :if={@profile_user.role not in Colloq.Permissions.roles()}
                   type="button"
                   phx-click="block-user"
                   phx-value-user_id={@profile_user.id}
@@ -117,7 +114,7 @@
         <%!-- Role / badges --%>
         <div class="flex items-center gap-2 mt-3 flex-wrap">
           <span class="text-xs text-muted">@<%= @profile_user.username %></span>
-          <.badge :if={@profile_user.role} color="red"><%= Colloq.Permissions.role_name(@profile_user.role) %></.badge>
+          <.staff_badge role={@profile_user.role} />
           <span
             :for={badge <- @profile_badges}
             class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded"
@@ -132,12 +129,20 @@
     <%!-- Stats row --%>
     <div class="flex flex-wrap gap-x-6 gap-y-2 mt-5 pt-4 border-t border-border text-sm">
       <div class="flex items-center gap-1.5">
+        <span class="text-muted"><%= gettext("Posted") %></span>
+        <span class="font-semibold text-heading"><%= relative_time(@stats[:last_post_at]) %></span>
+      </div>
+      <div class="flex items-center gap-1.5">
         <span class="text-muted"><%= gettext("Joined") %></span>
         <span class="font-semibold text-heading"><%= short_date(@profile_user.inserted_at) %></span>
       </div>
       <div class="flex items-center gap-1.5">
-        <span class="text-muted"><%= gettext("Last Post") %></span>
-        <span class="font-semibold text-heading"><%= short_date(@stats[:last_post_at]) %></span>
+        <span class="text-muted"><%= gettext("Seen") %></span>
+        <span class="font-semibold text-heading"><%= relative_time(@profile_user.last_login_at) %></span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-muted"><%= gettext("Posts") %></span>
+        <span class="font-semibold text-heading"><%= @stats[:posts_count] || 0 %></span>
       </div>
       <div class="flex items-center gap-1.5">
         <span class="text-muted"><%= gettext("Views") %></span>
@@ -184,14 +189,80 @@
       </button>
     </div>
 
-    <%!-- Summary / Activity: recent posts --%>
-    <div :if={@active_tab in ["summary", "activity"]}>
+    <%!-- Summary: at-a-glance stats + a short activity teaser --%>
+    <div :if={@active_tab == "summary"}>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <div class="rounded-xl border border-border bg-surface p-4">
+          <div class="text-2xl font-bold text-heading"><%= @stats[:posts_count] || 0 %></div>
+          <div class="text-xs text-muted mt-0.5"><%= gettext("Posts") %></div>
+        </div>
+        <div class="rounded-xl border border-border bg-surface p-4">
+          <div class="text-2xl font-bold text-accent"><%= @stats[:cheers] || 0 %></div>
+          <div class="text-xs text-muted mt-0.5"><%= gettext("Cheers") %></div>
+        </div>
+        <div class="rounded-xl border border-border bg-surface p-4">
+          <div class="text-2xl font-bold text-heading"><%= @stats[:total_views] || 0 %></div>
+          <div class="text-xs text-muted mt-0.5"><%= gettext("Views") %></div>
+        </div>
+        <div class="rounded-xl border border-border bg-surface p-4">
+          <div class="text-2xl font-bold text-heading"><%= trust_level_name(@profile_user.trust_level) %></div>
+          <div class="text-xs text-muted mt-0.5"><%= gettext("Trust Level") %></div>
+        </div>
+      </div>
+
+      <div :if={@posts != []}>
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-sm font-semibold text-heading"><%= gettext("Recent activity") %></h2>
+          <button phx-click="set-tab" phx-value-tab="activity" class="text-xs text-accent hover:underline">
+            <%= gettext("View all") %>
+          </button>
+        </div>
+        <div class="space-y-3">
+          <div :for={post <- Enum.take(@posts, 5)} class="group py-3 border-b border-border last:border-b-0">
+            <div class="flex items-center justify-between mb-1">
+              <.link
+                navigate={"#{~p"/t/#{post.topic_id}"}#post-#{post.id}"}
+                class="text-sm text-accent hover:underline truncate max-w-md"
+              >
+                <%= post.topic.title %>
+              </.link>
+              <span class="text-xs text-muted flex-shrink-0 ml-2"><%= es_locale(post.inserted_at) %></span>
+            </div>
+            <p class="text-sm text-muted line-clamp-2"><%= body_excerpt(post.body, 200) %></p>
+          </div>
+        </div>
+      </div>
+      <div :if={@posts == []} class="text-center py-8">
+        <p class="text-muted text-sm"><%= gettext("No posts yet.") %></p>
+      </div>
+    </div>
+
+    <%!-- Activity: full chronological timeline, paged --%>
+    <div :if={@active_tab == "activity"}>
       <div :if={@posts != []} class="space-y-3">
         <div :for={post <- @posts} class="group py-3 border-b border-border last:border-b-0">
           <div class="flex items-center justify-between mb-1">
-            <a href={~p"/t/#{post.topic_id}"} class="text-sm text-accent hover:underline truncate max-w-md">
-              <%= post.topic.title %>
-            </a>
+            <div class="flex items-center gap-2 min-w-0">
+              <%!-- post_number 1 is the topic's opening post, so this row is a
+                   topic the user started rather than a reply. --%>
+              <span class={[
+                "inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded flex-shrink-0",
+                post.post_number == 1 && "bg-accent-soft text-accent" || "bg-surface-alt text-muted"
+              ]}>
+                <.icon name={if post.post_number == 1, do: "file-text", else: "reply"} class="w-3 h-3" />
+                <%= if post.post_number == 1, do: gettext("Started"), else: gettext("Replied") %>
+              </span>
+              <%!-- navigate + #post-N: LiveView pushes state then scrolls to the
+                    anchor, so this lands on the exact post without a full reload.
+                    get_topic!/2 loads every post, so the target is always in the
+                    DOM. --%>
+              <.link
+                navigate={"#{~p"/t/#{post.topic_id}"}#post-#{post.id}"}
+                class="text-sm text-accent hover:underline truncate"
+              >
+                <%= post.topic.title %>
+              </.link>
+            </div>
             <span class="text-xs text-muted flex-shrink-0 ml-2"><%= es_locale(post.inserted_at) %></span>
           </div>
           <p class="text-sm text-muted line-clamp-2"><%= body_excerpt(post.body, 200) %></p>
@@ -202,6 +273,16 @@
           </div>
         </div>
       </div>
+
+      <div :if={@has_more_posts} class="pt-4 text-center">
+        <button
+          phx-click="load-more-activity"
+          class="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+        >
+          <.icon name="chevron-down" class="w-4 h-4" /><%= gettext("Load more") %>
+        </button>
+      </div>
+
       <div :if={@posts == []} class="text-center py-8">
         <p class="text-muted text-sm"><%= gettext("No posts yet.") %></p>
       </div>

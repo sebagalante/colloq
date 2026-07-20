@@ -66,20 +66,23 @@ defmodule Colloq.Workers.EmbedWorker do
   """
   def extract_urls(body) when is_binary(body) do
     # Match any http(s) URL, whether bare in text or inside an href attribute.
-    # Quoted content is dropped first: a link belongs to the post that first
-    # shared it, not to whoever quotes it (avoids duplicate/mangled previews).
+    # We DO include URLs inside quotes (so quoted links still get a preview),
+    # but strip <img> tags first: an inline image (e.g. a quoted image) already
+    # renders itself and shouldn't also spawn a duplicate card.
     ~r{https?://[^\s"'<>]+}
-    |> Regex.scan(strip_blockquotes(body))
+    |> Regex.scan(strip_img_tags(body))
     |> List.flatten()
     |> Enum.map(&clean_url/1)
     |> Enum.uniq()
     |> Enum.take(5)
   end
 
+  defp strip_img_tags(body), do: String.replace(body, ~r/<img[^>]*>/i, "")
+
   # Trim trailing punctuation, keeping parens that belong to the URL (e.g.
   # Wikipedia "..._(Avellaneda)"). Drops a trailing ")" only when unbalanced.
   defp clean_url(url) do
-    url = String.replace(url, ~r/[.,;:!?]+$/, "")
+    url = url |> decode_entities() |> String.replace(~r/[.,;:!?]+$/, "")
 
     if String.ends_with?(url, ")") and not String.contains?(url, "(") do
       String.trim_trailing(url, ")")
@@ -200,11 +203,19 @@ defmodule Colloq.Workers.EmbedWorker do
     if decoded == "", do: nil, else: decoded
   end
 
-  # Decode the handful of HTML entities that commonly appear in titles.
-  defp decode_entities(text) do
+  @doc """
+  Decode the HTML entities that appear in scraped titles and in URLs pulled
+  out of a post body.
+
+  This existed for titles but was never applied to the URL itself. Post bodies
+  are HTML, so a link written as `?t=70&v=X` is stored as `?t=70&amp;v=X`, and
+  the extractor scanned that markup directly — the embed ended up pointing at a
+  *different*, broken URL, with YouTube receiving a parameter named `amp;v`.
+
+  `&amp;` is unescaped last so `&amp;lt;` decodes to `&lt;`, not `<`.
+  """
+  def decode_entities(text) when is_binary(text) do
     text
-    |> String.replace("&amp;", "&")
-    |> String.replace("&#38;", "&")
     |> String.replace("&quot;", "\"")
     |> String.replace("&#34;", "\"")
     |> String.replace(~r/&#0?39;|&apos;|&#x27;/i, "'")
@@ -212,7 +223,11 @@ defmodule Colloq.Workers.EmbedWorker do
     |> String.replace("&gt;", ">")
     |> String.replace("&nbsp;", " ")
     |> String.replace("&#160;", " ")
+    |> String.replace("&#38;", "&")
+    |> String.replace("&amp;", "&")
   end
+
+  def decode_entities(text), do: text
 
   # Resolve protocol-relative or root-relative og:image URLs against the page URL.
   defp absolute_image(nil, _base), do: ""

@@ -24,6 +24,9 @@ defmodule Colloq.Accounts.User do
     # Trust system
     field :trust_level, :integer, default: 0
     field :posts_count, :integer, default: 0
+    # Gamification: engagement points, recomputed by the "Recompute scores" automation.
+    field :score, :integer, default: 0
+    field :score_updated_at, :utc_datetime_usec
     field :is_admin, :boolean, default: false
 
     # Role-based access control
@@ -62,6 +65,9 @@ defmodule Colloq.Accounts.User do
     field :ban_reason, :string
     field :warnings_count, :integer, default: 0
     field :last_warning_at, :utc_datetime_usec
+    field :last_warning_reason, :string
+    field :last_ip, :string
+    field :last_login_at, :utc_datetime_usec
     field :silenced_until, :utc_datetime_usec
     field :silenced_at, :utc_datetime_usec
     field :silence_reason, :string
@@ -88,13 +94,17 @@ defmodule Colloq.Accounts.User do
   def update_changeset(user, attrs) do
     user
     |> cast(attrs, [
-      :display_name, :bio, :location, :website,
+      :username, :display_name, :bio, :location, :website,
       :theme, :locale, :notifications_enabled, :allow_messages, :avatar_url, :flair
     ])
     |> validate_length(:display_name, max: 50)
     |> validate_length(:bio, max: 500)
     |> validate_length(:flair, max: 20)
     |> validate_url(:website)
+    # Only runs when the username actually changes (Ecto skips validations for
+    # unchanged fields), so editing other settings won't re-validate it.
+    |> validate_username()
+    |> unique_constraint(:username)
   end
 
   @doc """

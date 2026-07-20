@@ -9,11 +9,9 @@ defmodule ColloqWeb.Router do
   Pipelines:
   - :browser → standard browser requests
   - :api → JSON API requests
-  - :admin_base → auth + admin role check (no IP restriction)
-  - :super_admin_network → IP-restricted + auth + admin role check
+  - :admin_base → auth + admin role check
 
   2FA verification is enforced on admin routes for users with TOTP enabled.
-  IP restriction (WireGuard/Tailscale) is enforced only for super_admin routes.
   """
 
   pipeline :browser do
@@ -33,16 +31,16 @@ defmodule ColloqWeb.Router do
     plug :fetch_session
   end
 
-  # Admin base pipeline — auth + role check, NO IP restriction
-  pipeline :admin_base do
-    plug :require_authenticated_user
-    plug :require_admin_user
-    plug :require_2fa_verified
+  # JSON API that still needs the browser session (current_user) — e.g. the
+  # hover user-card popover, which shows a "Message" button for logged-in users.
+  pipeline :browser_api do
+    plug :accepts, ["json"]
+    plug :fetch_session
+    plug :fetch_current_user
   end
 
-  # Super admin pipeline — IP-restricted (WireGuard/Tailscale) + auth + role
-  pipeline :super_admin_network do
-    plug ColloqWeb.Plugs.VpnOnly
+  # Admin base pipeline — auth + role check, NO IP restriction
+  pipeline :admin_base do
     plug :require_authenticated_user
     plug :require_admin_user
     plug :require_2fa_verified
@@ -66,10 +64,12 @@ defmodule ColloqWeb.Router do
 
     live "/", ForumLive.Index, :index
     live "/c/:slug", ForumLive.Index, :category
+    live "/tag/:slug", ForumLive.Index, :tag
     live "/t/:id", ForumLive.Topic, :show
     live "/t/:id/:slug", ForumLive.Topic, :show
     live "/u/:username", UserLive.Profile, :show
 
+    live "/search", SearchLive, :index
     live "/members", MembersLive, :index
     live "/leaderboard", LeaderboardLive, :index
     live "/badges", BadgesLive, :index
@@ -83,6 +83,7 @@ defmodule ColloqWeb.Router do
     get "/session/2fa", SessionController, :create_with_2fa
     get "/session/2fa/complete", SessionController, :finalize_2fa
     get "/logout", SessionController, :delete
+    get "/session/suspended", SessionController, :suspended
 
     # Guest can view but not post — auth checked at LiveView level
     live "/register", UserLive.Registration, :new
@@ -104,7 +105,7 @@ defmodule ColloqWeb.Router do
     post "/api/upload", UploadController, :create
     post "/api/chat/upload", UploadController, :attachment
     get "/api/users/search", MentionController, :search
-    get "/api/emojis", MentionController, :emojis
+    get "/api/stickers", MentionController, :stickers
     get "/api/tags/search", MentionController, :tags
 
     live "/forum/new", ForumLive.Index, :new_topic
@@ -115,7 +116,21 @@ defmodule ColloqWeb.Router do
     live "/bookmarks", UserLive.Bookmarks, :index
 
     live "/comparar", PlayerComparisonLive, :show
+    live "/jugador", PlayerCardLive, :index
     live "/predicciones", PredictionsLive, :index
+  end
+
+  # --- USER CARD (JSON, session-aware) ---
+  scope "/", ColloqWeb do
+    pipe_through :browser_api
+
+    get "/u/:username/card", UserCardController, :show
+
+    # Public: profiles and topics are readable logged-out, and their text can
+    # contain :shortcodes:. Behind auth the map never loaded for anonymous
+    # readers, so shortcodes stayed as raw text for them. The list is just
+    # names and image paths — nothing to protect.
+    get "/api/emojis", MentionController, :emojis
   end
 
   # --- API ---
@@ -137,6 +152,9 @@ defmodule ColloqWeb.Router do
     live "/categories", AdminLive.Categories, :index
     live "/categories/new", AdminLive.Categories, :new
     live "/categories/:id/edit", AdminLive.Categories, :edit
+    live "/tags", AdminLive.Tags, :index
+    live "/tags/new", AdminLive.Tags, :new
+    live "/tags/:id/edit", AdminLive.Tags, :edit
   end
 
   # --- ADMIN: Admin+ (admin, super_admin) ---
@@ -155,14 +173,16 @@ defmodule ColloqWeb.Router do
     live "/badges/new", AdminLive.Badges, :new
     live "/badges/:id/edit", AdminLive.Badges, :edit
     live "/emojis", AdminLive.Emojis, :index
+    live "/stickers", AdminLive.Stickers, :index
+    live "/sofascore", AdminLive.Sofascore, :index
     live "/settings/llm", AdminLive.LlmSettings, :edit
     live "/settings/x_feed", AdminLive.XFeedSettings, :edit
   end
 
   # --- ADMIN: Super Admin only (super_admin) ---
-  # IP-restricted via WireGuard/Tailscale — only accessible from VPN
+  # Gated by super-admin role + 2FA (no network/IP restriction).
   scope "/admin", ColloqWeb do
-    pipe_through [:browser, :super_admin_network, :require_super_admin]
+    pipe_through [:browser, :admin_base, :require_super_admin]
 
     live "/settings", AdminLive.Settings, :index
   end

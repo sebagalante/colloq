@@ -6,6 +6,8 @@ defmodule ColloqWeb.UserLive.Profile do
   alias Colloq.Reactions
   alias Colloq.Badges
 
+  @per_page 20
+
   @impl true
   def mount(%{"username" => username}, session, socket) do
     current_user = load_user(session)
@@ -28,6 +30,8 @@ defmodule ColloqWeb.UserLive.Profile do
       |> assign(:profile_badges, profile_badges)
       |> assign(:posts, [])
       |> assign(:post_reactions, %{})
+      |> assign(:page, 1)
+      |> assign(:has_more_posts, false)
       |> assign(:blocked_by_me, blocked_by_me)
       |> assign(:can_message, current_user && user && current_user.id != user.id &&
         Colloq.Messaging.can_message?(current_user, user) == :ok)
@@ -38,17 +42,26 @@ defmodule ColloqWeb.UserLive.Profile do
         "@#{user && user.username || username}"
       end)
 
+    # Activity loads on the dead render too, not just once the socket connects.
+    # Gating it on connected?/1 meant every profile first painted "No posts yet"
+    # and only filled in after the websocket came up.
+    socket =
+      if user && !blocked_by_me do
+        {posts, has_more} = list_recent_posts(user.id)
+
+        socket
+        |> assign(:posts, posts)
+        |> assign(:post_reactions, load_reactions(posts))
+        |> assign(:has_more_posts, has_more)
+      else
+        socket
+      end
+
     socket =
       if user && connected?(socket) && !blocked_by_me do
         # Live presence updates for the online indicator.
         Phoenix.PubSub.subscribe(Colloq.PubSub, "online_users")
-        posts = list_recent_posts(user.id)
-        reactions = load_reactions(posts)
-
-        socket
-        |> assign(:posts, posts)
-        |> assign(:post_reactions, reactions)
-        |> assign(:online, ColloqWeb.Presence.online?(user.id))
+        assign(socket, :online, ColloqWeb.Presence.online?(user.id))
       else
         socket
       end
@@ -65,6 +78,25 @@ defmodule ColloqWeb.UserLive.Profile do
   @impl true
   def handle_event("set-tab", %{"tab" => tab}, socket) do
     {:noreply, assign(socket, :active_tab, tab)}
+  end
+
+  def handle_event("load-more-activity", _params, socket) do
+    %{profile_user: user, page: page, posts: posts} = socket.assigns
+
+    if user && socket.assigns.has_more_posts do
+      next_page = page + 1
+      {more, has_more} = list_recent_posts(user.id, next_page)
+      all = posts ++ more
+
+      {:noreply,
+       socket
+       |> assign(:posts, all)
+       |> assign(:post_reactions, Map.merge(socket.assigns.post_reactions, load_reactions(more)))
+       |> assign(:page, next_page)
+       |> assign(:has_more_posts, has_more)}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -123,6 +155,14 @@ defmodule ColloqWeb.UserLive.Profile do
          |> assign(:post_reactions, %{})
          |> put_flash(:info, msg)}
 
+      {:error, :cannot_block_staff} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext("You can't block staff. You can ignore them to hide their posts.")
+         )}
+
       {:error, _} ->
         {:noreply, put_flash(socket, :error, gettext("Could not block the user."))}
     end
@@ -134,14 +174,16 @@ defmodule ColloqWeb.UserLive.Profile do
     case Accounts.unblock_user(actor.id, String.to_integer(user_id)) do
       {:ok, _} ->
         user = socket.assigns.profile_user
-        posts = list_recent_posts(user.id)
-        reactions = load_reactions(posts)
+        # Unblocking reveals the profile for the first time — reset to page 1.
+        {posts, has_more} = list_recent_posts(user.id)
 
         {:noreply,
          socket
          |> assign(:blocked_by_me, false)
          |> assign(:posts, posts)
-         |> assign(:post_reactions, reactions)
+         |> assign(:post_reactions, load_reactions(posts))
+         |> assign(:page, 1)
+         |> assign(:has_more_posts, has_more)
          |> put_flash(:info, "Usuario desbloqueado.")}
 
       {:error, _} ->
@@ -156,22 +198,35 @@ defmodule ColloqWeb.UserLive.Profile do
     end
   end
 
-  defp list_recent_posts(user_id) do
+  # One page of activity, plus whether another page exists. Fetching
+  # `per_page + 1` rows answers "is there more?" without a second COUNT over
+  # the user's whole post history.
+  defp list_recent_posts(user_id, page \\ 1) do
     import Ecto.Query
 
-    Colloq.Forum.Post
-    |> where(user_id: ^user_id)
-    |> where([p], is_nil(p.deleted_at))
-    |> order_by(desc: :inserted_at)
-    |> limit(20)
-    |> preload(:topic)
-    |> Colloq.Repo.all()
+    offset = (page - 1) * @per_page
+
+    rows =
+      Colloq.Forum.Post
+      |> where(user_id: ^user_id)
+      |> where([p], is_nil(p.deleted_at))
+      # System posts (goals, cards, match summaries) are authored by the bot
+      # account, but exclude them anyway so a profile stays a record of things
+      # the person actually wrote.
+      |> where([p], p.is_system == false)
+      |> order_by(desc: :inserted_at)
+      |> offset(^offset)
+      |> limit(^(@per_page + 1))
+      |> preload(:topic)
+      |> Colloq.Repo.all()
+
+    {Enum.take(rows, @per_page), length(rows) > @per_page}
   end
 
   defp load_reactions(posts) do
-    for post <- posts, into: %{} do
-      {post.id, Reactions.reaction_counts(post.id)}
-    end
+    posts
+    |> Enum.map(& &1.id)
+    |> Reactions.reaction_counts_for()
   end
 
   # Aggregate stats shown in the profile header (Joined / Last Post / Views /
@@ -224,6 +279,25 @@ defmodule ColloqWeb.UserLive.Profile do
 
   def short_date(nil), do: "—"
   def short_date(dt), do: Calendar.strftime(dt, "%d %b %Y")
+
+  # Coarse relative time ("3d", "2mon", "1y") for header stats.
+  def relative_time(nil), do: "—"
+
+  def relative_time(%NaiveDateTime{} = dt),
+    do: relative_time(DateTime.from_naive!(dt, "Etc/UTC"))
+
+  def relative_time(%DateTime{} = dt) do
+    secs = DateTime.diff(DateTime.utc_now(), dt)
+
+    cond do
+      secs < 60 -> gettext("just now")
+      secs < 3600 -> gettext("%{n}m", n: div(secs, 60))
+      secs < 86_400 -> gettext("%{n}h", n: div(secs, 3600))
+      secs < 2_592_000 -> gettext("%{n}d", n: div(secs, 86_400))
+      secs < 31_536_000 -> gettext("%{n}mon", n: div(secs, 2_592_000))
+      true -> gettext("%{n}y", n: div(secs, 31_536_000))
+    end
+  end
 
   # Strip the scheme (and any trailing slash) so websites read like the pic.
   def display_website(nil), do: ""

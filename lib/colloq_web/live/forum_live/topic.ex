@@ -15,19 +15,40 @@ defmodule ColloqWeb.ForumLive.Topic do
   """
   use ColloqWeb, :live_view
 
+  require Logger
+
   alias Colloq.Forum
   alias Colloq.Repo
   alias Colloq.Accounts
   alias Colloq.Reactions
+  alias Colloq.Reads
   alias Colloq.Tags
 
   @typing_timeout 5_000
 
+  # Longest quote (whole-post or selected) that gets inserted into a composer.
+  @quote_limit 4_000
+
   @impl true
-  def mount(%{"id" => id}, session, socket) do
+  def mount(%{"id" => id} = params, session, socket) do
     current_user = load_user(session)
     blocked_ids = if current_user, do: Accounts.hidden_user_ids(current_user.id), else: MapSet.new()
     topic = Forum.get_topic!(id, blocked_ids)
+    can_delete_topic = current_user && Colloq.Permissions.can?(current_user, :delete_topics)
+
+    # A topic in a staff-only category 404s for everyone else, so a shared or
+    # guessed /t/:id link leaks nothing. Filtering the listings isn't enough on
+    # its own — direct access is the case that actually matters.
+    if topic.category && topic.category.read_restricted &&
+         !Forum.can_view_restricted?(current_user) do
+      raise Ecto.NoResultsError, queryable: Colloq.Forum.Topic
+    end
+
+    # A soft-deleted topic 404s for everyone except staff, who see it with a
+    # tombstone so they can recover it.
+    if topic.deleted_at && !can_delete_topic do
+      raise Ecto.NoResultsError, queryable: Colloq.Forum.Topic
+    end
 
     # Set up all assigns with sensible defaults.
     # UI-only state (form visibility, replying_to, poll form) is initialised
@@ -36,7 +57,10 @@ defmodule ColloqWeb.ForumLive.Topic do
       socket
       |> assign(:current_user, current_user)
       |> assign(:topic, topic)
+      |> assign(:can_delete_topic, can_delete_topic)
       |> assign(:posts, topic.posts)
+      # Reply ordering: :chrono (posting order) or :top (most reactions first)
+      |> assign(:sort, :chrono)
       # Emoji reaction counts per post id, e.g. %{123 => %{"👍" => 2}}
       |> assign(:reaction_data, %{})
       # Current user's reactions per post id, e.g. %{123 => ["👍"]}
@@ -53,16 +77,36 @@ defmodule ColloqWeb.ForumLive.Topic do
       |> assign(:editing_topic, false)
       |> assign(:edit_title, topic.title)
       |> assign(:edit_category_id, topic.category_id)
+      |> assign(:edit_tags, "")
       # Match mode flag inherited from the topic (e.g. live-match vs static)
       |> assign(:match_mode, topic.match_mode)
-      # AI-generated summary (nil until generated or loaded from cache)
+      # AI-generated summary (persisted on the topic; loaded below)
       |> assign(:summary, nil)
       |> assign(:summary_at, nil)
+      |> assign(:summary_model, nil)
+      |> assign(:summary_post_number, nil)
       |> assign(:summary_loading, false)
+      |> assign(:summary_unavailable, false)
+      # A stored summary is loaded on mount, but the panel only opens when the
+      # reader actually asks for it.
+      |> assign(:show_summary, false)
       # Inline poll creation form state
       |> assign(:show_poll_form, false)
       |> assign(:poll_question, "")
       |> assign(:poll_options, ["", ""])
+      |> assign(:poll_anonymous, false)
+      # "The XI I'd play" composer — loaded lazily when the form is opened
+      |> assign(:show_lineup_form, false)
+      |> assign(:lineup_teams, [])
+      |> assign(:lineup_team_id, nil)
+      |> assign(:lineup_formation, "4-3-1-2")
+      |> assign(:lineup_colors, Colloq.Sofascore.team_colors(nil))
+      |> assign(:lineup_slots, [])
+      |> assign(:lineup_squad, [])
+      # Lineups attached to the posts on screen, keyed by post_id
+      |> assign(:lineup_data, %{})
+      # Target of the "warn author" dialog, or nil when closed
+      |> assign(:warning_target, nil)
       # Pre-computed poll results and the current user's votes
       |> assign(:poll_data, %{})
       |> assign(:user_poll_votes, %{})
@@ -80,6 +124,16 @@ defmodule ColloqWeb.ForumLive.Topic do
       |> assign(:topic_tags, Tags.get_topic_tags(topic.id))
       # Blocked user IDs for filtering posts
       |> assign(:blocked_user_ids, blocked_ids)
+      # Where to land on open: "bottom" (newest post, via the activity-time link)
+      # or "top" (first post, via the title link / default).
+      |> assign(:scroll_to, if(params["to"] == "latest", do: "bottom", else: "top"))
+      # "Where you left off". Computed read-only here (in BOTH the static and the
+      # connected render) so the divider + pill are in the initial HTML — no
+      # pop-in / layout shift when the socket connects. The actual "mark as read"
+      # write happens once, on connect, further down. Nothing auto-scrolls.
+      #   first_unread_id — post that gets the "New replies" divider
+      #   unread_count    — new posts since last visit, shown on the jump pill
+      |> assign_unread(topic, current_user, params["to"] == "latest")
       |> assign_new(:page_title, fn -> topic.title end)
 
     # Only subscribe to PubSub and load heavy data when the client is
@@ -96,9 +150,11 @@ defmodule ColloqWeb.ForumLive.Topic do
         end
 
         socket
+        |> mark_topic_read(topic, current_user)
         |> load_reaction_data(topic.posts)
         |> load_user_reactions(topic.posts, current_user)
-        |> load_cached_summary(topic.id)
+        |> load_summary(topic)
+        |> load_lineup_data(topic.posts)
         |> load_poll_data(topic.posts, current_user)
         |> load_bookmarked_posts(topic.posts, current_user)
         |> load_user_badges(topic.posts)
@@ -119,6 +175,11 @@ defmodule ColloqWeb.ForumLive.Topic do
   end
 
   @impl true
+  def handle_event("toggle-sort", _params, socket) do
+    next = if socket.assigns.sort == :top, do: :chrono, else: :top
+    {:noreply, assign(socket, :sort, next)}
+  end
+
   def handle_event("start-nested-reply", %{"post_id" => post_id}, socket) do
     if socket.assigns.current_user do
       {:noreply, assign(socket, replying_to: String.to_integer(post_id), nested_reply_body: "")}
@@ -131,14 +192,17 @@ defmodule ColloqWeb.ForumLive.Topic do
     {:noreply, assign(socket, replying_to: nil, nested_reply_body: "")}
   end
 
-  # Quote a comment: insert a blockquote (with attribution) into the main
-  # reply composer.
-  def handle_event("quote-post", %{"post_id" => post_id}, socket) do
+  # Quote a comment: insert a blockquote (with attribution) into whichever
+  # composer the user is actually working in. `text` is present when the quote
+  # came from selecting part of the post body; without it the whole post is
+  # quoted.
+  def handle_event("quote-post", %{"post_id" => post_id} = params, socket) do
     if socket.assigns.current_user do
       post = Forum.get_post!(String.to_integer(post_id))
-      html = quote_html(post)
+      html = quote_html(post, params["text"])
 
-      {:noreply, push_event(socket, "tiptap:quote", %{target: "reply-editor", html: html})}
+      {:noreply,
+       push_event(socket, "tiptap:quote", %{target: quote_target(socket, post.id), html: html})}
     else
       {:noreply, push_redirect(socket, to: "/login")}
     end
@@ -149,7 +213,7 @@ defmodule ColloqWeb.ForumLive.Topic do
     topic = socket.assigns.topic
     parent_id = socket.assigns.replying_to
 
-    if user && parent_id && !topic.closed && !topic.archived do
+    if user && parent_id && Forum.can_reply?(topic, user) do
       parent_post = Forum.get_post!(parent_id)
 
       case Forum.create_reply(topic, user, parent_post, %{"body" => body}) do
@@ -165,7 +229,7 @@ defmodule ColloqWeb.ForumLive.Topic do
            |> load_reaction_data(topic.posts)
            |> load_user_reactions(topic.posts, socket.assigns.current_user)}
 
-        {:error, reason} when reason in [:silenced, :suspended, :banned] ->
+        {:error, reason} when reason in [:silenced, :suspended, :banned, :duplicate_post] ->
           {:noreply, put_flash(socket, :error, moderation_block_message(reason))}
 
         {:error, _reason} ->
@@ -180,7 +244,7 @@ defmodule ColloqWeb.ForumLive.Topic do
     user = socket.assigns.current_user
     topic = socket.assigns.topic
 
-    if user && !topic.closed && !topic.archived do
+    if user && Forum.can_reply?(topic, user) do
       case Forum.create_post(topic, user, %{"body" => body}) do
         {:ok, _post} ->
           topic = Forum.get_topic!(topic.id)
@@ -194,7 +258,7 @@ defmodule ColloqWeb.ForumLive.Topic do
            |> load_reaction_data(topic.posts)
            |> load_user_reactions(topic.posts, socket.assigns.current_user)}
 
-        {:error, reason} when reason in [:silenced, :suspended, :banned] ->
+        {:error, reason} when reason in [:silenced, :suspended, :banned, :duplicate_post] ->
           {:noreply, put_flash(socket, :error, moderation_block_message(reason))}
 
         {:error, _} ->
@@ -205,13 +269,20 @@ defmodule ColloqWeb.ForumLive.Topic do
     end
   end
 
+  defp current_tag_string(socket) do
+    socket.assigns
+    |> Map.get(:topic_tags, [])
+    |> Enum.map_join(",", & &1.name)
+  end
+
   def handle_event("start-edit-topic", _params, socket) do
     if can_edit_topic?(socket.assigns.current_user, socket.assigns.topic) do
       {:noreply,
        socket
        |> assign(:editing_topic, true)
        |> assign(:edit_title, socket.assigns.topic.title)
-       |> assign(:edit_category_id, socket.assigns.topic.category_id)}
+       |> assign(:edit_category_id, socket.assigns.topic.category_id)
+       |> assign(:edit_tags, current_tag_string(socket))}
     else
       {:noreply, socket}
     end
@@ -221,13 +292,144 @@ defmodule ColloqWeb.ForumLive.Topic do
     {:noreply, assign(socket, :editing_topic, false)}
   end
 
+  # Pin/unpin the topic (moderators+). Pinned topics sort to the top of lists.
+  def handle_event("toggle-pin", _params, socket) do
+    user = socket.assigns.current_user
+    topic = socket.assigns.topic
+
+    if user && Colloq.Permissions.can?(user, :edit_topics) do
+      case Forum.toggle_pin(topic) do
+        {:ok, updated} ->
+          msg = if updated.pinned, do: gettext("Topic pinned."), else: gettext("Topic unpinned.")
+          {:noreply, socket |> assign(:topic, %{topic | pinned: updated.pinned, pinned_at: updated.pinned_at}) |> put_flash(:info, msg)}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, gettext("Action failed."))}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("toggle-close", _params, socket) do
+    user = socket.assigns.current_user
+    topic = socket.assigns.topic
+
+    if user && Colloq.Permissions.can?(user, :edit_topics) do
+      result = if topic.closed, do: Forum.reopen_topic(topic), else: Forum.close_topic(topic, nil)
+
+      case result do
+        {:ok, updated} ->
+          msg = if updated.closed, do: gettext("Topic closed."), else: gettext("Topic reopened.")
+
+          {:noreply,
+           socket
+           |> assign(:topic, %{
+             topic
+             | closed: updated.closed,
+               closed_at: updated.closed_at,
+               closed_reason: updated.closed_reason
+           })
+           |> put_flash(:info, msg)}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, gettext("Action failed."))}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("toggle-announcement", _params, socket) do
+    user = socket.assigns.current_user
+    topic = socket.assigns.topic
+
+    if user && Colloq.Permissions.can?(user, :edit_topics) do
+      case Forum.set_staff_only(topic, !topic.staff_only) do
+        {:ok, updated} ->
+          msg =
+            if updated.staff_only,
+              do: gettext("Announcement mode on — only staff can reply."),
+              else: gettext("Announcement mode off.")
+
+          {:noreply,
+           socket
+           |> assign(:topic, %{topic | staff_only: updated.staff_only})
+           |> put_flash(:info, msg)}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, gettext("Action failed."))}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # Soft-delete the whole topic (moderator+). It disappears for regular users
+  # and shows a recoverable tombstone to staff.
+  def handle_event("delete-topic", _params, socket) do
+    user = socket.assigns.current_user
+    topic = socket.assigns.topic
+
+    if user && Colloq.Permissions.can?(user, :delete_topics) do
+      case Forum.delete_topic(topic, user) do
+        {:ok, updated} ->
+          {:noreply,
+           socket
+           |> assign(:topic, %{
+             topic
+             | deleted_at: updated.deleted_at,
+               deleted_by_id: updated.deleted_by_id,
+               deleted_by: user
+           })
+           |> put_flash(:info, gettext("Topic deleted. Staff can still recover it."))}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, gettext("Action failed."))}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # Restore a previously soft-deleted topic (moderator+).
+  def handle_event("restore-topic", _params, socket) do
+    user = socket.assigns.current_user
+    topic = socket.assigns.topic
+
+    if user && Colloq.Permissions.can?(user, :delete_topics) do
+      case Forum.restore_topic(topic) do
+        {:ok, _updated} ->
+          {:noreply,
+           socket
+           |> assign(:topic, %{topic | deleted_at: nil, deleted_by_id: nil, deleted_by: nil})
+           |> put_flash(:info, gettext("Topic restored."))}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, gettext("Action failed."))}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("save-edit-topic", %{"title" => title} = params, socket) do
     topic = socket.assigns.topic
 
     if can_edit_topic?(socket.assigns.current_user, topic) do
-      attrs = %{"title" => title, "category_id" => params["category_id"]}
+      tag_names =
+        (params["tags"] || "")
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
 
-      case Forum.update_topic(topic, attrs) do
+      attrs = %{"title" => title, "category_id" => params["category_id"], "tags" => tag_names}
+      opts = [
+        can_create: Tags.can_create?(socket.assigns.current_user),
+        tag_limit: Tags.tag_limit(socket.assigns.current_user)
+      ]
+
+      case Forum.update_topic(topic, attrs, opts) do
         {:ok, _} ->
           topic = Forum.get_topic!(topic.id, socket.assigns.blocked_user_ids)
 
@@ -252,10 +454,23 @@ defmodule ColloqWeb.ForumLive.Topic do
     post = Forum.get_post!(post_id)
     user = socket.assigns.current_user
 
-    if user && (post.user_id == user.id || Colloq.Permissions.can?(user, :hide_posts)) do
+    if user && can_edit_post?(user, post, socket.assigns.topic) do
       {:noreply, assign(socket, editing_post: post_id, editing_body: post.body || "")}
     else
       {:noreply, socket}
+    end
+  end
+
+  # Authors may edit their own posts only while the topic is open; a closed,
+  # archived, or announcement topic freezes them. Staff (:hide_posts) can
+  # always edit.
+  defp can_edit_post?(nil, _post, _topic), do: false
+
+  defp can_edit_post?(user, post, topic) do
+    cond do
+      Colloq.Permissions.can?(user, :hide_posts) -> true
+      post.user_id == user.id -> Forum.can_reply?(topic, user)
+      true -> false
     end
   end
 
@@ -272,7 +487,7 @@ defmodule ColloqWeb.ForumLive.Topic do
       is_nil(post) ->
         {:noreply, socket}
 
-      post.user_id == user.id or Colloq.Permissions.can?(user, :hide_posts) ->
+      can_edit_post?(user, post, socket.assigns.topic) ->
         case Forum.update_post(post, %{"body" => body}) do
           {:ok, _} ->
             topic = Forum.get_topic!(socket.assigns.topic.id)
@@ -304,7 +519,14 @@ defmodule ColloqWeb.ForumLive.Topic do
         {:noreply, put_flash(socket, :error, gettext("You must be logged in."))}
 
       post.user_id == user.id or Colloq.Permissions.can?(user, :hide_posts) ->
-        {:ok, _} = Forum.delete_post(post)
+        # Author removing their own post is a plain deletion; a moderator
+        # removing someone else's is a moderation hide (shows in the queue).
+        if post.user_id == user.id do
+          {:ok, _} = Forum.delete_post(post, user)
+        else
+          {:ok, _} = Colloq.Moderation.hide_post(post, user)
+        end
+
         topic = Forum.get_topic!(topic.id)
 
         {:noreply,
@@ -325,16 +547,22 @@ defmodule ColloqWeb.ForumLive.Topic do
 
     if user do
       post_id = String.to_integer(post_id_str)
-      Reactions.toggle_reaction(post_id, user.id, emoji)
 
-      user_reactions =
-        Map.put(
-          socket.assigns.user_reactions,
-          post_id,
-          Reactions.user_reactions(post_id, user.id)
-        )
+      case Reactions.toggle_reaction(post_id, user.id, emoji) do
+        {:error, :own_post} ->
+          {:noreply,
+           put_flash(socket, :error, gettext("You can't react to your own comment."))}
 
-      {:noreply, assign(socket, :user_reactions, user_reactions)}
+        _ ->
+          user_reactions =
+            Map.put(
+              socket.assigns.user_reactions,
+              post_id,
+              Reactions.user_reactions(post_id, user.id)
+            )
+
+          {:noreply, assign(socket, :user_reactions, user_reactions)}
+      end
     else
       {:noreply, socket}
     end
@@ -425,7 +653,61 @@ defmodule ColloqWeb.ForumLive.Topic do
     end
   end
 
-  # Inline moderator actions on a post's author (warn / silence / suspend / ban).
+  # Open the "warn author" dialog so the moderator can explain why.
+  def handle_event("open-warn", %{"user_id" => user_id, "username" => username}, socket) do
+    if Colloq.Permissions.can?(socket.assigns.current_user, :warn_users) do
+      {:noreply,
+       assign(socket, :warning_target, %{id: String.to_integer(user_id), username: username})}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("cancel-warn", _params, socket) do
+    {:noreply, assign(socket, :warning_target, nil)}
+  end
+
+  def handle_event("confirm-warn", %{"reason" => reason}, socket) do
+    actor = socket.assigns.current_user
+    target_ref = socket.assigns.warning_target
+
+    if target_ref && Colloq.Permissions.can?(actor, :warn_users) do
+      target = Colloq.Accounts.get_user!(target_ref.id)
+
+      case Colloq.Moderation.warn_user(actor, target, reason) do
+        {:ok, _user} ->
+          {:noreply,
+           socket
+           |> assign(:warning_target, nil)
+           |> put_flash(:info, mod_action_message("warn", target))}
+
+        {:error, :forbidden} ->
+          {:noreply,
+           socket
+           |> assign(:warning_target, nil)
+           |> put_flash(
+             :error,
+             gettext("You can't moderate a user of equal or higher rank.")
+           )}
+
+        {:error, :unauthorized} ->
+          {:noreply,
+           socket
+           |> assign(:warning_target, nil)
+           |> put_flash(:error, gettext("You don't have permission for this action."))}
+
+        {:error, _} ->
+          {:noreply,
+           socket
+           |> assign(:warning_target, nil)
+           |> put_flash(:error, gettext("Action failed."))}
+      end
+    else
+      {:noreply, assign(socket, :warning_target, nil)}
+    end
+  end
+
+  # Inline moderator actions on a post's author (silence / suspend / ban).
   # The Moderation context re-checks permissions; we surface the outcome.
   def handle_event("mod-action", %{"action" => action, "user_id" => user_id}, socket) do
     actor = socket.assigns.current_user
@@ -444,6 +726,10 @@ defmodule ColloqWeb.ForumLive.Topic do
       {:ok, _user} ->
         {:noreply, put_flash(socket, :info, mod_action_message(action, target))}
 
+      {:error, :forbidden} ->
+        {:noreply,
+         put_flash(socket, :error, gettext("You can't moderate a user of equal or higher rank."))}
+
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, gettext("You don't have permission for this action."))}
 
@@ -454,23 +740,79 @@ defmodule ColloqWeb.ForumLive.Topic do
 
   # Share event
   def handle_event("copy-link", %{"post_id" => post_id}, socket) do
-    url = "#{ColloqWeb.Endpoint.url()}/t/#{socket.assigns.topic.id}#post-#{post_id}"
-    push_event(socket, "copy-to-clipboard", %{text: url})
+    url = post_url(socket.assigns.topic.id, post_id)
 
-    {:noreply, put_flash(socket, :info, gettext("Link copied!"))}
+    # push_event/3 returns a *new* socket. The old code called it and threw the
+    # result away, replying with the original socket — so the browser never got
+    # the event and nothing was ever copied, while the flash still cheerfully
+    # said "Link copied!".
+    {:noreply,
+     socket
+     |> push_event("copy-to-clipboard", %{text: url})
+     |> put_flash(:info, gettext("Link copied!"))}
   end
 
-  # AI summary: enqueue an Oban job that will broadcast "summary_ready"
-  # when done. The result is cached in Cachex so subsequent mounts are fast.
+  @doc """
+  Canonical permalink to a post.
+
+  One definition, used by the clipboard handler and every share link, so they
+  can't drift apart.
+  """
+  def post_url(topic_id, post_id) do
+    "#{ColloqWeb.Endpoint.url()}/t/#{topic_id}#post-#{post_id}"
+  end
+
+  @doc """
+  A share URL with its parameters properly form-encoded.
+
+  `URI.encode/1` is for whole URIs and leaves `#`, `&` and `?` intact — so the
+  permalink's `#post-N` fragment swallowed everything after it. On the Twitter
+  intent that meant `&text=` landed inside the fragment and the tweet text was
+  dropped silently. Query *parameters* need `encode_www_form/1`.
+  """
+  def share_url(base, params) do
+    base <> "?" <> URI.encode_query(params)
+  end
+
+  # "Summarize" — opens the panel. A stored summary is shown as-is (no LLM
+  # call); only generate when there's nothing to show yet.
+  def handle_event("show-summary", _params, socket) do
+    cond do
+      is_nil(socket.assigns.current_user) ->
+        {:noreply, push_redirect(socket, to: "/login")}
+
+      socket.assigns.summary ->
+        {:noreply, assign(socket, show_summary: true)}
+
+      true ->
+        {:noreply, socket |> assign(:show_summary, true) |> request_summary()}
+    end
+  end
+
+  # "Regenerate" — always re-runs the summarizer, even if one is stored.
   def handle_event("generate-summary", _params, socket) do
     if socket.assigns.current_user do
+      {:noreply, socket |> assign(:show_summary, true) |> request_summary()}
+    else
+      {:noreply, push_redirect(socket, to: "/login")}
+    end
+  end
+
+  # Only hides the panel — the summary itself is kept so reopening is instant.
+  def handle_event("dismiss-summary", _params, socket) do
+    {:noreply, assign(socket, show_summary: false, summary_unavailable: false)}
+  end
+
+  # Enqueues an Oban job that broadcasts "summary_ready" when done.
+  defp request_summary(socket) do
+    if Colloq.Workers.TopicSummarizerWorker.configured?() do
       %{user_id: socket.assigns.current_user.id, topic_id: socket.assigns.topic.id}
       |> Colloq.Workers.TopicSummarizerWorker.new()
       |> Oban.insert()
 
-      {:noreply, assign(socket, :summary_loading, true)}
+      assign(socket, summary_loading: true, summary_unavailable: false)
     else
-      {:noreply, push_redirect(socket, to: "/login")}
+      assign(socket, summary_unavailable: true, summary_loading: false)
     end
   end
 
@@ -482,6 +824,119 @@ defmodule ColloqWeb.ForumLive.Topic do
     {:noreply, assign(socket, :show_poll_form, !socket.assigns.show_poll_form)}
   end
 
+  # --- Lineup composer ("the XI I'd play") ---
+  # Squads are only queried once the form is actually opened.
+  def handle_event("toggle-lineup-form", _params, socket) do
+    if socket.assigns.show_lineup_form do
+      {:noreply, assign(socket, :show_lineup_form, false)}
+    else
+      teams = Colloq.Sofascore.teams_with_players() |> Enum.filter(& &1.key)
+      team_id = socket.assigns.lineup_team_id || (List.first(teams) && List.first(teams).id)
+
+      {:noreply,
+       socket
+       |> assign(:show_lineup_form, true)
+       |> assign(:lineup_teams, teams)
+       |> assign(:lineup_team_id, team_id)
+       |> rebuild_lineup()}
+    end
+  end
+
+  def handle_event("select-lineup-team", %{"team_id" => id}, socket) do
+    {:noreply, socket |> assign(:lineup_team_id, String.to_integer(id)) |> rebuild_lineup()}
+  end
+
+  def handle_event("select-lineup-formation", %{"formation" => formation}, socket) do
+    if Colloq.Lineups.valid_formation?(formation) do
+      {:noreply, socket |> assign(:lineup_formation, formation) |> rebuild_lineup()}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # Swap one slot's player — this is the "what *you* think" part.
+  def handle_event("swap-lineup-player", %{"slot" => slot, "player_id" => player_id}, socket) do
+    slot = String.to_integer(slot)
+    player = Enum.find(socket.assigns.lineup_squad, &(&1.id == String.to_integer(player_id)))
+
+    slots = List.update_at(socket.assigns.lineup_slots, slot, &Map.put(&1, :player, player))
+    {:noreply, assign(socket, :lineup_slots, slots)}
+  end
+
+  def handle_event("submit-with-lineup", %{"body" => body}, socket) do
+    user = socket.assigns.current_user
+    topic = socket.assigns.topic
+
+    if user && Forum.can_reply?(topic, user) && socket.assigns.lineup_team_id do
+      case Forum.create_post(topic, user, %{"body" => body}) do
+        {:ok, post} ->
+          # Surface a failure instead of silently posting without the board.
+          case Forum.create_lineup(post, %{
+                 team_id: socket.assigns.lineup_team_id,
+                 formation: socket.assigns.lineup_formation,
+                 players: snapshot_players(socket.assigns.lineup_slots)
+               }) do
+            {:ok, _} ->
+              :ok
+
+            {:error, changeset} ->
+              Logger.warning("[Lineup] could not attach to post #{post.id}: #{inspect(changeset.errors)}")
+          end
+
+          topic = Forum.get_topic!(topic.id)
+
+          {:noreply,
+           socket
+           |> assign(:topic, topic)
+           |> assign(:posts, topic.posts)
+           |> assign(:show_lineup_form, false)
+           |> push_event("tiptap:clear", %{})
+           |> load_reaction_data(topic.posts)
+           |> load_user_reactions(topic.posts, user)
+           |> load_lineup_data(topic.posts)}
+
+        {:error, reason} when reason in [:silenced, :suspended, :banned, :duplicate_post] ->
+          {:noreply, put_flash(socket, :error, moderation_block_message(reason))}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, gettext("Could not post the reply."))}
+      end
+    else
+      {:noreply, put_flash(socket, :error, gettext("You cannot reply to this topic."))}
+    end
+  end
+
+  defp rebuild_lineup(socket) do
+    socket = assign(socket, :lineup_colors, Colloq.Sofascore.team_colors(socket.assigns.lineup_team_id))
+
+    case socket.assigns.lineup_team_id do
+      nil ->
+        socket |> assign(:lineup_slots, []) |> assign(:lineup_squad, [])
+
+      team_id ->
+        %{slots: slots} = Colloq.Lineups.build(team_id, socket.assigns.lineup_formation)
+
+        socket
+        |> assign(:lineup_slots, slots)
+        |> assign(:lineup_squad, Colloq.Sofascore.list_by_team(team_id))
+    end
+  end
+
+  # Freeze the chosen XI onto the post: names are stored alongside ids so an
+  # old post still reads correctly if a player row is ever removed.
+  defp snapshot_players(slots) do
+    slots
+    |> Enum.with_index()
+    |> Enum.map(fn {slot, index} ->
+      %{
+        "slot" => index,
+        "role" => to_string(slot.role),
+        "name" => slot.player && slot.player.name,
+        "player_id" => slot.player && slot.player.id
+      }
+    end)
+  end
+
   def handle_event("update-poll-question", %{"value" => question}, socket) do
     {:noreply, assign(socket, :poll_question, question)}
   end
@@ -489,6 +944,10 @@ defmodule ColloqWeb.ForumLive.Topic do
   def handle_event("update-poll-option", %{"index" => idx, "value" => value}, socket) do
     options = List.replace_at(socket.assigns.poll_options, String.to_integer(idx), value)
     {:noreply, assign(socket, :poll_options, options)}
+  end
+
+  def handle_event("toggle-poll-anonymous", _params, socket) do
+    {:noreply, assign(socket, :poll_anonymous, !socket.assigns.poll_anonymous)}
   end
 
   def handle_event("add-poll-option", _params, socket) do
@@ -520,7 +979,7 @@ defmodule ColloqWeb.ForumLive.Topic do
       case Forum.create_post(topic, user, %{"body" => body}) do
         {:ok, post} ->
           if question != "" && length(options) >= 2 do
-            Forum.create_poll(post, question, options)
+            Forum.create_poll(post, question, options, anonymous: socket.assigns.poll_anonymous)
 
             ColloqWeb.Endpoint.broadcast("forum:topic:#{topic.id}", "poll_updated", %{
               post_id: post.id
@@ -537,11 +996,12 @@ defmodule ColloqWeb.ForumLive.Topic do
            |> assign(:show_poll_form, false)
            |> assign(:poll_question, "")
            |> assign(:poll_options, ["", ""])
+           |> assign(:poll_anonymous, false)
            |> load_reaction_data(topic.posts)
            |> load_user_reactions(topic.posts, user)
            |> load_poll_data(topic.posts, user)}
 
-        {:error, reason} when reason in [:silenced, :suspended, :banned] ->
+        {:error, reason} when reason in [:silenced, :suspended, :banned, :duplicate_post] ->
           {:noreply, put_flash(socket, :error, moderation_block_message(reason))}
 
         {:error, _} ->
@@ -591,21 +1051,31 @@ defmodule ColloqWeb.ForumLive.Topic do
   end
 
   @impl true
-  # PubSub: a new post was created by another client — reload the topic
-  # tree (including nested replies) and refresh reaction data.
-  def handle_info(%{event: "new_post", payload: _payload}, socket) do
-    topic = Forum.get_topic!(socket.assigns.topic.id, socket.assigns.blocked_user_ids)
-    user = socket.assigns.current_user
+  # PubSub: a new post was created — reload the topic tree (including nested
+  # replies) and refresh reaction data.
+  #
+  # `create_post` uses a plain `broadcast`, so the author's OWN client receives
+  # this too — but that client already re-rendered the post from its reply
+  # handler. Reloading again would render the whole list a second time
+  # milliseconds later, which flickers. So if the post is already on screen,
+  # this is a no-op.
+  def handle_info(%{event: "new_post", payload: payload}, socket) do
+    if already_rendered?(socket.assigns.posts, payload[:post_id]) do
+      {:noreply, socket}
+    else
+      handle_new_post(socket)
+    end
+  end
 
-    {:noreply,
-     socket
-     |> assign(:topic, topic)
-     |> assign(:posts, topic.posts)
-     |> load_reaction_data(topic.posts)
-     |> load_user_reactions(topic.posts, user)
-     |> load_poll_data(topic.posts, user)
-     |> load_bookmarked_posts(topic.posts, user)
-     |> load_user_badges(topic.posts)}
+  # PubSub: a post was deleted (hidden). Reload so it disappears in real time.
+  # The deleter already re-rendered from their own handler and no longer has the
+  # post on screen, so for them this is a no-op — only other viewers reload.
+  def handle_info(%{event: "post_deleted", payload: payload}, socket) do
+    if already_rendered?(socket.assigns.posts, payload[:post_id]) do
+      handle_new_post(socket)
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info(%{event: "reaction_updated", payload: %{post_id: post_id, counts: counts}}, socket) do
@@ -660,13 +1130,61 @@ defmodule ColloqWeb.ForumLive.Topic do
     {:noreply, assign(socket, :typing_users, typing)}
   end
 
-  # PubSub: the Oban summarizer job finished — load the summary into assigns.
+  # PubSub: the Oban summarizer job finished. This is broadcast to *everyone*
+  # viewing the topic, so we load the data but never pop the panel open for
+  # readers who didn't ask (their `show_summary` stays false).
   def handle_info(%{event: "summary_ready", payload: payload}, socket) do
     {:noreply,
      socket
      |> assign(:summary, payload.summary)
      |> assign(:summary_at, Map.get(payload, :generated_at))
+     |> assign(:summary_model, Map.get(payload, :model))
+     |> assign(:summary_post_number, Map.get(payload, :post_number))
      |> assign(:summary_loading, false)}
+  end
+
+  # PubSub: the summarizer job failed. Also broadcast to everyone viewing the
+  # topic, so only the reader who actually asked gets the error.
+  def handle_info(%{event: "summary_failed", payload: _payload}, socket) do
+    if socket.assigns.summary_loading do
+      {:noreply,
+       socket
+       |> assign(:summary_loading, false)
+       |> put_flash(:error, gettext("Could not generate the summary. Check the LLM provider settings."))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # Shared reload for structural changes (new post / deletion): rebuild the
+  # topic tree and refresh reaction/poll/bookmark/badge data.
+  defp handle_new_post(socket) do
+    topic = Forum.get_topic!(socket.assigns.topic.id, socket.assigns.blocked_user_ids)
+    user = socket.assigns.current_user
+
+    # The reader is looking at the topic right now, so a post that just arrived
+    # counts as read — keep their marker current so the next visit doesn't flag
+    # posts they already saw as unread.
+    if user do
+      max_number = topic.posts |> flatten_posts() |> Enum.map(& &1.post_number) |> Enum.max(fn -> 0 end)
+      Reads.mark_read(user.id, topic.id, max_number)
+    end
+
+    {:noreply,
+     socket
+     |> assign(:topic, topic)
+     |> assign(:posts, topic.posts)
+     |> load_reaction_data(topic.posts)
+     |> load_user_reactions(topic.posts, user)
+     |> load_poll_data(topic.posts, user)
+     |> load_bookmarked_posts(topic.posts, user)
+     |> load_user_badges(topic.posts)}
+  end
+
+  defp already_rendered?(_posts, nil), do: false
+
+  defp already_rendered?(posts, post_id) do
+    posts |> flatten_posts() |> Enum.any?(&(&1.id == post_id))
   end
 
   defp load_user(session) do
@@ -676,17 +1194,75 @@ defmodule ColloqWeb.ForumLive.Topic do
     end
   end
 
-  defp load_cached_summary(socket, topic_id) do
-    case Cachex.get(:forum_cache, "summary:#{topic_id}") do
-      {:ok, %{summary: summary, generated_at: at}} ->
-        socket |> assign(:summary, summary) |> assign(:summary_at, at)
-
-      {:ok, summary} when is_binary(summary) ->
-        assign(socket, :summary, summary)
-
-      _ ->
-        socket
+  # Load the persisted summary (if any) from the topic.
+  defp load_summary(socket, topic) do
+    if topic.summary do
+      socket
+      |> assign(:summary, topic.summary)
+      |> assign(:summary_at, topic.summary_generated_at)
+      |> assign(:summary_model, topic.summary_model)
+      |> assign(:summary_post_number, topic.summary_post_number)
+    else
+      socket
     end
+  end
+
+  # Read-only: compare the user's last-read post_number against the posts on
+  # screen to decide where the "New replies" divider goes (first_unread_id) and
+  # how many new posts there are (unread_count, for the "jump to new" pill). No
+  # DB writes — safe to run in the static pre-render so both are in the initial
+  # HTML (no pop-in). Nothing auto-scrolls: the reader taps the pill to jump.
+  # Anonymous readers, first visits and fully-read topics resolve to none.
+  defp assign_unread(socket, _topic, nil, _to_latest), do: assign_nil_unread(socket)
+
+  defp assign_unread(socket, topic, user, to_latest) do
+    last = Reads.last_read(user.id, topic.id)
+
+    # Posts newer than last read that aren't the reader's own — no point
+    # flagging someone's own replies as "new".
+    unread =
+      topic.posts
+      |> flatten_posts()
+      |> Enum.filter(&(&1.post_number > last && &1.user_id != user.id))
+      |> Enum.sort_by(& &1.post_number)
+
+    first_unread = List.first(unread)
+
+    if last > 0 && first_unread do
+      socket
+      |> assign(:first_unread_id, first_unread.id)
+      |> assign(:unread_count, length(unread))
+      # On a normal revisit, land the reader on the divider so they read forward
+      # from where they left. When they explicitly asked for the latest post
+      # (activity-time link), honour that instead — the pill still lets them jump
+      # up to the new posts.
+      |> assign(:scroll_anchor, if(to_latest, do: nil, else: "unread-divider"))
+    else
+      assign_nil_unread(socket)
+    end
+  end
+
+  defp assign_nil_unread(socket) do
+    socket
+    |> assign(:unread_count, 0)
+    |> assign(:first_unread_id, nil)
+    |> assign(:scroll_anchor, nil)
+  end
+
+  # The write half: once the client is connected, record the newest post_number
+  # as read so the next visit starts fresh.
+  defp mark_topic_read(socket, _topic, nil), do: socket
+
+  defp mark_topic_read(socket, topic, user) do
+    max_number = topic.posts |> flatten_posts() |> Enum.map(& &1.post_number) |> Enum.max(fn -> 0 end)
+    Reads.mark_read(user.id, topic.id, max_number)
+    socket
+  end
+
+  @doc "Whether the shown summary predates the topic's current posts."
+  def summary_outdated?(assigns) do
+    assigns.summary && assigns.summary_post_number &&
+      assigns.topic.posts_count > assigns.summary_post_number
   end
 
   defp load_reaction_data(socket, posts) do
@@ -699,6 +1275,10 @@ defmodule ColloqWeb.ForumLive.Topic do
   defp load_user_reactions(socket, posts, user) do
     user_reactions = collect_user_reactions(posts, user.id)
     assign(socket, :user_reactions, user_reactions)
+  end
+
+  defp load_lineup_data(socket, posts) do
+    assign(socket, :lineup_data, Forum.preload_lineups(collect_post_ids(posts)))
   end
 
   defp load_poll_data(socket, posts, user) do
@@ -775,7 +1355,7 @@ defmodule ColloqWeb.ForumLive.Topic do
   end
 
   def can_reply?(assigns) do
-    assigns.current_user && !assigns.topic.closed && !assigns.topic.archived
+    assigns.current_user && Forum.can_reply?(assigns.topic, assigns.current_user)
   end
 
   def notification_levels, do: ~w(watching tracking normal muted)
@@ -822,6 +1402,10 @@ defmodule ColloqWeb.ForumLive.Topic do
   def render_body(nil), do: Phoenix.HTML.raw("")
 
   def render_body(body) when is_binary(body) do
+    body |> render_body_string() |> Phoenix.HTML.raw()
+  end
+
+  defp render_body_string(body) when is_binary(body) do
     body
     |> autolink()
     # html5 scrubber keeps <img> (for uploads) while still stripping scripts/handlers.
@@ -832,26 +1416,204 @@ defmodule ColloqWeb.ForumLive.Topic do
     # Replace :shortcode: with custom-emoji <img> (also post-sanitize; the
     # emoji name charset and image URL are validated on creation).
     |> Colloq.Emojis.render_shortcodes()
-    |> Phoenix.HTML.raw()
+    # Wrap NSFW-flagged images so they render blurred behind a warning. Done on
+    # the server (not just the PostBody hook) so the blur is present in the
+    # initial HTML — no flash of the raw image before JS runs, and it survives
+    # LiveView DOM patches.
+    |> wrap_sensitive_media()
+  end
+
+  # Wraps every `<img data-sensitive>` in a `.sensitive-media` span so CSS can
+  # blur it and overlay a "click to reveal" veil (see app.css + the PostBody
+  # hook, which only toggles the reveal class). The <img> markup was already
+  # produced by the html5 sanitizer, so re-wrapping it is safe.
+  defp wrap_sensitive_media(html) do
+    String.replace(
+      html,
+      ~r/<img\b[^>]*\bdata-sensitive\b[^>]*>/i,
+      &~s(<span class="sensitive-media">#{&1}</span>)
+    )
+  end
+
+  # Like render_body/1, but replaces quoted URLs with their preview card so the
+  # onebox renders INSIDE the quote (in place of the link) rather than below.
+  def render_post_body(body, cards, blocked_ids \\ MapSet.new())
+
+  def render_post_body(nil, _cards, _blocked_ids), do: Phoenix.HTML.raw("")
+
+  def render_post_body(body, cards, blocked_ids) when is_binary(body) do
+    html = render_body_string(body)
+
+    html =
+      Enum.reduce(cards, html, fn %{data: e}, acc ->
+        esc = Regex.escape(e.url)
+        # Replace the rendered <a …href="URL"…>…</a> with the card markup.
+        String.replace(acc, ~r/<a[^>]*href="#{esc}"[^>]*>.*?<\/a>/is, og_card_html(e))
+      end)
+
+    html = collapse_blocked_quotes(html, blocked_ids)
+
+    Phoenix.HTML.raw(html)
+  end
+
+  # Collapse quotes whose author the viewer has blocked/ignored behind a
+  # click-to-reveal <details>, so a blocked user's words don't leak through
+  # someone else's quote. Quotes carry the author id via `data-quote-user-id`
+  # (set by quote_html/1); quotes are never nested, so a non-greedy match to the
+  # first </blockquote> is safe. No-op when nothing is blocked.
+  defp collapse_blocked_quotes(html, blocked_ids) do
+    if Enum.empty?(blocked_ids) do
+      html
+    else
+      Regex.replace(
+        ~r/<blockquote\b[^>]*\bdata-quote-user-id="(\d+)"[^>]*>.*?<\/blockquote>/is,
+        html,
+        fn full, id ->
+          if MapSet.member?(blocked_ids, String.to_integer(id)) do
+            ~s(<details class="blocked-quote my-2 rounded-lg border border-border bg-surface-alt px-3 py-2">) <>
+              ~s(<summary class="cursor-pointer text-xs text-muted select-none">) <>
+              gettext("Quote from a user you've blocked — click to show") <>
+              ~s(</summary><div class="mt-2">#{full}</div></details>)
+          else
+            full
+          end
+        end
+      )
+    end
+  end
+
+  # Raw HTML for an Open Graph preview card (safe to inject post-sanitisation:
+  # every dynamic value is HTML-escaped). Mirrors the media_embed :og markup.
+  defp og_card_html(e) do
+    esc = fn v -> v |> to_string() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string() end
+
+    img =
+      if e.image_url && e.image_url != "" do
+        ~s(<img src="#{esc.(e.image_url)}" alt="" class="w-28 sm:w-40 object-cover flex-shrink-0 self-stretch bg-surface" loading="lazy" />)
+      else
+        ""
+      end
+
+    host =
+      if e.host && e.host != "" do
+        ~s(<span class="block text-xs text-muted truncate mb-0.5">#{esc.(e.host)}</span>)
+      else
+        ""
+      end
+
+    desc =
+      if e.description && e.description != "" do
+        ~s(<span class="block text-xs text-muted mt-1 line-clamp-2">#{esc.(e.description)}</span>)
+      else
+        ""
+      end
+
+    ~s(<a href="#{esc.(e.url)}" target="_blank" rel="noopener noreferrer" class="flex rounded-xl border border-border bg-surface overflow-hidden hover:border-border-hover transition-colors max-w-xl no-underline my-2">#{img}<span class="p-3 min-w-0 flex-1 block">#{host}<span class="block text-sm font-semibold text-heading line-clamp-2">#{esc.(e.title)}</span>#{desc}</span></a>)
   end
 
   # Build the HTML inserted into the composer when quoting a comment.
-  defp quote_html(post) do
+  # Preserves images and links (basic_html) instead of flattening to plain text,
+  # which used to drop images and mash paragraphs together. Nested quotes are
+  # stripped to avoid quote-inception.
+  # A nested composer open on the quoted post wins over the main one at the
+  # bottom of the page — otherwise the quote lands in a box the user can't see
+  # and the page scrolls away from where they were typing.
+  defp quote_target(socket, post_id) do
+    if socket.assigns[:replying_to] == post_id do
+      "nested-reply-editor-#{post_id}"
+    else
+      "reply-editor"
+    end
+  end
+
+  defp quote_html(post, selection) do
     # Use the real username as the handle so it links to the right profile
     # (display names aren't valid @mentions).
     handle = if post.user, do: post.user.username, else: gettext("someone")
-
-    text =
-      (post.body || "")
-      |> HtmlSanitizeEx.strip_tags()
-      |> String.trim()
-      |> String.slice(0, 800)
-      |> Phoenix.HTML.html_escape()
-      |> Phoenix.HTML.safe_to_string()
-
     label = Phoenix.HTML.html_escape("@#{handle}:") |> Phoenix.HTML.safe_to_string()
 
-    "<blockquote><p><strong>#{label}</strong> #{text}</p></blockquote><p></p>"
+    inner = selection_inner(selection) || full_body_inner(post)
+
+    # `data-quote-user-id` lets the renderer collapse this quote for viewers who
+    # have blocked/ignored the quoted author (see collapse_blocked_quotes/2).
+    uid_attr = if post.user, do: ~s( data-quote-user-id="#{post.user.id}"), else: ""
+
+    "<blockquote#{uid_attr}><p><strong>#{label}</strong></p>#{inner}</blockquote><p></p>"
+  end
+
+  # Whole-post quote: preserve images and links instead of flattening to plain
+  # text, which used to drop images and mash paragraphs together.
+  #
+  # Scrubbed with `html5/1`, the same scrubber `Post.sanitize_body/1` applies on
+  # write — so this is re-scrubbing content that already passed that boundary,
+  # not widening it. `basic_html/1` was used here and strips `class`, which cost
+  # quoted images their `max-w-full` and let them render at intrinsic size,
+  # bigger inside the quote than in the post being quoted.
+  defp full_body_inner(post) do
+    inner =
+      (post.body || "")
+      |> strip_blockquotes()
+      |> HtmlSanitizeEx.html5()
+      |> quote_imagify()
+      |> String.trim()
+
+    # Cap very long quotes; re-sanitize after slicing to close any dangling tags.
+    if String.length(inner) > @quote_limit do
+      (inner |> String.slice(0, @quote_limit) |> HtmlSanitizeEx.html5()) <> "…"
+    else
+      inner
+    end
+  end
+
+  # Partial quote from a text selection. The text comes from the reader's
+  # browser, so it is treated as untrusted plain text and escaped — never
+  # sanitized-as-HTML — and only then rebuilt into paragraphs so multi-paragraph
+  # selections keep their breaks. Returns nil when there's nothing usable, so
+  # the caller falls back to quoting the whole post.
+  defp selection_inner(nil), do: nil
+
+  defp selection_inner(text) when is_binary(text) do
+    text = text |> String.trim() |> String.slice(0, @quote_limit)
+
+    case String.split(text, ~r/\n{2,}/, trim: true) do
+      [] ->
+        nil
+
+      paragraphs ->
+        Enum.map_join(paragraphs, fn para ->
+          escaped =
+            para
+            |> String.trim()
+            |> Phoenix.HTML.html_escape()
+            |> Phoenix.HTML.safe_to_string()
+            |> String.replace("\n", "<br />")
+
+          "<p>#{escaped}</p>"
+        end)
+    end
+  end
+
+  defp selection_inner(_), do: nil
+
+  # Inside quotes, image URLs must render as actual images: embed cards are
+  # suppressed within quotes, so an image link would otherwise show only as
+  # text. Converts image-URL anchors (and bare image URLs) into <img>.
+  @image_url ~S/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s"'<>]*)?/
+  # Same classes the composer puts on an uploaded image, so a quoted image is
+  # styled like one written directly into a post rather than rendering raw.
+  @quote_img_class "rounded-lg max-w-full my-2"
+  defp quote_imagify(html) do
+    html
+    # <a href="…jpg">…</a>  ->  <img src="…jpg">
+    |> String.replace(
+      ~r/<a\b[^>]*href="(#{@image_url})"[^>]*>.*?<\/a>/is,
+      ~s(<img class="#{@quote_img_class}" src="\\1" alt="" />)
+    )
+    # bare image URL (not already inside an attribute) -> <img>
+    |> String.replace(
+      ~r/(?<![">=])(#{@image_url})/i,
+      ~s(<img class="#{@quote_img_class}" src="\\1" alt="" />)
+    )
   end
 
   # Turn bare http(s) URLs into clickable links (skips ones already in an attribute/tag).
@@ -1118,8 +1880,14 @@ defmodule ColloqWeb.ForumLive.Topic do
   def body_embeds(body) when is_binary(body) do
     # Allow parentheses in the match (Wikipedia titles like "Racing_Club_(Avellaneda)")
     # then clean trailing punctuation — otherwise the URL is truncated at "(".
+    #
+    # Sensitive-flagged images are dropped from the scan first: their <img src>
+    # URL would otherwise be pulled out as an :image embed and re-rendered as a
+    # separate card that carries no data-sensitive flag (so it wouldn't blur),
+    # while strip_embed_urls blanks the real inline <img>. Keeping them out lets
+    # the flagged <img> render inline and blurred.
     ~r{https?://[^\s"'<>]+}
-    |> Regex.scan(strip_blockquotes(body))
+    |> Regex.scan(body |> strip_blockquotes() |> strip_sensitive_imgs())
     |> List.flatten()
     |> Enum.map(&clean_url/1)
     |> Enum.uniq()
@@ -1154,13 +1922,29 @@ defmodule ColloqWeb.ForumLive.Topic do
     String.replace(body, ~r"<blockquote.*?</blockquote>"s, "")
   end
 
+  # Drop sensitive-flagged <img> tags before URL scanning so their src isn't
+  # picked up as an image embed (which would render un-blurred). See body_embeds/1.
+  defp strip_sensitive_imgs(body) do
+    String.replace(body, ~r/<img\b[^>]*\bdata-sensitive\b[^>]*>/i, "")
+  end
+
   # Remove embedded URLs from the body so they aren't shown as text above the embed
   # (Discourse "onebox" behaviour). Handles bare URLs and auto-linked anchors.
   defp strip_embed_urls(body, []) when is_binary(body), do: body
 
   defp strip_embed_urls(body, urls) when is_binary(body) do
+    # Protect quoted content: a quote should keep exactly what was quoted
+    # (including its links), so we only strip embed URLs from the poster's own
+    # text. The preview card still renders below the post.
+    quotes = Regex.scan(~r"<blockquote.*?</blockquote>"s, body) |> List.flatten()
+
+    placeheld =
+      quotes
+      |> Enum.with_index()
+      |> Enum.reduce(body, fn {q, i}, acc -> String.replace(acc, q, "\x00BQ#{i}\x00") end)
+
     stripped =
-      Enum.reduce(urls, body, fn url, acc ->
+      Enum.reduce(urls, placeheld, fn url, acc ->
         esc = Regex.escape(url)
 
         acc
@@ -1168,8 +1952,13 @@ defmodule ColloqWeb.ForumLive.Topic do
         |> String.replace(url, "")
       end)
 
+    restored =
+      quotes
+      |> Enum.with_index()
+      |> Enum.reduce(stripped, fn {q, i}, acc -> String.replace(acc, "\x00BQ#{i}\x00", q) end)
+
     # Clean up empty paragraphs left behind.
-    String.replace(stripped, ~r"<p>\s*</p>"s, "")
+    String.replace(restored, ~r"<p>\s*</p>"s, "")
   end
 
   defp strip_embed_urls(body, _urls), do: body
@@ -1292,6 +2081,19 @@ defmodule ColloqWeb.ForumLive.Topic do
     posts |> flatten_posts() |> Enum.reduce(0, fn p, acc -> acc + (p.reactions_count || 0) end)
   end
 
+  # --- Reply sorting ("Top replies") ----------------------------------------
+
+  # Orders the top-level posts for display. `:top` pins the opening post and
+  # ranks the rest by reactions (`reactions_count`, kept in sync by
+  # Colloq.Reactions), most points first; `:chrono` (default) leaves them in
+  # posting order. Nested replies keep their own order in both modes so the
+  # threading stays intact.
+  def sorted_posts([op | rest], :top) do
+    [op | Enum.sort_by(rest, &(&1.reactions_count || 0), :desc)]
+  end
+
+  def sorted_posts(posts, _sort), do: posts
+
   # Distinct participants (users), ordered by their number of posts descending
   # so the most active people show first in the avatar strip.
   def participants(posts) do
@@ -1381,6 +2183,9 @@ defmodule ColloqWeb.ForumLive.Topic do
   defp moderation_block_message(:banned),
     do: gettext("Your account is banned.")
 
+  defp moderation_block_message(:duplicate_post),
+    do: gettext("You just posted that same message. Wait a moment or write something different.")
+
   def humanize_flag_reason("spam"), do: gettext("Spam")
   def humanize_flag_reason("inappropriate"), do: gettext("Inappropriate")
   def humanize_flag_reason("off_topic"), do: gettext("Off topic")
@@ -1403,9 +2208,12 @@ defmodule ColloqWeb.ForumLive.Topic do
   attr :user_reactions, :map, default: %{}
   attr :poll_data, :map, default: nil
   attr :user_votes, :list, default: []
+  attr :lineup_data, :map, default: %{}
   attr :bookmarked_posts, :map, default: %{}
   attr :show_flag_for, :any, default: nil
   attr :user_badges, :map, default: %{}
+  attr :first_unread_id, :any, default: nil
+  attr :blocked_user_ids, :any, default: MapSet.new()
   attr :depth, :integer, default: 0
 
   # Past this nesting depth we stop indenting (Reddit/HN style) so deep threads
@@ -1414,35 +2222,51 @@ defmodule ColloqWeb.ForumLive.Topic do
   # can afford a few more levels before flattening.
   @max_indent_depth 8
 
+  # Reddit-style threading: replies are visible by default and only fold once a
+  # branch can't nest any further — "nest until we run out of room, then fold".
+  # Deliberately the same number as @max_indent_depth: one concept, so the
+  # indent ladder and the fold point can't drift apart.
+  @collapse_depth @max_indent_depth
+
   def post_item(assigns) do
     provider_embeds = body_embeds(assigns.post.body)
     provider_urls = Enum.map(provider_embeds, & &1.url)
 
     # Generic link previews (newspapers, blogs, …) come from Open Graph data
     # fetched asynchronously by EmbedWorker and stored in the embeds table.
-    # Only show a card if its URL still appears outside any quote — this also
-    # hides cards stored before quoted links were excluded.
-    unquoted_body = strip_blockquotes(assigns.post.body || "")
+    # Shown whether the URL is quoted or not (quoted links get a preview too).
+    body = assigns.post.body || ""
 
     og_embeds =
       case assigns.post.embeds do
         list when is_list(list) ->
           list
           |> Enum.reject(&(&1.url in provider_urls))
-          |> Enum.filter(&String.contains?(unquoted_body, &1.url))
+          |> Enum.filter(&String.contains?(body, &1.url))
           |> Enum.map(&%{type: :og, url: &1.url, data: &1})
 
         _ ->
           []
       end
 
-    all_embeds = provider_embeds ++ og_embeds
+    # Split OG previews by where their URL lives: links inside a quote render
+    # their card INSIDE the quote (in place of the URL); links in the poster's
+    # own text render as a card below the post (with provider embeds).
+    # Compare against the decoded body: embed URLs are stored decoded (a link
+    # written "?a=1&b=2" lives in the HTML as "&amp;"), so matching the raw
+    # markup would miss every URL containing an ampersand and file it as
+    # "quoted" by mistake.
+    unquoted = body |> strip_blockquotes() |> Colloq.Workers.EmbedWorker.decode_entities()
+    {quoted_og, outer_og} = Enum.split_with(og_embeds, &(not String.contains?(unquoted, &1.url)))
+    below_embeds = provider_embeds ++ outer_og
 
     assigns =
       assign(assigns,
-        embeds: all_embeds,
-        clean_body: strip_embed_urls(assigns.post.body, Enum.map(all_embeds, & &1.url)),
+        embeds: below_embeds,
+        quoted_cards: quoted_og,
+        clean_body: strip_embed_urls(assigns.post.body, Enum.map(below_embeds, & &1.url)),
         indent_replies: assigns.depth < @max_indent_depth,
+        collapse_replies: assigns.depth >= @collapse_depth,
         # Only the top-level post gets the big left avatar "gutter". Nested
         # replies (depth > 0) put a small avatar inline in the header and flow
         # full-width, so deep threads don't stack avatar columns off-screen
@@ -1451,7 +2275,16 @@ defmodule ColloqWeb.ForumLive.Topic do
       )
 
     ~H"""
-    <div id={"post-#{@post.id}"} class="group py-4 border-b border-border last:border-b-0">
+    <div
+      :if={@first_unread_id && @post.id == @first_unread_id}
+      id="unread-divider"
+      class="flex items-center gap-3 py-2 scroll-mt-24 text-xs font-semibold uppercase tracking-wide text-accent"
+    >
+      <span class="h-px flex-1 bg-accent/40"></span>
+      <%= gettext("New replies") %>
+      <span class="h-px flex-1 bg-accent/40"></span>
+    </div>
+    <div id={"post-#{@post.id}"} class="group py-4 border-b border-border last:border-b-0 scroll-mt-24">
       <div class={[!@nested && "flex gap-4"]}>
         <%!-- Big avatar gutter — top-level post only --%>
         <div :if={!@nested} class="flex-shrink-0">
@@ -1493,6 +2326,7 @@ defmodule ColloqWeb.ForumLive.Topic do
             <a href={~p"/u/#{@post.user.username}"} class="font-semibold text-heading hover:underline text-sm">
               <%= @post.user.display_name || @post.user.username %>
             </a>
+            <.staff_badge role={@post.user.role} show_label={false} />
             <span :if={@post.user.flair} class="text-xs px-1.5 py-0.5 rounded bg-border text-body">
               <%= @post.user.flair %>
             </span>
@@ -1508,19 +2342,47 @@ defmodule ColloqWeb.ForumLive.Topic do
               <%= badge.icon %>
             </span>
             <span :if={@post.is_system} class="text-xs text-muted ml-auto"><%= gettext("System") %></span>
-            <span :if={!@post.is_system} class="text-xs text-muted ml-auto">
+            <span :if={!@post.is_system} class="text-xs text-muted ml-auto inline-flex items-center gap-1">
+              <%!-- Pen marks a post whose body was edited after the grace
+                    period. Clicking reveals when — a title tooltip alone is
+                    unreachable on touch, where there is no hover. --%>
+              <button
+                :if={@post.edited_at}
+                type="button"
+                title={gettext("Edited %{when}", when: es_locale(@post.edited_at))}
+                aria-controls={"edited-at-#{@post.id}"}
+                aria-expanded="false"
+                phx-click={
+                  Phoenix.LiveView.JS.toggle(to: "#edited-at-#{@post.id}", display: "inline")
+                  |> Phoenix.LiveView.JS.toggle_attribute({"aria-expanded", "true", "false"})
+                }
+                class="inline-flex items-center text-muted hover:text-heading transition-colors"
+              >
+                <.icon name="edit" class="w-3 h-3" />
+                <span class="sr-only"><%= gettext("Edited") %></span>
+              </button>
+              <span :if={@post.edited_at} id={"edited-at-#{@post.id}"} class="hidden italic">
+                <%= gettext("Edited %{when}", when: es_locale(@post.edited_at)) %>
+              </span>
               <%= es_locale(@post.inserted_at) %>
             </span>
           </div>
 
           <div
             :if={@editing_post != @post.id}
+            id={"post-body-#{@post.id}"}
+            phx-hook="PostBody"
+            data-post-id={@post.id}
+            data-quote-label={gettext("Quote")}
+            data-quotable={
+              @current_user && !@post.is_system && !@topic.closed && !@topic.archived
+            }
             class={[
               "prose max-w-none text-sm text-body",
               @post.is_system && "italic text-muted border-l-2 border-border pl-3"
             ]}
           >
-            <%= render_body(@clean_body) %>
+            <%= render_post_body(@clean_body, @quoted_cards, @blocked_user_ids) %>
           </div>
 
           <%!-- Inline edit composer --%>
@@ -1549,11 +2411,25 @@ defmodule ColloqWeb.ForumLive.Topic do
             minute={@post.event_data[:minute] || @post.event_data["minute"] || 0}
           />
 
+          <.standings_table :if={@post.system_type == "standings" && @post.event_data} data={@post.event_data} />
+
+          <%!-- Player comparison: reuses the generic SVG-in-event_data renderer. --%>
+          <.standings_table :if={@post.system_type == "comparison" && @post.event_data} data={@post.event_data} />
+
+          <%!-- Single-player season card: same generic SVG renderer. --%>
+          <.standings_table :if={@post.system_type == "player_card" && @post.event_data} data={@post.event_data} />
+
           <.poll_display
             :if={@poll_data}
             poll_data={@poll_data}
             user_votes={@user_votes}
             current_user={@current_user}
+          />
+
+          <%!-- "The XI I'd play" board attached to this post --%>
+          <.lineup_display
+            :if={Map.get(@lineup_data, @post.id)}
+            lineup={Map.get(@lineup_data, @post.id)}
           />
 
           <%!-- Rich embeds detected from the post body (YouTube, Vimeo, X) --%>
@@ -1566,6 +2442,7 @@ defmodule ColloqWeb.ForumLive.Topic do
               post_id={@post.id}
               reactions={Map.get(@reaction_data, @post.id, %{}) |> Enum.map(fn {emoji, count} -> %{emoji: emoji, count: count} end)}
               user_reactions={Map.get(@user_reactions, @post.id)}
+              can_react={@current_user && @current_user.id != @post.user_id}
             />
 
             <div :if={@current_user && !@topic.closed && !@topic.archived} class="flex items-center gap-3">
@@ -1594,52 +2471,8 @@ defmodule ColloqWeb.ForumLive.Topic do
             >
               <.icon name="flag" class="w-3.5 h-3.5" /><%= gettext("Report") %>
             </button>
-            <div class="relative" id={"share-menu-#{@post.id}"}>
-              <button
-                type="button"
-                phx-click={Phoenix.LiveView.JS.toggle(to: "#share-dropdown-#{@post.id}")}
-                class="inline-flex items-center gap-1 text-xs text-muted hover:text-heading transition-colors"
-              >
-                <.icon name="share-2" class="w-3.5 h-3.5" /><%= gettext("Share") %>
-              </button>
-              <div
-                id={"share-dropdown-#{@post.id}"}
-                phx-click-away={Phoenix.LiveView.JS.hide()}
-                class="hidden absolute bottom-full left-0 mb-1 bg-surface border border-border rounded-lg shadow-lg py-1 min-w-[160px] z-10"
-              >
-                <button
-                  type="button"
-                  phx-click="copy-link"
-                  phx-value-post_id={@post.id}
-                  class="flex items-center gap-2 w-full text-left px-3 py-1.5 text-xs text-body hover:bg-border transition-colors"
-                >
-                  <.icon name="copy" class="w-3.5 h-3.5" /><%= gettext("Copy link") %>
-                </button>
-                <a
-                  href={"https://wa.me/?text=#{URI.encode("Mira este post: " <> ColloqWeb.Endpoint.url() <> "/t/" <> to_string(@topic.id) <> "#post-" <> to_string(@post.id))}"}
-                  target="_blank"
-                  class="flex items-center gap-2 px-3 py-1.5 text-xs text-body hover:bg-border transition-colors"
-                >
-                  <.icon name="message-circle" class="w-3.5 h-3.5" /> WhatsApp
-                </a>
-                <a
-                  href={"https://twitter.com/intent/tweet?url=#{URI.encode(ColloqWeb.Endpoint.url() <> "/t/" <> to_string(@topic.id) <> "#post-" <> to_string(@post.id))}&text=#{URI.encode(@topic.title)}"}
-                  target="_blank"
-                  class="flex items-center gap-2 px-3 py-1.5 text-xs text-body hover:bg-border transition-colors"
-                >
-                  <.icon name="external-link" class="w-3.5 h-3.5" /> X / Twitter
-                </a>
-                <a
-                  href={"https://t.me/share/url?url=#{URI.encode(ColloqWeb.Endpoint.url() <> "/t/" <> to_string(@topic.id) <> "#post-" <> to_string(@post.id))}&text=#{URI.encode(@topic.title)}"}
-                  target="_blank"
-                  class="flex items-center gap-2 px-3 py-1.5 text-xs text-body hover:bg-border transition-colors"
-                >
-                  <.icon name="send" class="w-3.5 h-3.5" /> Telegram
-                </a>
-              </div>
-            </div>
             <button
-              :if={@post.user_id == @current_user.id || Colloq.Permissions.can?(@current_user, :hide_posts)}
+              :if={can_edit_post?(@current_user, @post, @topic)}
               type="button"
               phx-click="start-edit"
               phx-value-post_id={@post.id}
@@ -1660,14 +2493,14 @@ defmodule ColloqWeb.ForumLive.Topic do
 
             <%!-- Moderator menu: sanctions against the post author --%>
             <div
-              :if={@current_user && Colloq.Permissions.can?(@current_user, :warn_users) && @post.user_id != @current_user.id && !@post.is_system}
+              :if={@current_user && Colloq.Permissions.can?(@current_user, :warn_users) && @post.user_id != @current_user.id && !@post.is_system && Colloq.Permissions.can_moderate?(@current_user, @post.user)}
               class="relative"
               id={"mod-menu-#{@post.id}"}
             >
               <button
                 type="button"
                 phx-click={Phoenix.LiveView.JS.toggle(to: "#mod-dropdown-#{@post.id}")}
-                class="inline-flex items-center gap-1 text-xs text-muted hover:text-danger transition-colors"
+                class="inline-flex items-center gap-1 text-xs text-muted hover:text-heading transition-colors"
               >
                 <.icon name="shield" class="w-3.5 h-3.5" /><%= gettext("Mod") %>
               </button>
@@ -1678,12 +2511,15 @@ defmodule ColloqWeb.ForumLive.Topic do
               >
                 <button
                   type="button"
-                  phx-click="mod-action"
-                  phx-value-action="warn"
+                  phx-click={
+                    Phoenix.LiveView.JS.push("open-warn")
+                    |> Phoenix.LiveView.JS.hide(to: "#mod-dropdown-#{@post.id}")
+                  }
                   phx-value-user_id={@post.user_id}
-                  class="flex items-center gap-2 w-full text-left px-3 py-1.5 text-xs text-body hover:bg-border transition-colors"
+                  phx-value-username={@post.user.username}
+                  class="flex items-center gap-2 w-full text-left px-3 py-1.5 text-xs text-body hover:bg-warning-soft hover:text-warning transition-colors"
                 >
-                  <.icon name="alert-triangle" class="w-3.5 h-3.5" /><%= gettext("Warn author") %>
+                  <.icon name="alert-triangle" class="w-3.5 h-3.5 text-warning" /><%= gettext("Warn author") %>
                 </button>
                 <button
                   :if={Colloq.Permissions.can?(@current_user, :silence_users)}
@@ -1692,9 +2528,9 @@ defmodule ColloqWeb.ForumLive.Topic do
                   phx-value-action="silence"
                   phx-value-user_id={@post.user_id}
                   data-confirm={gettext("Silence this user for 24 hours? They can read but not post.")}
-                  class="flex items-center gap-2 w-full text-left px-3 py-1.5 text-xs text-body hover:bg-border transition-colors"
+                  class="flex items-center gap-2 w-full text-left px-3 py-1.5 text-xs text-body hover:bg-accent-soft hover:text-accent transition-colors"
                 >
-                  <.icon name="mic-off" class="w-3.5 h-3.5" /><%= gettext("Silence 24h") %>
+                  <.icon name="mic-off" class="w-3.5 h-3.5 text-accent" /><%= gettext("Silence 24h") %>
                 </button>
                 <button
                   :if={Colloq.Permissions.can?(@current_user, :suspend_users)}
@@ -1703,9 +2539,9 @@ defmodule ColloqWeb.ForumLive.Topic do
                   phx-value-action="suspend"
                   phx-value-user_id={@post.user_id}
                   data-confirm={gettext("Suspend this user for 3 days? They can't log in.")}
-                  class="flex items-center gap-2 w-full text-left px-3 py-1.5 text-xs text-body hover:bg-border transition-colors"
+                  class="flex items-center gap-2 w-full text-left px-3 py-1.5 text-xs text-body hover:bg-orange-soft hover:text-orange transition-colors"
                 >
-                  <.icon name="clock" class="w-3.5 h-3.5" /><%= gettext("Suspend 3d") %>
+                  <.icon name="clock" class="w-3.5 h-3.5 text-orange" /><%= gettext("Suspend 3d") %>
                 </button>
                 <button
                   :if={Colloq.Permissions.can?(@current_user, :ban_users)}
@@ -1714,12 +2550,76 @@ defmodule ColloqWeb.ForumLive.Topic do
                   phx-value-action="ban"
                   phx-value-user_id={@post.user_id}
                   data-confirm={gettext("Ban this user permanently?")}
-                  class="flex items-center gap-2 w-full text-left px-3 py-1.5 text-xs text-danger hover:bg-danger-soft transition-colors"
+                  class="flex items-center gap-2 w-full text-left px-3 py-1.5 text-xs text-body hover:bg-danger-soft hover:text-danger transition-colors"
                 >
-                  <.icon name="ban" class="w-3.5 h-3.5" /><%= gettext("Ban") %>
+                  <.icon name="ban" class="w-3.5 h-3.5 text-danger" /><%= gettext("Ban") %>
                 </button>
               </div>
             </div>
+            </div>
+
+            <%!-- Share is a sibling of the reply-actions block, not a child:
+                  linking to a post has nothing to do with being able to reply
+                  to it, so it stays available to logged-out readers and on
+                  closed/archived topics, where that block renders nothing. --%>
+            <div class="relative flex items-center" id={"share-menu-#{@post.id}"}>
+              <button
+                type="button"
+                phx-click={Phoenix.LiveView.JS.toggle(to: "#share-dropdown-#{@post.id}")}
+                class="inline-flex items-center gap-1 text-xs text-muted hover:text-heading transition-colors"
+              >
+                <.icon name="share-2" class="w-3.5 h-3.5" /><%= gettext("Share") %>
+              </button>
+              <div
+                id={"share-dropdown-#{@post.id}"}
+                phx-click-away={Phoenix.LiveView.JS.hide()}
+                class="hidden absolute bottom-full left-0 mb-1 bg-surface border border-border rounded-lg shadow-lg py-1 min-w-[160px] z-10"
+              >
+                <button
+                  type="button"
+                  phx-click={
+                    Phoenix.LiveView.JS.push("copy-link", value: %{post_id: @post.id})
+                    |> Phoenix.LiveView.JS.hide(to: "#share-dropdown-#{@post.id}")
+                  }
+                  class="flex items-center gap-2 w-full text-left px-3 py-1.5 text-xs text-body hover:bg-border transition-colors"
+                >
+                  <.icon name="copy" class="w-3.5 h-3.5" /><%= gettext("Copy link") %>
+                </button>
+                <a
+                  href={share_url("https://wa.me/", text: "Mirá este post: " <> post_url(@topic.id, @post.id))}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="flex items-center gap-2 px-3 py-1.5 text-xs text-body hover:bg-border transition-colors"
+                >
+                  <.icon name="message-circle" class="w-3.5 h-3.5" /> WhatsApp
+                </a>
+                <a
+                  href={
+                    share_url("https://twitter.com/intent/tweet",
+                      url: post_url(@topic.id, @post.id),
+                      text: @topic.title
+                    )
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="flex items-center gap-2 px-3 py-1.5 text-xs text-body hover:bg-border transition-colors"
+                >
+                  <.icon name="external-link" class="w-3.5 h-3.5" /> X / Twitter
+                </a>
+                <a
+                  href={
+                    share_url("https://t.me/share/url",
+                      url: post_url(@topic.id, @post.id),
+                      text: @topic.title
+                    )
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="flex items-center gap-2 px-3 py-1.5 text-xs text-body hover:bg-border transition-colors"
+                >
+                  <.icon name="send" class="w-3.5 h-3.5" /> Telegram
+                </a>
+              </div>
             </div>
           </div>
 
@@ -1772,18 +2672,25 @@ defmodule ColloqWeb.ForumLive.Topic do
               }
               class="inline-flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent-hover transition-colors"
             >
-              <span id={"replies-chevron-#{@post.id}"} class="rotate-90 transition-transform">▸</span>
+              <span
+                id={"replies-chevron-#{@post.id}"}
+                class={["transition-transform", !@collapse_replies && "rotate-90"]}
+              >▸</span>
               <%= count_replies(@post.replies) %>
               <%= if count_replies(@post.replies) == 1, do: gettext("reply"), else: gettext("replies") %>
             </button>
+            <%!-- Visible by default; only branches deeper than @collapse_depth
+                 start collapsed. The toggle above works either way. --%>
             <div id={"replies-#{@post.id}"} class={[
               "mt-2 border-l-2",
+              @collapse_replies && "hidden",
               @indent_replies && "pl-3 border-border" || "pl-2 border-accent-border"
             ]}>
               <%= for reply <- @post.replies do %>
                 <.post_item
                   post={reply}
                   topic={@topic}
+                  first_unread_id={@first_unread_id}
                   current_user={@current_user}
                   replying_to={@replying_to}
                   nested_reply_body={@nested_reply_body}
@@ -1793,9 +2700,11 @@ defmodule ColloqWeb.ForumLive.Topic do
                   user_reactions={@user_reactions}
                   poll_data={@poll_data}
                   user_votes={@user_votes}
+                  lineup_data={@lineup_data}
                   bookmarked_posts={@bookmarked_posts}
                   show_flag_for={@show_flag_for}
                   user_badges={@user_badges}
+                  blocked_user_ids={@blocked_user_ids}
                   depth={@depth + 1}
                 />
               <% end %>
@@ -1810,6 +2719,77 @@ defmodule ColloqWeb.ForumLive.Topic do
   # =========================================================================
   # Poll display component
   # =========================================================================
+
+  attr :lineup, :any, required: true
+
+  @doc """
+  Renders a post's starting XI. Drawn here rather than inside the post body
+  because the body scrubber strips `style` (so a positioned board can't survive
+  there) — same reason polls render as a component.
+  """
+  def lineup_display(assigns) do
+    lineup = assigns.lineup
+
+    # Positions come from the formation; the players are the frozen snapshot.
+    pairs = Enum.zip(Colloq.Lineups.layout(lineup.formation), lineup.players)
+
+    assigns =
+      assigns
+      |> assign(:pairs, pairs)
+      |> assign(:team_name, team_name(lineup.team_id))
+      |> assign(:colors, Colloq.Sofascore.team_colors(lineup.team_id))
+
+    ~H"""
+    <div class="mt-4 rounded-xl border border-border bg-surface overflow-hidden max-w-sm">
+      <div class="flex items-center justify-between px-3 py-2 border-b border-border">
+        <span class="text-sm font-semibold text-heading"><%= @team_name %></span>
+        <span class="rounded-md bg-accent px-2 py-0.5 text-[10px] font-semibold text-white">
+          <%= @lineup.formation %>
+        </span>
+      </div>
+
+      <div
+        class="relative"
+        style="aspect-ratio: 3 / 4; background: repeating-linear-gradient(0deg, #2d8a4e 0px, #2d8a4e 32px, #2a814a 32px, #2a814a 64px);"
+      >
+        <div class="absolute inset-2 border-2 border-white/20 rounded-sm"></div>
+        <div class="absolute left-2 right-2 top-1/2 h-0.5 -translate-y-px bg-white/20"></div>
+        <div class="absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/20"></div>
+        <div class="absolute left-1/2 top-2 h-12 w-32 -translate-x-1/2 border-2 border-t-0 border-white/20"></div>
+        <div class="absolute left-1/2 bottom-2 h-12 w-32 -translate-x-1/2 border-2 border-b-0 border-white/20"></div>
+
+        <div
+          :for={{slot, player} <- @pairs}
+          class="absolute flex w-16 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5"
+          style={"left: #{slot.x}%; top: #{slot.y}%;"}
+        >
+          <.jersey
+            primary={@colors.primary}
+            secondary={@colors.secondary}
+            gk={slot.role == :gk}
+            class="w-7 h-6 drop-shadow"
+          />
+          <span class="text-[9px] font-bold leading-tight text-white text-center drop-shadow whitespace-nowrap">
+            <%= short_label(player["name"]) %>
+          </span>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp team_name(team_id) do
+    case Colloq.Sofascore.team_key_by_id(team_id) do
+      nil -> "Equipo #{team_id}"
+      key -> Colloq.Sofascore.team_info(key).name
+    end
+  end
+
+  defp short_label(name) when is_binary(name) and name != "" do
+    name |> String.split() |> List.last() |> String.upcase()
+  end
+
+  defp short_label(_), do: "—"
 
   attr :poll_data, :map, required: true
   attr :user_votes, :list, default: []
@@ -1829,21 +2809,72 @@ defmodule ColloqWeb.ForumLive.Topic do
       <div class="flex items-center gap-2 mb-3">
         <span class="text-accent">📊</span>
         <h4 class="text-sm font-semibold text-heading"><%= @poll.question %></h4>
-        <span :if={@poll.closed} class="text-xs text-muted ml-auto"><%= gettext("Closed") %></span>
+        <span :if={@poll.anonymous} class="text-xs text-muted ml-auto inline-flex items-center gap-1">
+          <.icon name="eye-off" class="w-3 h-3" /><%= gettext("Anonymous") %>
+        </span>
+        <span :if={@poll.closed} class={["text-xs text-muted", !@poll.anonymous && "ml-auto"]}>
+          <%= gettext("Closed") %>
+        </span>
       </div>
 
-      <div :if={@has_voted || @poll.closed} class="space-y-2">
+      <div :if={@has_voted || @poll.closed} id={"poll-#{@poll.id}"} class="space-y-3">
+        <div class="flex justify-end -mb-1">
+          <button
+            type="button"
+            phx-click={
+              Phoenix.LiveView.JS.toggle_class("hidden", to: "#poll-#{@poll.id} .poll-pct")
+              |> Phoenix.LiveView.JS.toggle_class("hidden", to: "#poll-#{@poll.id} .poll-count")
+            }
+            class="inline-flex items-center gap-1 text-xs text-muted hover:text-heading transition-colors"
+            title={gettext("Switch between votes and percentage")}
+          >
+            <.icon name="refresh-cw" class="w-3 h-3" /> #/%
+          </button>
+        </div>
         <%= for option <- @poll_data.options do %>
           <div class="relative">
             <div class="flex items-center justify-between mb-1">
               <span class="text-sm text-body"><%= option.text %></span>
-              <span class="text-xs text-muted"><%= option.votes %> (<%= option.percentage %>%)</span>
+              <span class="text-xs text-muted tabular-nums">
+                <span class="poll-pct"><%= option.percentage %>%</span>
+                <span class="poll-count hidden">
+                  <%= option.votes %> <%= ngettext("vote", "votes", option.votes) %>
+                </span>
+              </span>
             </div>
             <div class="h-2 bg-border rounded-full overflow-hidden">
               <div
                 class="h-full bg-accent rounded-full transition-all duration-300"
                 style={"width: #{option.percentage}%"}
               />
+            </div>
+            <div :if={!@poll.anonymous && option.voters != []} class="flex items-center flex-wrap gap-1 mt-1.5">
+              <a
+                :for={voter <- Enum.take(option.voters, 12)}
+                href={~p"/u/#{voter.username}"}
+                class="inline-flex"
+                title={voter.display_name || voter.username}
+              >
+                <img
+                  :if={voter.avatar_url}
+                  src={voter.avatar_url}
+                  alt=""
+                  class="w-5 h-5 rounded-full object-cover ring-1 ring-border"
+                  loading="lazy"
+                />
+                <span
+                  :if={!voter.avatar_url}
+                  class={[
+                    "w-5 h-5 rounded-full flex items-center justify-center font-bold text-white text-[9px]",
+                    avatar_class(voter)
+                  ]}
+                >
+                  <%= initials(voter) %>
+                </span>
+              </a>
+              <span :if={length(option.voters) > 12} class="text-xs text-muted self-center">
+                +<%= length(option.voters) - 12 %>
+              </span>
             </div>
           </div>
         <% end %>
@@ -1870,4 +2901,20 @@ defmodule ColloqWeb.ForumLive.Topic do
     </div>
     """
   end
+
+  @doc """
+  Human text for a `topics.closed_reason` code.
+
+  The column stores internal codes set by the system ("duplicate" when a
+  re-post is auto-closed, "post_limit" at the 50k cap); moderators may also
+  type a free-form reason, which is shown as-is.
+  """
+  def closed_reason_text("duplicate"),
+    do: gettext("it duplicates a topic you already had open.")
+
+  def closed_reason_text("post_limit"),
+    do: gettext("it reached the maximum number of comments. Continue in a new topic.")
+
+  def closed_reason_text(reason), do: "#{reason}."
+
 end

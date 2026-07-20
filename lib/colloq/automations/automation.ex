@@ -10,7 +10,7 @@ defmodule Colloq.Automations.Automation do
   import ColloqWeb.Gettext
 
   @valid_triggers ~w(recurring user_registered user_promoted post_created stalled_topic point_in_time api_call)
-  @valid_scripts ~w(send_pm create_post llm_respond close_topic pin_topic flag_post auto_tag)
+  @valid_scripts ~w(send_pm create_post llm_respond close_topic pin_topic flag_post auto_tag recompute_scores)
 
   schema "automations" do
     field :name, :string

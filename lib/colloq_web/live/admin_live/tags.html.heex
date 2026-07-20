@@ -1,0 +1,80 @@
+<div class="max-w-4xl mx-auto px-4 py-6">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-heading"><%= gettext("Tags") %></h1>
+      <p class="text-sm text-muted mt-1">
+        <%= gettext("Create, rename, recolor and delete the tags used to label topics.") %>
+      </p>
+    </div>
+    <.button phx-click="open-new" class="text-sm">
+      + <%= gettext("New tag") %>
+    </.button>
+  </div>
+
+  <div class="space-y-2">
+    <div
+      :for={tag <- @tags}
+      class="flex items-center gap-4 p-4 rounded-lg bg-surface border border-border"
+    >
+      <.link
+        navigate={~p"/tag/#{tag.slug}"}
+        class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium flex-shrink-0 hover:opacity-80 transition-opacity"
+        style={"background-color: #{Colloq.Tags.color(tag)}; color: #{Colloq.Tags.text_color()}"}
+      >
+        <%= tag.name %>
+      </.link>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <.link navigate={~p"/tag/#{tag.slug}"} class="text-xs text-muted hover:text-heading transition-colors">
+            /<%= tag.slug %>
+          </.link>
+        </div>
+        <p :if={tag.description} class="text-xs text-muted mt-1 truncate">
+          <%= tag.description %>
+        </p>
+      </div>
+      <div class="text-xs text-muted whitespace-nowrap">
+        <%= tag.topic_count %> <%= gettext("topics") %>
+      </div>
+      <div class="flex items-center gap-1">
+        <button
+          phx-click="edit"
+          phx-value-id={tag.id}
+          class="px-2 py-1 text-xs text-muted hover:text-heading transition-colors"
+        >
+          <%= gettext("Edit") %>
+        </button>
+        <button
+          phx-click="delete"
+          phx-value-id={tag.id}
+          data-confirm={gettext("Delete tag \"%{name}\"? It will be removed from all topics.", name: tag.name)}
+          class="px-2 py-1 text-xs text-muted hover:text-danger transition-colors"
+        >
+          <%= gettext("Delete") %>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <p :if={@tags == []} class="text-muted text-center py-8">
+    <%= gettext("No tags yet.") %>
+  </p>
+
+  <%!-- Modal --%>
+  <.modal :if={@show_modal} id="tag-modal" show on_cancel={JS.push("close-modal")}>
+    <h2 class="text-lg font-bold text-heading mb-4">
+      <%= if @editing, do: gettext("Edit tag"), else: gettext("New tag") %>
+    </h2>
+
+    <.form for={@form} phx-submit="save" class="space-y-4">
+      <.input field={@form[:name]} type="text" label={gettext("Name")} placeholder={gettext("e.g. transferencias")} required />
+      <.input field={@form[:slug]} type="text" label="Slug" placeholder={gettext("auto from name if empty")} />
+      <.input field={@form[:description]} type="textarea" label={gettext("Description")} placeholder={gettext("Short description...")} />
+      <.input field={@form[:color]} type="color" label={gettext("Color")} />
+      <div class="flex gap-2 pt-2">
+        <.button type="submit" class="text-sm"><%= gettext("Save") %></.button>
+        <button type="button" phx-click="close-modal" class="text-sm text-muted hover:text-heading transition-colors"><%= gettext("Cancel") %></button>
+      </div>
+    </.form>
+  </.modal>
+</div>

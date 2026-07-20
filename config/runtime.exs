@@ -82,12 +82,24 @@ config :colloq, :api_football_url, System.get_env("API_FOOTBALL_URL", "https://v
 config :colloq, :sofascore_api_url, System.get_env("SOFASCORE_API_URL", "https://www.sofascore.com/api/v1")
 
 # LLM providers
+# Spam-classifier sidecar base URL. Overridable at runtime via the `spam_ml_url`
+# site setting (which takes precedence); this env var is the deploy-time default.
+config :colloq, :spam_ml_url, System.get_env("SPAM_ML_URL")
+
 config :colloq, :groq_api_key, System.get_env("GROQ_API_KEY")
+
+# Google Gemma via the Gemini API (OpenAI-compatible endpoint). GEMMA_API_KEY is
+# a Google AI Studio API key.
+config :colloq, :gemma_api_key, System.get_env("GEMMA_API_KEY")
+
+config :colloq,
+       :gemma_api_url,
+       System.get_env("GEMMA_API_URL", "https://generativelanguage.googleapis.com/v1beta/openai")
 config :colloq, :groq_api_url, System.get_env("GROQ_API_URL", "https://api.groq.com/openai/v1")
 config :colloq, :nvidia_nim_api_key, System.get_env("NVIDIA_NIM_API_KEY")
 config :colloq, :nvidia_api_url, System.get_env("NVIDIA_API_URL", "https://integrate.api.nvidia.com/v1")
-config :colloq, :anthropic_api_key, System.get_env("ANTHROPIC_API_KEY")
-config :colloq, :anthropic_api_url, System.get_env("ANTHROPIC_API_URL", "https://api.anthropic.com/v1")
+config :colloq, :deepseek_api_key, System.get_env("DEEPSEEK_API_KEY")
+config :colloq, :deepseek_api_url, System.get_env("DEEPSEEK_API_URL", "https://api.deepseek.com")
 config :colloq, :openrouter_api_key, System.get_env("OPENROUTER_API_KEY")
 config :colloq, :openrouter_api_url, System.get_env("OPENROUTER_API_URL", "https://openrouter.ai/api/v1")
 
@@ -139,13 +151,6 @@ config :colloq, :stun_url, System.get_env("STUN_URL", "stun:stun.l.google.com:19
 config :colloq, :turn_url, System.get_env("TURN_URL")
 config :colloq, :turn_username, System.get_env("TURN_USERNAME")
 config :colloq, :turn_credential, System.get_env("TURN_CREDENTIAL")
-
-# Admin network restriction
-config :colloq, :admin_allowed_cidrs,
-  System.get_env("ADMIN_ALLOWED_CIDRS", "")
-  |> String.split(",")
-  |> Enum.map(&String.trim/1)
-  |> Enum.reject(&(&1 == ""))
 
 # Email
 mailer_adapter =

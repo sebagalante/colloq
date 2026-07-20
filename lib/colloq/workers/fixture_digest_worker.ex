@@ -202,48 +202,31 @@ defmodule Colloq.Workers.FixtureDigestWorker do
   end
 
   defp publish_standings(topic, season_id) do
-    case Cachex.get(:forum_cache, "sofascore:standings:#{season_id}") do
-      {:ok, standings} when not is_nil(standings) ->
-        system_user = find_system_user()
-        table = format_standings_table(standings)
+    with {:ok, standings} when not is_nil(standings) <-
+           Cachex.get(:forum_cache, "sofascore:standings:#{season_id}"),
+         rows when rows != [] <- standings_rows(standings) do
+      svg = Colloq.Sofascore.StandingsSvg.render(rows)
 
-        body = """
-        <h2>📊 Tabla de Posiciones — Liga Profesional</h2>
-        #{table}
-        """
-
-        Forum.create_post(topic, system_user, %{
-          "body" => body,
-          "is_system" => true,
-          "system_type" => "standings",
-          "event_data" => %{season_id: season_id}
-        })
-
-      _ ->
-        :ok
+      Forum.create_post(topic, find_system_user(), %{
+        # The SVG carries the whole table; the body is just a caption for
+        # notifications, previews and summaries.
+        "body" => "📊 Tabla de Posiciones — Liga Profesional",
+        "is_system" => true,
+        "system_type" => "standings",
+        "event_data" => %{"season_id" => season_id, "svg" => svg}
+      })
+    else
+      _ -> :ok
     end
   end
 
-  defp format_standings_table(standings) do
-    rows = standings["rows"] || []
+  # The cached payload is the /standings/total response: a "standings" array of
+  # tables, each with "rows". Fall back to a bare "rows" for older shapes.
+  defp standings_rows(%{"standings" => tables}) when is_list(tables),
+    do: Enum.flat_map(tables, &Map.get(&1, "rows", []))
 
-    Enum.map_join(rows, "\n", fn row ->
-      pos = row["position"]
-      team = row["team"]["name"]
-      pts = row["points"]
-      pj = row["played"]
-      gf = row["scoresFor"]
-      gc = row["scoresAgainst"]
-      gd = row["scoresDiff"]
-
-      bold = if team_name?(team, "Racing"), do: "<strong>", else: ""
-      bold_end = if team_name?(team, "Racing"), do: "</strong>", else: ""
-
-      "#{pos}. #{bold}#{team}#{bold_end} — #{pts} pts (#{pj} PJ, +#{gf} -#{gc} DG:#{gd})"
-    end)
-  end
-
-  defp team_name?(name, search), do: String.contains?(String.downcase(name), String.downcase(search))
+  defp standings_rows(%{"rows" => rows}) when is_list(rows), do: rows
+  defp standings_rows(_), do: []
 
   defp format_time(nil), do: "--:--"
   defp format_time(timestamp) do

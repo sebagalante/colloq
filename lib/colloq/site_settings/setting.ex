@@ -16,8 +16,19 @@ defmodule Colloq.SiteSettings.Setting do
   def changeset(setting, attrs) do
     setting
     |> cast(attrs, [:key, :value, :type, :group, :description, :public])
-    |> validate_required([:key, :value])
-    |> validate_inclusion(:type, ~w(string integer boolean json secret))
+    |> validate_required([:key])
+    |> validate_value_required()
+    |> validate_inclusion(:type, ~w(string integer boolean json secret image))
     |> unique_constraint(:key)
+  end
+
+  # Image settings may be blank (no logo/favicon uploaded yet); every other
+  # type must carry a value.
+  defp validate_value_required(changeset) do
+    if get_field(changeset, :type) == "image" do
+      changeset
+    else
+      validate_required(changeset, [:value])
+    end
   end
 end

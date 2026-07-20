@@ -21,6 +21,12 @@ defmodule Colloq.Forum.Post do
     field :body_json, :map  # Tiptap JSON document
     field :post_number, :integer
     field :deleted_at, :utc_datetime_usec
+    # Set only when the body is edited — not by hides, deletes or counter
+    # updates, all of which move updated_at.
+    field :edited_at, :utc_datetime_usec
+    # `hidden` distinguishes a moderator/system removal (shows in the moderation
+    # queue) from a user deleting their own post (`deleted_at` set, hidden false).
+    field :hidden, :boolean, default: false
 
     # Counters
     field :view_count, :integer, default: 0
@@ -34,6 +40,7 @@ defmodule Colloq.Forum.Post do
     # Relationships
     belongs_to :topic, Colloq.Forum.Topic
     belongs_to :user, Colloq.Accounts.User
+    belongs_to :deleted_by, Colloq.Accounts.User
     has_one :first_topic, Colloq.Forum.Topic, foreign_key: :first_post_id
     has_one :last_topic, Colloq.Forum.Topic, foreign_key: :last_post_id
 
@@ -54,7 +61,7 @@ defmodule Colloq.Forum.Post do
     post
     |> cast(attrs, [
       :body, :body_json, :topic_id, :user_id, :post_number,
-      :is_system, :system_type, :event_data, :parent_id
+      :is_system, :system_type, :event_data, :parent_id, :edited_at
     ])
     |> sanitize_body()
     |> validate_required([:body, :topic_id, :user_id, :post_number])
@@ -80,10 +87,17 @@ defmodule Colloq.Forum.Post do
   # untrusted sources — forum users and LLM bots — so we sanitize on write to
   # strip scripts, event handlers and dangerous markup while keeping basic
   # formatting. Render-time sanitization stays as defense in depth.
+  #
+  # We use the html5 scrubber (the same one render_body uses) rather than
+  # basic_html because it preserves the marker attributes rich composer
+  # features rely on — `data-spoiler` on inline spoilers and `data-sensitive`
+  # on blurred media. basic_html would strip those, flattening the markup back
+  # to plain text/images. html5 still removes scripts, `on*` handlers and
+  # `javascript:` URLs, so it's no weaker against XSS.
   defp sanitize_body(changeset) do
     update_change(changeset, :body, fn
       nil -> nil
-      body -> HtmlSanitizeEx.basic_html(body)
+      body -> HtmlSanitizeEx.html5(body)
     end)
   end
 end

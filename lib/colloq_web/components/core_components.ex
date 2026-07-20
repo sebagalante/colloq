@@ -236,6 +236,93 @@ defmodule ColloqWeb.CoreComponents do
     """
   end
 
+  # ============= STAFF BADGE =============
+  # Staff badge, colored and glyphed by role:
+  #   super admin → two Corinthian (plumed) helmets, gray
+  #   admin       → one Corinthian helmet, blue
+  #   moderator   → hard hat, green
+  # Regular users render nothing.
+  attr :role, :string, default: nil
+  attr :show_label, :boolean, default: true
+  attr :class, :string, default: nil
+
+  def staff_badge(assigns) do
+    cfg = Colloq.Permissions.staff_badge(assigns.role)
+
+    colors = %{
+      "gray" => "bg-surface-alt text-muted border-border",
+      "blue" => "bg-accent-soft text-accent border-accent-border",
+      "green" => "bg-success-soft text-success border-success/50"
+    }
+
+    assigns =
+      assigns
+      |> assign(:cfg, cfg)
+      |> assign(:color_class, cfg && colors[cfg.color])
+
+    ~H"""
+    <span
+      :if={@cfg}
+      class={[
+        "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium",
+        @color_class,
+        @class
+      ]}
+      title={@cfg.label}
+    >
+      <span class="inline-flex items-center gap-0.5">
+        <.staff_glyph :for={_ <- 1..@cfg.count//1} icon={@cfg.icon} class="w-3.5 h-3.5" />
+      </span>
+      <span :if={@show_label}><%= @cfg.label %></span>
+    </span>
+    """
+  end
+
+  attr :icon, :atom, required: true
+  attr :class, :string, default: "w-4 h-4"
+
+  @doc "Dispatches to the right staff glyph (`:helmet` or `:hardhat`)."
+  def staff_glyph(assigns) do
+    ~H"""
+    <.corinthian_helmet :if={@icon == :helmet} class={@class} />
+    <.hard_hat :if={@icon == :hardhat} class={@class} />
+    """
+  end
+
+  attr :class, :string, default: "w-4 h-4"
+
+  @doc "Corinthian (Greek) plumed-helmet glyph."
+  def corinthian_helmet(assigns) do
+    ~H"""
+    <svg viewBox="0 0 512 512" fill="currentColor" class={@class} aria-hidden="true">
+      <path d="m207.47 18.875 35.968 162.25c.29 1.087.86 1.863 2.562 2.813 1.7.95 4.433 1.66 7.22 1.656 2.785-.003 5.543-.703 7.25-1.656 1.704-.954 2.276-1.75 2.56-2.813L299 18.875h-91.53zm88.936 98.03-15.22 68.657-.06.22-.032.187c-1.747 6.52-6.404 11.432-11.5 14.28-5.096 2.848-10.738 4.026-16.344 4.03-5.606.007-11.24-1.15-16.344-4-5.104-2.847-9.782-7.784-11.53-14.31l-.032-.19-.063-.218-14.686-66.218C175 133.818 147.157 164.56 135.53 202.97a458.472 458.472 0 0 0 32.314 15.468c26.527 11.43 60.506 22.55 88.5 22.406 28.003-.145 61.81-11.56 88.156-23.22a448.74 448.74 0 0 0 32.938-16.25c-12.624-39.968-42.853-71.398-81.032-84.468zm88.97 101.376c-8.365 4.538-19.865 10.487-33.313 16.44-27.522 12.18-62.797 24.673-95.625 24.843-32.838.17-68.293-12-96-23.938-13.614-5.866-25.276-11.744-33.72-16.22-.51 70.485-3.647 138.64 9.626 188.376 7.135 26.737 18.683 47.874 37.375 62.595 12.092 9.525 27.443 16.584 47.25 20.375V330.125c-28.654 16.12-67.847 2.81-81.064-30.625 8.825-22.322 30.127-33.074 50.78-33 24.583.087 48.224 15.532 48.876 45.094h.094v89h36.03l.002-87.72c-.01-.01-.023-.018-.032-.03 0-.422.022-.834.03-1.25.655-29.562 24.327-45.007 48.908-45.094 20.654-.074 41.926 10.678 50.75 33-13.204 33.403-52.324 46.702-80.97 30.656v160.47c19.544-3.867 34.6-11 46.438-20.595 18.396-14.908 29.6-36.337 36.375-63.342 12.59-50.184 8.804-118.532 8.188-188.407z" />
+    </svg>
+    """
+  end
+
+  attr :class, :string, default: "w-4 h-4"
+
+  @doc "Hard-hat glyph (Lucide) marking moderators."
+  def hard_hat(assigns) do
+    ~H"""
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class={@class}
+      aria-hidden="true"
+    >
+      <path d="M2 18a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v2z" />
+      <path d="M10 10V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5" />
+      <path d="M4 15v-3a6 6 0 0 1 6-6" />
+      <path d="M14 6a6 6 0 0 1 6 6v3" />
+    </svg>
+    """
+  end
+
   # ============= MODAL =============
   attr :id, :string, required: true
   attr :show, :boolean, default: false
@@ -265,8 +352,12 @@ defmodule ColloqWeb.CoreComponents do
   attr :reactions, :list, default: []
   attr :user_reactions, :map, default: nil
 
+  attr :can_react, :boolean,
+    default: true,
+    doc: "false on the viewer's own posts — counts still render, but not the controls"
+
   # Emoji palette shown in the reaction picker popup.
-  @reaction_emojis ~w(👍 ❤️ 😂 😮 😢 🔥 🎉 💯 👏 🙌 🤝 🚀 🤩 👀 ⚽ 🏆)
+  @reaction_emojis ~w(👍 💙 😂 😮 😢 🔥 🎉 💯 👏 🙌 🤝 🚀 🤩 👀 ⚽ 🏆)
 
   def reaction_bar(assigns) do
     assigns =
@@ -277,18 +368,24 @@ defmodule ColloqWeb.CoreComponents do
     ~H"""
     <div class="flex items-center flex-wrap gap-1.5">
       <%!-- Existing reactions (only those with at least one) --%>
+      <%!-- On your own posts the pills are inert: you can see who reacted, but
+            clicking would be rejected server-side anyway. --%>
       <button
         :for={%{emoji: emoji, count: count} <- Enum.filter(@reactions, &(&1.count > 0))}
         type="button"
-        phx-click="reaction"
+        disabled={!@can_react}
+        phx-click={@can_react && "reaction"}
         phx-value-post_id={@post_id}
         phx-value-emoji={emoji}
         class={[
           "reaction-pill flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors",
+          !@can_react && "cursor-default",
           @user_reactions && MapSet.member?(@user_reactions, emoji) &&
             "bg-accent-soft border border-accent text-accent",
           (!@user_reactions || !MapSet.member?(@user_reactions, emoji)) &&
-            "bg-border border border-transparent hover:bg-border-hover text-muted"
+            "bg-border border border-transparent text-muted",
+          @can_react && (!@user_reactions || !MapSet.member?(@user_reactions, emoji)) &&
+            "hover:bg-border-hover"
         ]}
       >
         <span><%= emoji_display(emoji, @custom_emojis) %></span>
@@ -296,7 +393,7 @@ defmodule ColloqWeb.CoreComponents do
       </button>
 
       <%!-- Add-reaction button + emoji picker popup --%>
-      <div class="relative">
+      <div :if={@can_react} class="relative">
         <button
           type="button"
           phx-click={JS.toggle(to: "#emoji-picker-#{@post_id}")}
@@ -385,6 +482,45 @@ defmodule ColloqWeb.CoreComponents do
     ~H"""
     <div class="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-green-900/90 border border-green-600 text-green-100 px-6 py-3 rounded-xl shadow-lg animate-bounce">
       ⚽ ¡GOOOL! <%= @player %> <%= @minute %>'
+    </div>
+    """
+  end
+
+  # ============= LINEUP JERSEY =============
+  # A little football shirt drawn in the team's kit colors, used for both the
+  # lineup composer preview and the posted lineup board. GK gets a fixed
+  # contrasting yellow so the keeper stands out from the outfield players.
+  attr :primary, :string, default: "#e8eef7"
+  attr :secondary, :string, default: "#9db4d0"
+  attr :gk, :boolean, default: false
+  attr :class, :any, default: "w-7 h-6"
+
+  def jersey(assigns) do
+    ~H"""
+    <svg viewBox="0 0 60 56" class={@class} aria-hidden="true">
+      <path
+        d="M18 4 L24 8 Q30 12 36 8 L42 4 L54 12 L48 22 L44 20 L44 52 L16 52 L16 20 L12 22 L6 12 Z"
+        fill={if @gk, do: "#facc15", else: @primary}
+        stroke={if @gk, do: "#a16207", else: @secondary}
+        stroke-width="1.6"
+      />
+    </svg>
+    """
+  end
+
+  # ============= STANDINGS TABLE (SVG) =============
+  # Renders a Sofascore-style league table as an inline SVG stored in the system
+  # post's event_data. We render it raw (not through the body sanitizer, which
+  # strips SVG) — the markup is generated by us in Colloq.Sofascore.StandingsSvg
+  # and every external value inside it is XML-escaped there.
+  attr :data, :map, required: true
+
+  def standings_table(assigns) do
+    assigns = assign(assigns, :svg, assigns.data["svg"] || assigns.data[:svg])
+
+    ~H"""
+    <div :if={@svg} class="not-prose my-2 overflow-x-auto rounded-xl">
+      <%= Phoenix.HTML.raw(@svg) %>
     </div>
     """
   end

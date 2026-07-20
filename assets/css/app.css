@@ -82,6 +82,118 @@ body {
 .prose blockquote :first-child {
   margin-top: 0;
 }
+
+/* ---- Spoilers (inline) ---------------------------------------------------
+   In the composer the author keeps the text readable, marked with a dashed
+   underline; in a rendered post the text is blurred and blacked-out until the
+   reader clicks it (PostBody hook adds .is-revealed). */
+.tiptap-content [data-spoiler] {
+  border-bottom: 1px dashed var(--text-muted);
+  background: var(--surface-alt);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.prose [data-spoiler] {
+  color: transparent;
+  border-radius: 3px;
+  padding: 0 3px;
+  cursor: pointer;
+  user-select: none;
+  /* Old-TV analog static: a grayscale fractal-noise tile (feTurbulence) on a
+     black bar. The text keeps its width (color transparent) so the hidden run
+     is still sized like before — just scrambled instead of blurred. */
+  background-color: #000;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='90' height='90'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)' opacity='0.85'/%3E%3C/svg%3E");
+  background-size: 90px 90px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+/* Jitter the noise tile so the grain crawls like a detuned channel. */
+@media (prefers-reduced-motion: no-preference) {
+  .prose [data-spoiler] {
+    animation: tv-static 0.5s steps(1) infinite;
+  }
+}
+@keyframes tv-static {
+  0%   { background-position: 0 0; }
+  20%  { background-position: -22px 12px; }
+  40%  { background-position: 16px -20px; }
+  60%  { background-position: -14px 24px; }
+  80%  { background-position: 26px -10px; }
+  100% { background-position: -18px -22px; }
+}
+.prose [data-spoiler]:hover {
+  filter: brightness(1.25);
+}
+.prose [data-spoiler].is-revealed {
+  background: var(--surface-alt);
+  background-image: none;
+  color: inherit;
+  filter: none;
+  cursor: auto;
+  user-select: auto;
+  animation: none;
+}
+
+/* ---- Sensitive media -----------------------------------------------------
+   Images flagged sensitive render blurred behind a warning veil until the
+   reader clicks them. The `.sensitive-media` wrapper is emitted by the server
+   (render_body_string) so the blur is on-screen before any JS runs and cannot
+   flash the raw image; the PostBody hook only toggles `.is-revealed`. The veil
+   is a CSS ::after (no injected DOM) so it survives LiveView patches. In the
+   composer we blur the flagged image inline so the author sees it's marked. */
+.tiptap-content img[data-sensitive] {
+  filter: blur(6px);
+  outline: 2px dashed var(--text-muted);
+  outline-offset: 2px;
+}
+
+/* Blur is keyed off the attribute ON THE IMAGE, so a flagged image is hidden
+   even if the .sensitive-media wrapper isn't in the DOM (stale LiveView render,
+   morphdom dropping it, etc.). The reveal hook adds `.revealed` to the image. */
+.prose img[data-sensitive] {
+  filter: blur(24px);
+  transform: scale(1.05);
+  cursor: pointer;
+  border-radius: 0.5rem;
+  max-height: 32rem;
+  object-fit: contain;
+  transition: filter 0.2s ease;
+}
+.prose img[data-sensitive].revealed {
+  filter: none;
+  transform: none;
+  cursor: auto;
+}
+
+.sensitive-media {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  line-height: 0;
+}
+/* The warning veil needs the wrapper for positioning; hidden once revealed. */
+.sensitive-media:not(.is-revealed)::after {
+  content: "⚠ Contenido sensible · tocá para ver";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.sensitive-media.is-revealed {
+  cursor: auto;
+}
 .prose blockquote :last-child {
   margin-bottom: 0;
 }
@@ -156,6 +268,8 @@ body {
   --success-soft: rgba(34, 197, 94, 0.12);
   --warning: #eab308;
   --warning-soft: rgba(234, 179, 8, 0.12);
+  --orange: #f97316;
+  --orange-soft: rgba(249, 115, 22, 0.14);
   --color-scheme: dark;
   --scrollbar-thumb: #1a2035;
   --scrollbar-track: #080c14;
@@ -183,6 +297,8 @@ body {
   --success-soft: rgba(22, 163, 74, 0.08);
   --warning: #ca8a04;
   --warning-soft: rgba(202, 138, 4, 0.08);
+  --orange: #ea580c;
+  --orange-soft: rgba(234, 88, 12, 0.10);
   --color-scheme: light;
   --scrollbar-thumb: #cbd5e1;
   --scrollbar-track: #f1f5f9;
@@ -212,6 +328,8 @@ body {
   --success-soft: rgba(21, 130, 64, 0.10);
   --warning: #B47804;
   --warning-soft: rgba(180, 120, 4, 0.10);
+  --orange: #ea580c;
+  --orange-soft: rgba(234, 88, 12, 0.10);
   --color-scheme: light;
   --scrollbar-thumb: #93BFE3;
   --scrollbar-track: #BFDBF1;
@@ -241,6 +359,8 @@ body {
   --success-soft: rgba(18, 112, 58, 0.12);
   --warning: #9C6803;
   --warning-soft: rgba(156, 104, 3, 0.12);
+  --orange: #ea580c;
+  --orange-soft: rgba(234, 88, 12, 0.10);
   --color-scheme: light;
   --scrollbar-thumb: #5E97CC;
   --scrollbar-track: #8ABBE0;
@@ -271,10 +391,103 @@ body {
   --success-soft: rgba(34, 197, 94, 0.12);
   --warning: #EAB308;
   --warning-soft: rgba(234, 179, 8, 0.12);
+  --orange: #f97316;
+  --orange-soft: rgba(249, 115, 22, 0.14);
   --color-scheme: dark;
   --scrollbar-thumb: #16304F;
   --scrollbar-track: #06101F;
   --shadow-color: rgba(0, 15, 40, 0.6);
+}
+
+/* Racing Salmon — deep Racing blue base with the salmon accent from the
+   away kit. Blue + rose/salmon. */
+.theme-racing_salmon {
+  --bg: #0B2038;
+  --surface: #123050;
+  --surface-alt: #0F2947;
+  --border: #1E4468;
+  --border-hover: #2A5580;
+  --text: #EAF1F8;
+  --text-heading: #FFFFFF;
+  --text-muted: #86A6C6;
+  --accent: #FF8E72;
+  --accent-hover: #FF7355;
+  --accent-muted: #E56B4E;
+  --accent-soft: rgba(255, 142, 114, 0.14);
+  --accent-border: #E56B4E;
+  --danger: #F0524B;
+  --danger-soft: rgba(240, 82, 75, 0.14);
+  --danger-border: #A83030;
+  --success: #34C77B;
+  --success-soft: rgba(52, 199, 123, 0.14);
+  --warning: #F0B429;
+  --warning-soft: rgba(240, 180, 41, 0.14);
+  --orange: #f97316;
+  --orange-soft: rgba(249, 115, 22, 0.14);
+  --color-scheme: dark;
+  --scrollbar-thumb: #1E4468;
+  --scrollbar-track: #0B2038;
+  --shadow-color: rgba(0, 15, 40, 0.55);
+}
+
+/* Dracula — the classic Dracula palette (draculatheme.com). */
+.theme-dracula {
+  --bg: #282a36;
+  --surface: #343746;
+  --surface-alt: #21222c;
+  --border: #44475a;
+  --border-hover: #565a70;
+  --text: #f8f8f2;
+  --text-heading: #ffffff;
+  --text-muted: #6272a4;
+  --accent: #bd93f9;
+  --accent-hover: #a982f0;
+  --accent-muted: #7d5bbe;
+  --accent-soft: rgba(189, 147, 249, 0.15);
+  --accent-border: #7d5bbe;
+  --danger: #ff5555;
+  --danger-soft: rgba(255, 85, 85, 0.15);
+  --danger-border: #b33939;
+  --success: #50fa7b;
+  --success-soft: rgba(80, 250, 123, 0.14);
+  --warning: #f1fa8c;
+  --warning-soft: rgba(241, 250, 140, 0.14);
+  --orange: #f97316;
+  --orange-soft: rgba(249, 115, 22, 0.14);
+  --color-scheme: dark;
+  --scrollbar-thumb: #44475a;
+  --scrollbar-track: #282a36;
+  --shadow-color: rgba(0, 0, 0, 0.5);
+}
+
+/* Tokyo Night — the popular Tokyo Night palette. */
+.theme-tokyo_night {
+  --bg: #1a1b26;
+  --surface: #24283b;
+  --surface-alt: #16161e;
+  --border: #292e42;
+  --border-hover: #3b4261;
+  --text: #c0caf5;
+  --text-heading: #ffffff;
+  --text-muted: #565f89;
+  --accent: #7aa2f7;
+  --accent-hover: #6a92e7;
+  --accent-muted: #3d59a1;
+  --accent-soft: rgba(122, 162, 247, 0.15);
+  --accent-border: #3d59a1;
+  --danger: #f7768e;
+  --danger-soft: rgba(247, 118, 142, 0.15);
+  --danger-border: #b34457;
+  --success: #9ece6a;
+  --success-soft: rgba(158, 206, 106, 0.14);
+  --warning: #e0af68;
+  --warning-soft: rgba(224, 175, 104, 0.14);
+  --orange: #f97316;
+  --orange-soft: rgba(249, 115, 22, 0.14);
+  --color-scheme: dark;
+  --scrollbar-thumb: #292e42;
+  --scrollbar-track: #1a1b26;
+  --shadow-color: rgba(0, 0, 0, 0.5);
 }
 
 /* =========================================================================
@@ -600,6 +813,18 @@ h1 img.custom-emoji, h2 img.custom-emoji, h3 img.custom-emoji {
   height: 1.4em;
 }
 
+/* Emojis read a touch larger inside post bodies for legibility. */
+.prose img.emoji {
+  width: 1.5em;
+  height: 1.5em;
+  vertical-align: -0.35em;
+}
+.prose img.custom-emoji {
+  width: 1.65em;
+  height: 1.65em;
+  vertical-align: -0.4em;
+}
+
 /* =========================================================================
    TipTap / ProseMirror composer (uses existing theme tokens only)
    ========================================================================= */
@@ -687,4 +912,210 @@ h1 img.custom-emoji, h2 img.custom-emoji, h3 img.custom-emoji {
   background-color: var(--bg);
   background-image: radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0);
   background-size: 22px 22px;
+}
+
+/* Dark themes get a Telegram-style wallpaper: a dark base with the line-art
+   pattern from /images/chat-pattern.svg painted as a subtle, low-opacity tint on
+   top. The SVG is used as a CSS mask, so its artwork is untouched — the colour
+   and opacity below are what you tweak. Light themes keep the dotted pattern. */
+.theme-dark .chat-pattern,
+.theme-racing .chat-pattern,
+.theme-racing_navy .chat-pattern,
+.theme-racing_salmon .chat-pattern,
+.theme-dracula .chat-pattern,
+.theme-tokyo_night .chat-pattern {
+  position: relative;
+  z-index: 0;
+  background-color: #0b1622;
+  background-image: none;
+}
+
+.theme-dark .chat-pattern::before,
+.theme-racing .chat-pattern::before,
+.theme-racing_navy .chat-pattern::before,
+.theme-racing_salmon .chat-pattern::before,
+.theme-dracula .chat-pattern::before,
+.theme-tokyo_night .chat-pattern::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: #8b97c4; /* pattern tint */
+  opacity: 0.07; /* how visible the pattern is */
+  /* Tiled like Telegram: the pattern repeats at a fixed size instead of one
+     giant copy stretched to fill. Adjust the 460px to scale the motif. */
+  -webkit-mask: url("/images/chat-pattern.svg") top left / 460px auto repeat;
+  mask: url("/images/chat-pattern.svg") top left / 460px auto repeat;
+}
+
+/* ---- Chat bubbles --------------------------------------------------------
+   Flat and clean: a thin border on incoming bubbles, solid accent on your own,
+   no tail or drop shadow. Dimensions are set here (not via utilities) so the
+   line-height is tight — Tailwind's `text-sm` forces a 20px line which is what
+   made short bubbles look tall/"fat" no matter how small the padding was. */
+.chat-bubble {
+  position: relative;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.8125rem;
+}
+.chat-bubble,
+.chat-bubble * {
+  line-height: 1.25;
+}
+/* Rich embeds inside a bubble: keep them within the bubble and noticeably
+   smaller than the full-size post version (chat images shouldn't dominate). */
+.chat-embed-fill iframe,
+.chat-embed-fill video,
+.chat-embed-fill img {
+  max-width: 100%;
+}
+.chat-embed-fill img,
+.chat-embed-fill video {
+  max-height: 17rem;
+  width: auto;
+  height: auto;
+}
+/* Drop the standalone card border/rounding — the bubble frames it now. */
+.chat-embed-fill img,
+.chat-embed-fill video,
+.chat-embed-fill iframe {
+  border: 0;
+  border-radius: 0;
+}
+
+/* =========================================================================
+   Selection-quote pill — floated next to a text selection inside a post body
+   by the PostBody hook. Positioned in viewport coordinates (position: fixed),
+   so it must sit above the composer and any sticky chrome.
+   ========================================================================= */
+.quote-pill {
+  position: fixed;
+  z-index: 60;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-heading);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.18);
+  cursor: pointer;
+}
+.quote-pill:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.quote-pill svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* =========================================================================
+   Images inside post bodies
+   =========================================================================
+   Two separate jobs.
+
+   1. Containment. Stored post HTML doesn't always carry sizing classes: the
+      quote builder ran bodies through a scrubber that strips `class`, so every
+      quote saved before that fix holds a bare <img> that renders at its
+      intrinsic size — a 1000x1500 poster quoted into a reply came out taller
+      than in the post it quoted. Sizing here rather than relying on the class
+      means old posts are fixed too, without a backfill.
+
+   2. Proportion. A quote is a reference, not the subject. Capping height keeps
+      a quoted image from pushing the actual reply off-screen.
+
+   Emoji are excluded — they set their own em-based width/height and must stay
+   inline with the text. */
+.prose img:not(.emoji):not(.custom-emoji) {
+  max-width: 100%;
+  height: auto;
+}
+
+.prose blockquote img:not(.emoji):not(.custom-emoji) {
+  max-height: 20rem;
+  width: auto;
+  object-fit: contain;
+}
+
+/* =========================================================================
+   Online presence — a glowing ring around the avatar
+   =========================================================================
+   Replaces the corner dot, which covered part of the avatar and had to be
+   repositioned for every avatar size. A ring scales with whatever it wraps.
+
+   Applied to the existing `relative` avatar wrapper; drawn in ::after so it
+   needs no extra element and never intercepts clicks.
+
+   Profile page only. In the message list and the hover card the avatars are
+   small and repeated, and a column of pulsing rings reads as noise rather
+   than information. */
+.avatar-online::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  border: 2px solid var(--success);
+  pointer-events: none;
+  animation: avatar-online-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes avatar-online-pulse {
+  0%, 100% {
+    opacity: 0.8;
+    box-shadow: 0 0 5px 0 var(--success);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 12px 2px var(--success);
+  }
+}
+
+/* Users who ask for less motion get the ring, just not the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .avatar-online::after {
+    animation: none;
+    opacity: 1;
+    box-shadow: 0 0 8px 1px var(--success);
+  }
+}
+
+/* =========================================================================
+   "Hot" badge flame
+   =========================================================================
+   Replaces the 🔥 emoji, which renders in the font's own fixed orange and
+   can't be recoloured or animated. An inline SVG inherits the badge's
+   currentColor (blue) and can breathe.
+
+   Two combined motions, both small: a vertical flicker on the whole glyph and
+   an origin-anchored scale, so the flame pulses from its base like a real one
+   rather than sliding around. */
+.flame-hot {
+  transform-origin: 50% 85%;
+  animation: flame-flicker 1.9s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes flame-flicker {
+  0%, 100% { transform: scaleY(1)     scaleX(1)    translateY(0);      opacity: 0.85; }
+  25%      { transform: scaleY(1.12)  scaleX(0.94) translateY(-0.5px); opacity: 1; }
+  50%      { transform: scaleY(0.96)  scaleX(1.04) translateY(0);      opacity: 0.9; }
+  75%      { transform: scaleY(1.08)  scaleX(0.97) translateY(-0.3px); opacity: 1; }
+}
+
+/* A flame that never stops moving is a poor trade for anyone who asked the OS
+   to calm things down — keep the shape, drop the motion. */
+@media (prefers-reduced-motion: reduce) {
+  .flame-hot {
+    animation: none;
+    opacity: 1;
+  }
 }

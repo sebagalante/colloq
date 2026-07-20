@@ -10,9 +10,12 @@ elixir_ls
 *.beam
 /config/*.secret.exs
 *.ez
+erl_crash.dump
 
 # Environment
 .env
+.env.*
+!.env.example
 *.pem
 *.key
 
@@ -21,6 +24,10 @@ elixir_ls
 /assets/node_modules/
 priv/static/assets/
 priv/static/cache_manifest.json
+
+# Runtime uploads (composer images are written to priv/static/uploads).
+# Source assets — favicon.svg, icons/, images/, emojis/ — stay tracked.
+/priv/static/uploads/
 
 # IDE
 .idea/
@@ -47,6 +54,11 @@ Thumbs.db
 
 # Docker volumes
 pgdata/
+
+# Spam-classifier ML model artifacts (baked into the Docker image at build
+# time via the Dockerfile — never committed to the repo).
+spam_classifier/models/
+*.onnx
 
 # Local uploads (dev/test)
 /tmp/colloq_uploads/

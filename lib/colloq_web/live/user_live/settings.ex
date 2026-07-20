@@ -21,6 +21,7 @@ defmodule ColloqWeb.UserLive.Settings do
         |> assign(:page_title, gettext("Settings"))
         |> assign(:blocked_users, blocked_users)
         |> assign(:form_data, %{
+          "username" => current_user.username || "",
           "display_name" => current_user.display_name || "",
           "bio" => current_user.bio || "",
           "location" => current_user.location || "",
@@ -80,6 +81,7 @@ defmodule ColloqWeb.UserLive.Settings do
       end
 
     attrs = %{
+      "username" => params["username"],
       "display_name" => params["display_name"],
       "bio" => params["bio"],
       "location" => params["location"],
@@ -108,7 +110,9 @@ defmodule ColloqWeb.UserLive.Settings do
         {:noreply,
          socket
          |> assign(:changeset, changeset)
-         |> put_flash(:error, gettext("Could not save. Check the fields."))}
+         # Keep what the user typed (e.g. a taken username) instead of reverting.
+         |> assign(:form_data, attrs)
+         |> put_flash(:error, error_message(changeset))}
     end
   end
 
@@ -227,6 +231,16 @@ defmodule ColloqWeb.UserLive.Settings do
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Código incorrecto.")}
+    end
+  end
+
+  # Surface the username problem specifically — it's the field most likely to
+  # fail (taken / bad format) and a generic "check the fields" hides why.
+  defp error_message(changeset) do
+    case Keyword.get(changeset.errors, :username) do
+      {"has already been taken", _} -> gettext("That username is already taken.")
+      {msg, _} -> "#{gettext("Username")}: #{msg}"
+      nil -> gettext("Could not save. Check the fields.")
     end
   end
 

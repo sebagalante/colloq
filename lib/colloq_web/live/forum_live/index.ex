@@ -18,25 +18,46 @@ defmodule ColloqWeb.ForumLive.Index do
   alias Colloq.Accounts
   alias Phoenix.LiveView.JS
 
-  @per_page 12
+  @per_page 20
 
   @impl true
   def mount(_params, session, socket) do
     current_user = load_user(session)
-    categories = Forum.list_categories()
+    categories = Forum.list_categories(current_user)
     blocked_ids = if current_user, do: Accounts.hidden_user_ids(current_user.id), else: MapSet.new()
     muted_ids = if current_user, do: Colloq.Subscriptions.muted_topic_ids(current_user.id), else: MapSet.new()
+    hidden_cats = Forum.hidden_category_ids(current_user)
 
     socket =
       socket
       |> assign(:current_user, current_user)
       |> assign(:categories, categories)
       |> assign(:selected_category_slug, nil)
+      |> assign(:tag_slug, nil)
       |> assign(:show_modal, false)
       |> assign(:popular_tags, Tags.list_tags() |> Enum.take(20))
       |> assign(:form_tags, "")
       |> assign(:blocked_user_ids, blocked_ids)
       |> assign(:muted_topic_ids, muted_ids)
+      # Ids of the hottest topics (most activity in the last 48h) so the list can
+      # tag them with a 🔥 badge. Computed once here.
+      |> assign(:hidden_category_ids, hidden_cats)
+      |> assign(
+        :hot_topic_ids,
+        Forum.hot_topic_ids(
+          blocked_ids: blocked_ids,
+          muted_topic_ids: muted_ids,
+          hidden_category_ids: hidden_cats
+        )
+      )
+      # Infinite-scroll + "new topics" banner state.
+      |> assign(:page, 1)
+      |> assign(:has_more, false)
+      |> assign(:loads, 0)
+      |> assign(:topics_empty?, false)
+      |> assign(:new_count, 0)
+      |> assign(:pending_ids, MapSet.new())
+      |> stream(:topics, [])
       |> assign_new(:page_title, fn -> gettext("Forum") end)
 
     if connected?(socket) do
@@ -46,26 +67,32 @@ defmodule ColloqWeb.ForumLive.Index do
     {:ok, socket}
   end
 
+  # After this many auto-loads on scroll, stop auto-loading and show a button —
+  # "infinite, but controlled": it never scrolls forever.
+  @auto_batches 3
+
   @impl true
   def handle_params(params, _uri, socket) do
-    page = parse_page(params)
     order = parse_order(params)
-    category_id = category_id_from_params(params, socket.assigns.categories)
 
-    topics = Forum.list_topics(page: page, per_page: @per_page, category_id: category_id, order: order, blocked_ids: socket.assigns.blocked_user_ids, muted_topic_ids: socket.assigns.muted_topic_ids)
-
-    # Preload tags for topics
-    topic_ids = Enum.map(topics.entries, & &1.id)
-    topic_tags = Tags.preload_topic_tags(topic_ids)
+    # The same LiveView serves /, /c/:slug and /tag/:slug — the live_action
+    # decides whether the slug is a category or a tag.
+    {category_slug, tag_slug} =
+      case socket.assigns.live_action do
+        :tag -> {nil, params["slug"]}
+        :category -> {params["slug"], nil}
+        _ -> {nil, nil}
+      end
 
     socket =
       socket
-      |> assign(:topics, topics.entries)
-      |> assign(:topic_tags, topic_tags)
-      |> assign(:page, page)
       |> assign(:order, order)
-      |> assign(:total_pages, topics.total_pages)
-      |> assign(:selected_category_slug, params["slug"])
+      |> assign(:selected_category_slug, category_slug)
+      |> assign(:tag_slug, tag_slug)
+      # A filter/sort change is a fresh list: reset scroll + banner state.
+      |> assign(:loads, 0)
+      |> reset_banner()
+      |> load_page(1, reset: true)
 
     case socket.assigns.live_action do
       :new_topic ->
@@ -152,45 +179,38 @@ defmodule ColloqWeb.ForumLive.Index do
     end
   end
 
-  def handle_event("filter-category", %{"slug" => slug}, socket) do
-    query = order_query(socket.assigns[:order])
-
-    path =
-      if slug == "" do
-        ~p"/?#{query}"
-      else
-        ~p"/c/#{slug}?#{query}"
-      end
-
-    {:noreply, push_patch(socket, to: path)}
-  end
-
   def handle_event("set-order", %{"order" => order}, socket) do
-    slug = socket.assigns.selected_category_slug
     query = order_query(String.to_existing_atom(order))
 
     path =
-      if slug do
-        ~p"/c/#{slug}?#{query}"
-      else
-        ~p"/?#{query}"
+      cond do
+        socket.assigns.tag_slug -> ~p"/tag/#{socket.assigns.tag_slug}?#{query}"
+        socket.assigns.selected_category_slug -> ~p"/c/#{socket.assigns.selected_category_slug}?#{query}"
+        true -> ~p"/?#{query}"
       end
 
     {:noreply, push_patch(socket, to: path)}
   end
 
-  def handle_event("change-page", %{"page" => page_str}, socket) do
-    page = String.to_integer(page_str)
-    slug = socket.assigns.selected_category_slug
+  # Append the next page. The scroll hook fires this automatically for the first
+  # @auto_batches loads; after that the template shows a "Load more" button that
+  # fires the same event.
+  def handle_event("load-more", _params, socket) do
+    if socket.assigns.has_more do
+      socket = assign(socket, :loads, socket.assigns.loads + 1)
+      {:noreply, load_page(socket, socket.assigns.page + 1, reset: false)}
+    else
+      {:noreply, socket}
+    end
+  end
 
-    path =
-      if slug do
-        ~p"/c/#{slug}?page=#{page}"
-      else
-        ~p"/?page=#{page}"
-      end
-
-    {:noreply, push_patch(socket, to: path)}
+  # Banner clicked — reload the freshest first page and clear the pending count.
+  def handle_event("show-new-topics", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:loads, 0)
+     |> reset_banner()
+     |> load_page(1, reset: true)}
   end
 
   def handle_event("add-tag", %{"tag" => tag}, socket) do
@@ -205,21 +225,26 @@ defmodule ColloqWeb.ForumLive.Index do
     {:noreply, assign(socket, :form_tags, new_tags)}
   end
 
+  # New or bumped topic elsewhere: don't disrupt the reader's scroll — buffer it
+  # into the banner and let them choose to refresh. Distinct topic ids are
+  # counted once (a topic bumped twice still reads as one update).
   @impl true
-  def handle_info(%{event: "topic_created", payload: _payload}, socket) do
-    page = socket.assigns.page
-    category_id = category_id_from_slug(socket.assigns.selected_category_slug, socket.assigns.categories)
+  def handle_info(%{event: event, payload: payload}, socket)
+      when event in ["topic_created", "topic_bumped"] do
+    viewing = category_id_from_slug(socket.assigns.selected_category_slug, socket.assigns.categories)
 
-    topics = Forum.list_topics(page: page, per_page: @per_page, category_id: category_id, order: socket.assigns[:order] || :latest, blocked_ids: socket.assigns.blocked_user_ids, muted_topic_ids: socket.assigns.muted_topic_ids)
-    topic_ids = Enum.map(topics.entries, & &1.id)
-    topic_tags = Tags.preload_topic_tags(topic_ids)
-
-    {:noreply,
-     socket
-     |> assign(:topics, topics.entries)
-     |> assign(:topic_tags, topic_tags)
-     |> assign(:total_pages, topics.total_pages)}
+    if relevant_to_view?(payload, viewing) do
+      pending = MapSet.put(socket.assigns.pending_ids, payload.topic_id)
+      {:noreply, socket |> assign(:pending_ids, pending) |> assign(:new_count, MapSet.size(pending))}
+    else
+      {:noreply, socket}
+    end
   end
+
+  # When viewing "All", everything is relevant; in a category, only that category.
+  defp relevant_to_view?(_payload, nil), do: true
+  defp relevant_to_view?(%{category_id: cid}, viewing), do: cid == viewing
+  defp relevant_to_view?(_payload, _viewing), do: true
 
   defp load_user(session) do
     case session["user_id"] do
@@ -228,26 +253,80 @@ defmodule ColloqWeb.ForumLive.Index do
     end
   end
 
-  defp parse_page(params) do
-    case Map.get(params, "page") do
-      nil -> 1
-      str -> String.to_integer(str)
+  # Load a page of topics into the stream (reset the list, or append the next
+  # page), and refresh the has-more flag. `decorate/1` attaches tags,
+  # participants and an excerpt so each stream row is self-contained.
+  defp load_page(socket, page, opts) do
+    reset? = Keyword.get(opts, :reset, false)
+    a = socket.assigns
+    category_id = category_id_from_slug(a.selected_category_slug, a.categories)
+
+    result =
+      Forum.list_topics(
+        page: page,
+        per_page: @per_page,
+        category_id: category_id,
+        tag_slug: a.tag_slug,
+        order: a.order || :latest,
+        blocked_ids: a.blocked_user_ids,
+        muted_topic_ids: a.muted_topic_ids,
+        hidden_category_ids: a.hidden_category_ids
+      )
+
+    socket
+    |> stream(:topics, decorate(result.entries), reset: reset?)
+    |> assign(:page, page)
+    |> assign(:has_more, page < result.total_pages)
+    |> then(fn s -> if reset?, do: assign(s, :topics_empty?, result.entries == []), else: s end)
+  end
+
+  defp decorate(topics) do
+    ids = Enum.map(topics, & &1.id)
+    tags = Tags.preload_topic_tags(ids)
+    participants = Forum.topic_participants(ids)
+
+    Enum.map(topics, fn t ->
+      %{
+        id: t.id,
+        topic: t,
+        tags: Map.get(tags, t.id, []),
+        participants: Map.get(participants, t.id, []),
+        excerpt: excerpt(t)
+      }
+    end)
+  end
+
+  defp excerpt(%{first_post: %{body: body}}) when is_binary(body) do
+    case body |> HtmlSanitizeEx.strip_tags() |> String.replace(~r/\s+/, " ") |> String.trim() do
+      "" -> nil
+      # CSS truncates to one line; this just caps the payload.
+      text -> truncate(text, 140)
     end
   end
 
+  defp excerpt(_), do: nil
+
+  defp truncate(text, max) do
+    if String.length(text) > max, do: String.slice(text, 0, max) <> "…", else: text
+  end
+
+  defp reset_banner(socket) do
+    socket |> assign(:new_count, 0) |> assign(:pending_ids, MapSet.new())
+  end
+
+  @doc "Auto-load this many batches on scroll before switching to a button."
+  def auto_batches, do: @auto_batches
+
   defp parse_order(%{"order" => "top"}), do: :top
+  defp parse_order(%{"order" => "replies"}), do: :replies
   defp parse_order(_), do: :latest
 
   # Build the query params for a given order (omit for the default :latest).
+  # The "Views" column and "Top" tab share :top; "Activity" and "Latest" share
+  # the default; "Replies" is its own sort.
   defp order_query(:top), do: [order: "top"]
+  defp order_query(:replies), do: [order: "replies"]
   defp order_query(_), do: []
-
-  defp category_id_from_params(params, categories) do
-    case Map.get(params, "slug") do
-      nil -> nil
-      slug -> category_id_from_slug(slug, categories)
-    end
-  end
 
   defp category_id_from_slug(slug, categories) do
     Enum.find_value(categories, fn cat -> cat.slug == slug && cat.id end)
@@ -260,6 +339,19 @@ defmodule ColloqWeb.ForumLive.Index do
   def format_age(datetime) do
     es_locale(datetime)
   end
+
+  @doc "Stable display color for a tag: its custom color, else one from its name."
+  defdelegate tag_color(tag), to: Colloq.Tags, as: :color
+
+  @doc "Abbreviate large counts, Discourse-style: 999, 1.2k, 3.4m."
+  def format_count(n) when is_integer(n) and n >= 1_000_000,
+    do: "#{Float.round(n / 1_000_000, 1)}m"
+
+  def format_count(n) when is_integer(n) and n >= 1_000,
+    do: "#{Float.round(n / 1_000, 1)}k"
+
+  def format_count(n) when is_integer(n), do: Integer.to_string(n)
+  def format_count(_), do: "0"
 
   defp clear_form(socket) do
     socket

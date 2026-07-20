@@ -2,10 +2,15 @@
   current_user={@current_user}
   unread_notifications={assigns[:unread_notifications] || 0}
   unread_messages={assigns[:unread_messages] || 0}
+  search_query={assigns[:search_query] || ""}
 />
 
 <div class="mx-auto max-w-7xl flex">
-  <.sidebar current_user={@current_user} categories={assigns[:categories] || []} />
+  <.sidebar
+    current_user={@current_user}
+    categories={assigns[:categories] || []}
+    sidebar_tags={assigns[:sidebar_tags] || []}
+  />
 
   <main class="flex-1 min-w-0 px-4 sm:px-6 py-6">
     <.flash_group flash={@flash} />

@@ -34,4 +34,9 @@ defmodule ColloqWeb.MentionController do
 
     json(conn, %{emojis: emojis})
   end
+
+  @doc "Sticker packs (with their stickers) for the sticker tray."
+  def stickers(conn, _params) do
+    json(conn, %{packs: Colloq.Stickers.tray()})
+  end
 end

@@ -1,26 +1,31 @@
 <section class="space-y-6">
-  <h1 class="text-2xl font-bold text-heading"><%= gettext("Dashboard") %></h1>
+  <div class="flex items-center justify-between gap-4 flex-wrap">
+    <h1 class="text-2xl font-bold text-heading"><%= gettext("Dashboard") %></h1>
 
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-    <.card>
-      <p class="text-sm text-muted"><%= gettext("Total Users") %></p>
-      <p class="text-3xl font-bold text-heading tabular-nums"><%= @stats.total_users %></p>
-    </.card>
+    <div class="flex items-center gap-3">
+      <span class="inline-flex items-center gap-1.5 text-sm text-muted">
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <%= gettext("%{count} online", count: @online_users) %>
+      </span>
+      <div class="flex items-center gap-1 rounded-lg bg-surface-alt p-1">
+        <button
+          :for={d <- @ranges}
+          type="button"
+          phx-click="set-range"
+          phx-value-days={d}
+          class={[
+            "px-3 py-1 rounded-md text-sm font-medium transition-colors",
+            (@range_days == d && "bg-accent text-white") || "text-muted hover:text-heading"
+          ]}
+        >
+          <%= gettext("%{days}d", days: d) %>
+        </button>
+      </div>
+    </div>
+  </div>
 
-    <.card>
-      <p class="text-sm text-muted"><%= gettext("Total Topics") %></p>
-      <p class="text-3xl font-bold text-heading tabular-nums"><%= @stats.total_topics %></p>
-    </.card>
-
-    <.card>
-      <p class="text-sm text-muted"><%= gettext("Total Posts") %></p>
-      <p class="text-3xl font-bold text-heading tabular-nums"><%= @stats.total_posts %></p>
-    </.card>
-
-    <.card>
-      <p class="text-sm text-muted"><%= gettext("Online Users") %></p>
-      <p class="text-3xl font-bold text-emerald-400 tabular-nums"><%= @stats.online_users %></p>
-    </.card>
+  <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+    <.kpi_tile :for={kpi <- @kpis} kpi={kpi} />
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -38,13 +43,54 @@
     </.card>
 
     <.card class="col-span-1">
-      <h3 class="text-lg font-semibold text-heading mb-3"><%= gettext("Post Activity (30 days)") %></h3>
+      <h3 class="text-lg font-semibold text-heading mb-3"><%= gettext("Post Activity (%{days} days)", days: @range_days) %></h3>
       <div
         id="chart-post-activity"
         phx-hook="ECharts"
         data-chart-type="bar"
         data-chart-title={gettext("Posts per day")}
         data-chart-data={"#{@post_activity_data}"}
+        class="h-64"
+      >
+      </div>
+    </.card>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <.card class="col-span-1">
+      <h3 class="text-lg font-semibold text-heading mb-3"><%= gettext("Active Contributors (%{days} days)", days: @range_days) %></h3>
+      <div
+        id="chart-active-users"
+        phx-hook="ECharts"
+        data-chart-type="line"
+        data-chart-title={gettext("Contributors per day")}
+        data-chart-data={"#{@active_users_data}"}
+        class="h-64"
+      >
+      </div>
+    </.card>
+
+    <.card class="col-span-1">
+      <h3 class="text-lg font-semibold text-heading mb-3"><%= gettext("Topics by Category") %></h3>
+      <div
+        id="chart-category-activity"
+        phx-hook="ECharts"
+        data-chart-type="hbar"
+        data-chart-title={gettext("Topics per category")}
+        data-chart-data={"#{@category_activity_data}"}
+        class="h-64"
+      >
+      </div>
+    </.card>
+
+    <.card class="col-span-1">
+      <h3 class="text-lg font-semibold text-heading mb-3"><%= gettext("Reports by Reason") %></h3>
+      <div
+        id="chart-flags-by-reason"
+        phx-hook="ECharts"
+        data-chart-type="pie"
+        data-chart-title={gettext("Reports by reason")}
+        data-chart-data={"#{@flags_by_reason_data}"}
         class="h-64"
       >
       </div>
@@ -69,8 +115,8 @@
       <div class="flex items-center justify-between mb-3">
         <h3 class="text-lg font-semibold text-heading">
           <%= gettext("Pending Reports") %>
-          <%= if @stats.flags_count > 0 do %>
-            <.badge color="red"><%= @stats.flags_count %></.badge>
+          <%= if @flags_count > 0 do %>
+            <.badge color="red"><%= @flags_count %></.badge>
           <% end %>
         </h3>
       </div>

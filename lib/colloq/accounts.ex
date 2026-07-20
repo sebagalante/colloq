@@ -17,6 +17,29 @@ defmodule Colloq.Accounts do
   def get_user!(id), do: Repo.get!(User, id)
 
   @doc """
+  Records a login: stores the member's IP address and login timestamp.
+
+  `ip` may be an `:inet` tuple (`conn.remote_ip`) or a string. Best-effort —
+  never blocks or fails a login.
+  """
+  def record_login(user_id, ip) do
+    from(u in User, where: u.id == ^user_id)
+    |> Repo.update_all(set: [last_ip: format_ip(ip), last_login_at: DateTime.utc_now()])
+  rescue
+    _ -> :ok
+  end
+
+  defp format_ip(ip) when is_tuple(ip) do
+    case :inet.ntoa(ip) do
+      {:error, _} -> nil
+      chars -> to_string(chars)
+    end
+  end
+
+  defp format_ip(ip) when is_binary(ip), do: ip
+  defp format_ip(_), do: nil
+
+  @doc """
   Get a user by username.
   """
   def get_user_by_username(username) do
@@ -66,8 +89,12 @@ defmodule Colloq.Accounts do
   @doc "Top contributors by post count (for the leaderboard)."
   def leaderboard(limit \\ 25) do
     from(u in User,
-      where: u.banned == false and u.posts_count > 0,
-      order_by: [desc: u.posts_count, desc: u.trust_level],
+      # Rank by engagement score (Colloq.Gamification). Every bot account carries
+      # the "BOT" flair, which keeps them off the human leaderboard.
+      where:
+        u.banned == false and (u.score > 0 or u.posts_count > 0) and
+          (is_nil(u.flair) or u.flair != "BOT"),
+      order_by: [desc: u.score, desc: u.posts_count, desc: u.trust_level],
       limit: ^limit
     )
     |> Repo.all()
@@ -86,6 +113,20 @@ defmodule Colloq.Accounts do
   def register_user(attrs) do
     %User{}
     |> User.registration_changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
+  Registers an internal bot account. Same as `register_user/1` but stamps the
+  "BOT" flair (so bots are excluded from the human leaderboard, from spam
+  screening and from trust promotion) and full trust — a system account has
+  nothing to earn.
+  """
+  def register_bot(attrs) do
+    %User{}
+    |> User.registration_changeset(attrs)
+    # Full trust — see Colloq.Bots.create_persona_user/2 for the rationale.
+    |> Ecto.Changeset.change(%{flair: "BOT", trust_level: 4})
     |> Repo.insert()
   end
 
@@ -139,6 +180,9 @@ defmodule Colloq.Accounts do
 
   @doc """
   List users eligible for trust level promotion.
+
+  Bots are excluded: they're created at full trust, so a promotion would be a
+  no-op that still fires a "¡Subiste de nivel!" notification at them.
   """
   def list_eligible_for_promotion(current_level, min_posts, min_days_since_registration) do
     cutoff = DateTime.utc_now() |> DateTime.add(-min_days_since_registration, :day)
@@ -147,6 +191,7 @@ defmodule Colloq.Accounts do
     |> where([u], u.trust_level == ^current_level)
     |> where([u], u.posts_count >= ^min_posts)
     |> where([u], u.inserted_at <= ^cutoff)
+    |> where([u], is_nil(u.flair) or u.flair != "BOT")
     |> Repo.all()
   end
 
@@ -183,15 +228,29 @@ defmodule Colloq.Accounts do
   Blocks a user. `mode` is `"ignore"` (one-directional) or `"block"` (mutual).
   If a relationship already exists, its mode is updated.
 
-  Returns `{:ok, user_block}` or `{:error, changeset}`.
+  Staff (moderators/admins) cannot be *blocked* (mutual invisibility would let
+  users evade moderation) — but they may still be *ignored* (one-directional,
+  just hides their posts from the ignorer). Blocking staff returns
+  `{:error, :cannot_block_staff}`.
+
+  Returns `{:ok, user_block}` or `{:error, changeset | :cannot_block_staff}`.
   """
   def block_user(blocker_id, blocked_id, mode \\ "block") do
-    attrs = %{blocker_id: blocker_id, blocked_id: blocked_id, mode: mode}
+    if mode == "block" and staff_user?(blocked_id) do
+      {:error, :cannot_block_staff}
+    else
+      attrs = %{blocker_id: blocker_id, blocked_id: blocked_id, mode: mode}
 
-    case Repo.get_by(UserBlock, blocker_id: blocker_id, blocked_id: blocked_id) do
-      nil -> %UserBlock{} |> UserBlock.changeset(attrs) |> Repo.insert()
-      block -> block |> UserBlock.changeset(attrs) |> Repo.update()
+      case Repo.get_by(UserBlock, blocker_id: blocker_id, blocked_id: blocked_id) do
+        nil -> %UserBlock{} |> UserBlock.changeset(attrs) |> Repo.insert()
+        block -> block |> UserBlock.changeset(attrs) |> Repo.update()
+      end
     end
+  end
+
+  @doc "Whether the given user id belongs to a staff member (mod/admin/super_admin)."
+  def staff_user?(user_id) do
+    Repo.exists?(from u in User, where: u.id == ^user_id and u.role in ^Colloq.Permissions.roles())
   end
 
   @doc """
@@ -224,6 +283,34 @@ defmodule Colloq.Accounts do
     )
     |> Repo.all()
     |> MapSet.new()
+  end
+
+  @doc """
+  User IDs `user_id` has hard-*blocked* (mode `"block"`), excluding one-way
+  `"ignore"` relationships.
+
+  Direct messaging is gated on this, not on `blocked_user_ids/1`: "ignore" only
+  hides someone's forum posts and must never sever a DM channel (in particular,
+  users can only ignore staff, so staff DMs always get through).
+  """
+  def dm_blocked_user_ids(user_id) do
+    from(b in UserBlock,
+      where: b.blocker_id == ^user_id and b.mode == "block",
+      select: b.blocked_id
+    )
+    |> Repo.all()
+    |> MapSet.new()
+  end
+
+  @doc "Whether either user has hard-*blocked* (mode `\"block\"`) the other."
+  def dm_blocked?(a_id, b_id) do
+    Repo.exists?(
+      from b in UserBlock,
+        where:
+          b.mode == "block" and
+            ((b.blocker_id == ^a_id and b.blocked_id == ^b_id) or
+               (b.blocker_id == ^b_id and b.blocked_id == ^a_id))
+    )
   end
 
   @doc """
@@ -421,7 +508,9 @@ defmodule Colloq.Accounts do
   Returns `{:ok, user}`, `{:error, changeset}`, or `{:error, :unauthorized}`.
   """
   def assign_role(%User{} = actor, %User{} = user, role) do
-    if Colloq.Permissions.can?(actor, :assign_roles) do
+    # Rank-aware: `can?/2` alone would let an admin grant super_admin or
+    # re-role a peer. See Permissions.can_assign_role?/3.
+    if actor.id != user.id and Colloq.Permissions.can_assign_role?(actor, user, role) do
       role = if role in [nil, "", "none", "user"], do: nil, else: role
 
       user

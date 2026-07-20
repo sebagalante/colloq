@@ -4,9 +4,8 @@ defmodule Colloq.Repo do
     adapter: Ecto.Adapters.Postgres
 
   @moduledoc """
-  Ecto repository for Colloq.
-  
-  Uses Postgres 17 with ParadeDB pg_search extension for BM25 search.
+  Ecto repository for Colloq. Standard Postgres — search uses basic `ILIKE`
+  (see `Colloq.Forum.search_topics/2` and `search_posts/2`).
   """
 
   def init(type, config) do

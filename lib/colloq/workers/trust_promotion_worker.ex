@@ -3,25 +3,42 @@ defmodule Colloq.Workers.TrustPromotionWorker do
   Trust level promotion worker. Checks user activity thresholds nightly.
   Cron: 2:00 AM daily. Will become an automation rule in a future version.
 
-  Thresholds:
-  - TL0 → TL1: 10 posts, 1 day registered (Básico)
-  - TL1 → TL2: 50 posts, 7 days registered (Miembro)
+  Thresholds come from the `trust_levels` table (`min_posts` /
+  `min_days_registered`) — each row describes what it takes to *reach* that
+  level, so promoting into TL2 reads TL2's row. They used to be hardcoded here
+  while the table went unread, which let the two drift apart.
+
+  Levels are processed high-to-low so each user advances at most one level per
+  run. Low-to-high would cascade — every batch re-queries the DB, so a user
+  promoted into TL1 early in the pass would still be sitting at `trust_level: 1`
+  when the TL2 batch ran and would jump again, collecting a pile of
+  notifications in one night.
   """
   use Oban.Worker, queue: :default, max_attempts: 3
   alias Colloq.Accounts
   alias Colloq.Notifications
-  import Ecto.Query
-
-  @promotions [
-    %{from: 0, to: 1, min_posts: 10, min_days: 1, name: "Básico"},
-    %{from: 1, to: 2, min_posts: 50, min_days: 7, name: "Miembro"}
-  ]
+  alias Colloq.Trust
 
   @impl Oban.Worker
   def perform(_job) do
-    promoted = Enum.flat_map(@promotions, &promote_batch/1)
+    promoted =
+      Trust.list_levels()
+      # TL0 is the floor — nobody is promoted *into* it.
+      |> Enum.reject(&(&1.level == 0))
+      |> Enum.sort_by(& &1.level, :desc)
+      |> Enum.flat_map(&promote_batch/1)
 
     {:ok, length(promoted)}
+  end
+
+  defp promote_batch(%Trust.TrustLevel{} = level) do
+    promote_batch(%{
+      from: level.level - 1,
+      to: level.level,
+      min_posts: level.min_posts,
+      min_days: level.min_days_registered,
+      name: level.name
+    })
   end
 
   defp promote_batch(%{from: from, to: to, min_posts: posts, min_days: days, name: name}) do

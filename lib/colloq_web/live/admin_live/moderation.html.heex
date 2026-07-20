@@ -31,6 +31,19 @@
     <button
       type="button"
       phx-click="switch-tab"
+      phx-value-tab="deleted_topics"
+      class={[
+        "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors inline-flex items-center gap-2",
+        @tab == "deleted_topics" && "border-accent text-accent",
+        @tab != "deleted_topics" && "border-transparent text-muted hover:text-heading"
+      ]}
+    >
+      <.icon name="trash-2" class="w-4 h-4" /><%= gettext("Deleted topics") %>
+      <.badge :if={@deleted_topics != []} color="gray"><%= length(@deleted_topics) %></.badge>
+    </button>
+    <button
+      type="button"
+      phx-click="switch-tab"
       phx-value-tab="banned"
       class={[
         "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors inline-flex items-center gap-2",
@@ -130,7 +143,7 @@
             </span>
           </div>
           <span class="text-xs text-muted">
-            <%= gettext("hidden") %> · <%= es_locale(post.deleted_at) %>
+            <%= gettext("hidden") %><%= if post.hidden_by do %> <%= gettext("by") %> <%= post.hidden_by %><% end %> · <%= es_locale(post.deleted_at) %>
           </span>
         </div>
 
@@ -157,6 +170,55 @@
             class="inline-flex items-center gap-1 text-xs text-muted hover:text-success transition-colors"
           >
             <.icon name="eye" class="w-3.5 h-3.5" /><%= gettext("Restore") %>
+          </button>
+        </div>
+      </div>
+    <% end %>
+  </div>
+
+  <%!-- Deleted topics tab --%>
+  <div :if={@tab == "deleted_topics"} class="space-y-3">
+    <%= if @deleted_topics == [] do %>
+      <p class="text-sm text-muted"><%= gettext("No deleted topics.") %></p>
+    <% else %>
+      <div
+        :for={topic <- @deleted_topics}
+        class="p-4 rounded-lg bg-surface-alt border border-border"
+      >
+        <div class="flex items-start justify-between gap-3 mb-2 flex-wrap">
+          <div class="flex items-center gap-2 flex-wrap min-w-0">
+            <.badge :if={topic.category} color="blue"><%= topic.category %></.badge>
+            <span class="text-sm font-semibold text-heading truncate"><%= topic.title %></span>
+          </div>
+          <span class="text-xs text-muted flex-shrink-0">
+            <%= gettext("deleted") %> · <%= es_locale(topic.deleted_at) %>
+          </span>
+        </div>
+
+        <p class="text-xs text-muted mb-3">
+          <%= if topic.author do %>
+            <%= gettext("by") %> <span class="text-body">@<%= topic.author %></span>
+          <% end %>
+          <%= if topic.deleted_by do %>
+            · <%= gettext("deleted by %{name}", name: topic.deleted_by) %>
+          <% end %>
+        </p>
+
+        <div class="flex items-center gap-3 flex-wrap">
+          <.link
+            navigate={~p"/t/#{topic.id}"}
+            class="inline-flex items-center gap-1 text-xs text-accent hover:text-accent-hover transition-colors"
+          >
+            <.icon name="external-link" class="w-3.5 h-3.5" /><%= gettext("View topic") %>
+          </.link>
+          <button
+            type="button"
+            phx-click="restore-topic"
+            phx-value-id={topic.id}
+            data-confirm={gettext("Restore this topic so it's visible again?")}
+            class="inline-flex items-center gap-1 text-xs text-muted hover:text-success transition-colors"
+          >
+            <.icon name="refresh-cw" class="w-3.5 h-3.5" /><%= gettext("Restore") %>
           </button>
         </div>
       </div>

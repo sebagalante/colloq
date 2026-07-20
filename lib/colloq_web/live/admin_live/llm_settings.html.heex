@@ -1,47 +1,47 @@
 <section class="space-y-6">
   <h1 class="text-2xl font-bold text-heading"><%= gettext("LLM Settings") %></h1>
-  <p class="text-sm text-muted"><%= gettext("Manage API keys for LLM providers. Keys are stored encrypted.") %></p>
+  <p class="text-sm text-muted">
+    <%= gettext("API keys come from the environment (.env in dev, Infisical in prod) — not stored here. This page shows which providers are configured.") %>
+  </p>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <%= for provider <- @providers do %>
       <.card>
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between mb-2">
           <h3 class="text-lg font-semibold text-heading"><%= provider.name %></h3>
           <div class="flex items-center gap-2">
             <span class={[
               "inline-block w-2 h-2 rounded-full",
-              provider.configured && "bg-green-500",
-              !provider.configured && "bg-gray-600"
+              (provider.configured && "bg-success") || "bg-muted/50"
             ]}></span>
-            <span class={["text-xs", if(provider.configured, do: "text-green-400", else: "text-muted")]}>
-              <%= if provider.configured, do: gettext("Configured"), else: gettext("Not configured") %>
+            <span class={["text-xs", (provider.configured && "text-success") || "text-muted"]}>
+              <%= (provider.configured && gettext("Configured")) || gettext("Not configured") %>
             </span>
           </div>
         </div>
 
-        <form phx-submit="save" class="space-y-3">
-          <input type="hidden" name="key" value={provider.key} />
+        <p class="text-xs text-muted">
+          <%= if provider.configured do %>
+            <%= gettext("Key loaded from") %>
+            <code class="font-mono text-body"><%= provider.env_var %></code>.
+          <% else %>
+            <%= gettext("Set") %>
+            <code class="font-mono text-body"><%= provider.env_var %></code>
+            <%= gettext("in your environment (.env or Infisical).") %>
+          <% end %>
+        </p>
 
-          <.input
-            label="API Key"
-            name="value"
-            type="password"
-            placeholder={if provider.configured, do: "••••••••••••", else: gettext("Enter API key")}
-          />
-
-          <div class="flex items-center gap-2">
-            <.button type="submit"><%= gettext("Save") %></.button>
-            <button
-              type="button"
-              phx-click="test"
-              phx-value-key={provider.key}
-              phx-value-provider={provider.slug}
-              class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold bg-gray-700 hover:bg-gray-600 text-heading transition-colors"
-            >
-              <%= gettext("Test connection") %>
-            </button>
-          </div>
-        </form>
+        <div class="mt-3">
+          <button
+            type="button"
+            phx-click="test"
+            phx-value-provider={provider.slug}
+            disabled={!provider.configured}
+            class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold bg-surface-alt border border-border hover:bg-border text-body transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <%= gettext("Test connection") %>
+          </button>
+        </div>
 
         <%= if provider.tested_at do %>
           <div class="mt-3 pt-3 border-t border-border">
@@ -50,7 +50,7 @@
             </p>
             <p class={[
               "text-xs mt-1",
-              match?({:ok, _}, provider.test_result) && "text-green-400",
+              match?({:ok, _}, provider.test_result) && "text-success",
               match?({:error, _}, provider.test_result) && "text-danger"
             ]}>
               <%= case provider.test_result do %>
@@ -64,4 +64,66 @@
       </.card>
     <% end %>
   </div>
+
+  <%!-- Summarizer bot configuration --%>
+  <.card>
+    <h3 class="text-lg font-semibold text-heading mb-1"><%= gettext("Summarizer bot") %></h3>
+    <p class="text-sm text-muted mb-4">
+      <%= gettext("Which provider and model generate topic summaries. Only providers configured in the environment can be selected.") %>
+    </p>
+
+    <p :if={@provider_choices == []} class="text-sm text-muted">
+      <%= gettext("No providers are configured yet — add an API key to your environment (.env) first.") %>
+    </p>
+
+    <form :if={@provider_choices != []} phx-submit="save-summarizer" class="flex flex-wrap items-end gap-4">
+      <div class="min-w-[180px]">
+        <label class="block text-sm font-medium text-body mb-1"><%= gettext("Provider") %></label>
+        <select
+          name="provider"
+          class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+        >
+          <option :for={{name, slug} <- @provider_choices} value={slug} selected={slug == @summarizer_provider}>
+            <%= name %>
+          </option>
+        </select>
+      </div>
+
+      <div class="flex-1 min-w-[220px]">
+        <label class="block text-sm font-medium text-body mb-1"><%= gettext("Model") %></label>
+        <input
+          type="text"
+          name="model"
+          value={@summarizer_model}
+          placeholder="e.g. openai/gpt-4o-mini"
+          class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+        />
+      </div>
+
+      <.button type="submit" class="shrink-0"><%= gettext("Save") %></.button>
+    </form>
+
+    <p :if={@provider_choices != [] && @summarizer_provider != ""} class="text-xs text-muted mt-3">
+      <%= gettext("Current:") %>
+      <span class="font-mono text-body"><%= @summarizer_provider %> / <%= @summarizer_model %></span>
+    </p>
+  </.card>
+
+  <%!-- Bots --%>
+  <.card>
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h3 class="text-lg font-semibold text-heading mb-1"><%= gettext("Bots") %></h3>
+        <p class="text-sm text-muted">
+          <%= gettext("Create and configure AI bots — provider, model, temperature, tokens, and web search.") %>
+        </p>
+      </div>
+      <.link
+        navigate={~p"/admin/bots"}
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-accent-soft border border-accent-border text-sm font-medium text-accent hover:bg-accent hover:text-white transition-colors"
+      >
+        <.icon name="cpu" class="w-4 h-4" /><%= gettext("Manage bots") %>
+      </.link>
+    </div>
+  </.card>
 </section>

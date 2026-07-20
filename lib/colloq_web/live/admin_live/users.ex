@@ -68,7 +68,7 @@ defmodule ColloqWeb.AdminLive.Users do
      |> assign(:moderation_duration, "1_day")}
   end
 
-  # Assign or clear a staff role (super_admin only).
+  # Assign or clear a staff role (admins and super admins; rank-limited).
   def handle_event("assign-role", %{"user_id" => user_id, "role" => role}, socket) do
     user = Accounts.get_user!(String.to_integer(user_id))
 
@@ -104,7 +104,7 @@ defmodule ColloqWeb.AdminLive.Users do
     result =
       case action do
         "warn" ->
-          Moderation.warn_user(actor, user)
+          Moderation.warn_user(actor, user, reason)
 
         "silence" ->
           Moderation.silence_user(actor, user, duration, reason)
@@ -145,6 +145,12 @@ defmodule ColloqWeb.AdminLive.Users do
          |> assign(:moderation_user, nil)
          |> assign(:users, users)
          |> put_flash(:info, message)}
+
+      {:error, :forbidden} ->
+        {:noreply,
+         socket
+         |> assign(:show_moderation_modal, false)
+         |> put_flash(:error, gettext("You can't moderate a user of equal or higher rank."))}
 
       {:error, :unauthorized} ->
         {:noreply,
@@ -208,4 +214,25 @@ defmodule ColloqWeb.AdminLive.Users do
   def status_label(:silenced), do: gettext("Silenced")
   def status_label(:warned), do: gettext("Warned")
   def status_label(:active), do: gettext("Active")
+
+  @doc """
+  Role options the actor may actually grant, as `{value, label}`.
+
+  Capped at the actor's own rank so an admin is never offered "Super Admin" —
+  `Permissions.can_assign_role?/3` would reject it server-side anyway, and a
+  dropdown that offers a choice it then refuses is worse than not offering it.
+  """
+  def assignable_roles(actor) do
+    actor_rank = Permissions.rank(actor && actor.role)
+
+    [
+      {"none", gettext("User")},
+      {"moderator", gettext("Moderator")},
+      {"admin", gettext("Admin")},
+      {"super_admin", "Super Admin"}
+    ]
+    |> Enum.filter(fn {value, _label} ->
+      Permissions.rank(if(value == "none", do: nil, else: value)) <= actor_rank
+    end)
+  end
 end

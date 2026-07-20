@@ -1,6 +1,18 @@
 <div class="min-h-screen flex items-center justify-center px-4">
-  <div class="bg-surface border border-border rounded-xl p-8 w-full max-w-md">
-    <h1 class="text-2xl font-bold text-heading mb-6 text-center"><%= gettext("Log in") %></h1>
+  <div class="w-full max-w-md">
+    <div
+      :if={@suspended_notice}
+      class="mb-4 flex items-start gap-3 rounded-xl border border-danger/50 bg-danger-soft px-4 py-3"
+    >
+      <.icon name="ban" class="w-5 h-5 text-danger flex-shrink-0 mt-0.5" />
+      <div>
+        <p class="text-sm font-semibold text-danger">Cuenta suspendida</p>
+        <p class="text-sm text-body mt-0.5"><%= @suspended_notice %></p>
+      </div>
+    </div>
+
+    <div class="bg-surface border border-border rounded-xl p-8">
+      <h1 class="text-2xl font-bold text-heading mb-6 text-center"><%= gettext("Log in") %></h1>
 
     <.simple_form for={@form} phx-change="validate" phx-submit="save" class="space-y-4">
       <.input
@@ -69,6 +81,7 @@
           <%= gettext("Register") %>
         </.link>
       </p>
+      </div>
     </div>
   </div>
 </div>

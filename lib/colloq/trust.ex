@@ -65,6 +65,23 @@ defmodule Colloq.Trust do
   end
 
   @doc """
+  Returns how many tags this trust level may put on a topic: `:unlimited`,
+  or a non-negative integer where `0` means the level may not tag at all.
+
+  Note the stored sentinel is `-1` for unlimited, unlike the `daily_*` limits
+  where `0` carries that meaning — TL0 needs `0` to mean a genuine zero.
+  Unknown levels get `0` (deny) rather than unlimited.
+  """
+  def max_tags_per_topic(trust_level) when is_integer(trust_level) do
+    case get_level(trust_level) do
+      nil -> 0
+      %{max_tags_per_topic: n} when is_integer(n) and n < 0 -> :unlimited
+      %{max_tags_per_topic: n} when is_integer(n) -> n
+      _ -> 0
+    end
+  end
+
+  @doc """
   Returns the daily reaction limit for a trust level.
   Returns :unlimited if the limit is 0.
   """

@@ -13,7 +13,7 @@ defmodule ColloqWeb.UserLive.Messages do
       end
 
     if current_user do
-      blocked_ids = Accounts.blocked_user_ids(current_user.id)
+      blocked_ids = Accounts.dm_blocked_user_ids(current_user.id)
       conversations = Messaging.list_conversations(current_user.id)
 
       socket =
@@ -23,6 +23,9 @@ defmodule ColloqWeb.UserLive.Messages do
         |> assign(:active_conversation, nil)
         |> assign(:messages, [])
         |> assign(:message_body, "")
+        # Topic this LiveView is currently subscribed to, so we can drop it
+        # before subscribing to another (see subscribe_to_conversation/2).
+        |> assign(:subscribed_topic, nil)
         |> assign(:blocked_user_ids, blocked_ids)
         |> assign(:page_title, gettext("Messages"))
         |> assign(:show_new_conversation, false)
@@ -62,6 +65,30 @@ defmodule ColloqWeb.UserLive.Messages do
     end
   end
 
+  # `handle_params` runs on every patch — including re-selecting a chat you've
+  # already visited — and Phoenix.PubSub delivers one copy of each broadcast
+  # PER subscribe call. Without dropping the previous subscription, opening
+  # A → B → A leaves you subscribed to A twice and every message renders twice.
+  defp subscribe_to_conversation(socket, conversation_id) do
+    topic = "dm:#{conversation_id}"
+
+    cond do
+      not connected?(socket) ->
+        socket
+
+      socket.assigns[:subscribed_topic] == topic ->
+        socket
+
+      true ->
+        if prev = socket.assigns[:subscribed_topic] do
+          ColloqWeb.Endpoint.unsubscribe(prev)
+        end
+
+        ColloqWeb.Endpoint.subscribe(topic)
+        assign(socket, :subscribed_topic, topic)
+    end
+  end
+
   defp show_conversation(conversation, conversation_id, socket) do
     if socket.assigns.current_user.id in [conversation.user1_id, conversation.user2_id] do
       other = other_user(conversation, socket.assigns.current_user)
@@ -72,9 +99,7 @@ defmodule ColloqWeb.UserLive.Messages do
          |> put_flash(:error, "Este usuario está bloqueado.")
          |> redirect(to: "/messages")}
       else
-        if connected?(socket) do
-          ColloqWeb.Endpoint.subscribe("dm:#{conversation_id}")
-        end
+        socket = subscribe_to_conversation(socket, conversation_id)
 
         Messaging.mark_read!(conversation_id, socket.assigns.current_user.id)
 
@@ -90,8 +115,17 @@ defmodule ColloqWeb.UserLive.Messages do
     end
   end
 
+  # Back to the list: drop the subscription too, or messages from the chat we
+  # just left would keep appending to a conversation that's no longer open.
   def handle_params(_params, _uri, socket) do
-    {:noreply, assign(socket, :active_conversation, nil)}
+    if topic = socket.assigns[:subscribed_topic] do
+      ColloqWeb.Endpoint.unsubscribe(topic)
+    end
+
+    {:noreply,
+     socket
+     |> assign(:active_conversation, nil)
+     |> assign(:subscribed_topic, nil)}
   end
 
   @impl true
@@ -122,8 +156,16 @@ defmodule ColloqWeb.UserLive.Messages do
 
           {:noreply,
            socket
-           |> assign(:blocked_user_ids, Accounts.blocked_user_ids(me.id))
+           |> assign(:blocked_user_ids, Accounts.dm_blocked_user_ids(me.id))
            |> put_flash(:info, msg)}
+
+        {:error, :cannot_block_staff} ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             gettext("You can't block staff. You can ignore them to hide their posts.")
+           )}
 
         {:error, _} ->
           {:noreply, put_flash(socket, :error, gettext("Action failed."))}
@@ -191,6 +233,25 @@ defmodule ColloqWeb.UserLive.Messages do
     end
   end
 
+  def handle_event("mark-conversation-read", %{"id" => id}, socket) do
+    me = socket.assigns.current_user
+    conversation_id = String.to_integer(id)
+
+    conv = Messaging.get_conversation(conversation_id)
+
+    # Only for a conversation you're actually a participant in.
+    if conv && me.id in [conv.user1_id, conv.user2_id] do
+      Messaging.mark_read!(conversation_id, me.id)
+
+      {:noreply,
+       socket
+       |> assign(:conversations, Messaging.list_conversations(me.id))
+       |> assign(:unread_messages, Messaging.unread_count(me.id))}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("unblock-conversation", _params, socket) do
     me = socket.assigns.current_user
     conv = socket.assigns.active_conversation
@@ -201,7 +262,7 @@ defmodule ColloqWeb.UserLive.Messages do
 
       {:noreply,
        socket
-       |> assign(:blocked_user_ids, Accounts.blocked_user_ids(me.id))
+       |> assign(:blocked_user_ids, Accounts.dm_blocked_user_ids(me.id))
        |> put_flash(:info, gettext("User unblocked."))}
     else
       {:noreply, socket}
@@ -310,6 +371,18 @@ defmodule ColloqWeb.UserLive.Messages do
     {:noreply, socket}
   end
 
+  def handle_event("send-sticker", %{"url" => url}, socket) do
+    user = socket.assigns.current_user
+    conv = socket.assigns.active_conversation
+
+    if conv && Colloq.Stickers.sticker_url?(url) &&
+         Messaging.can_message?(user, other_user(conv, user)) == :ok do
+      Messaging.send_attachment(conv.id, user, %{url: url, name: "sticker", type: "sticker"})
+    end
+
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_info(%{event: "new_message", payload: payload}, socket) do
     if payload.sender_id in socket.assigns.blocked_user_ids do
@@ -342,6 +415,23 @@ defmodule ColloqWeb.UserLive.Messages do
     end
   end
 
+  # The other participant opened the conversation and read our messages — flip
+  # our own bubbles to "read" so their double check turns blue in real time.
+  def handle_info(%{event: "read", payload: %{reader_id: reader_id}}, socket) do
+    me = socket.assigns.current_user
+
+    if reader_id == me.id do
+      {:noreply, socket}
+    else
+      messages =
+        Enum.map(socket.assigns.messages, fn m ->
+          if m.user_id == me.id and not m.read, do: %{m | read: true}, else: m
+        end)
+
+      {:noreply, assign(socket, :messages, messages)}
+    end
+  end
+
   def other_user(conversation, current_user) do
     if conversation.user1_id == current_user.id do
       conversation.user2
@@ -356,6 +446,129 @@ defmodule ColloqWeb.UserLive.Messages do
   end
 
   def attachment_image?(_), do: false
+
+  @doc "A sticker message renders as a bare floating image, not a bubble."
+  def sticker?(%{attachment_type: "sticker", attachment_url: url})
+      when is_binary(url) and url != "",
+      do: true
+
+  def sticker?(_), do: false
+
+  @doc """
+  A Lottie/TGS sticker is vector JSON, not an image, so it can't go in an
+  `<img>` — it's mounted by the LottieSticker hook instead.
+  """
+  def lottie_sticker?(%{attachment_url: url} = msg) when is_binary(url) do
+    sticker?(msg) and (String.ends_with?(url, ".tgs") or String.ends_with?(url, ".json"))
+  end
+
+  def lottie_sticker?(_), do: false
+
+  @doc """
+  Renders a chat message body as rich text: media URLs (images, GIFs, YouTube,
+  etc.) are pulled out and rendered as cards below the bubble via
+  `message_embeds/1`, remaining links are auto-linked, and `:shortcodes:` become
+  custom-emoji images.
+
+  Chat bodies are plain text, so we escape *first* and inject markup after — a
+  user typing raw HTML can't spoof link/emoji markup. The auto-linked URL is
+  taken from already-escaped text, so it can't contain a `"` to break out of the
+  href attribute. Emoji names/URLs are validated when the emoji is created.
+  """
+  def render_body(body) when is_binary(body) do
+    urls = body |> message_embeds() |> Enum.map(& &1.url)
+
+    urls
+    |> Enum.reduce(body, fn url, acc -> String.replace(acc, url, "") end)
+    |> String.trim()
+    |> Phoenix.HTML.html_escape()
+    |> Phoenix.HTML.safe_to_string()
+    |> autolink()
+    |> Colloq.Emojis.render_shortcodes()
+    |> Phoenix.HTML.raw()
+  end
+
+  def render_body(_), do: Phoenix.HTML.raw("")
+
+  @doc """
+  Telegram-style delivery receipt shown on the sender's own bubbles: a single
+  check once sent, a blue double check once the recipient has read it.
+  """
+  attr :read, :boolean, default: false
+  attr :variant, :atom, default: :accent, doc: ":accent (on the accent bubble) or :muted (on a light badge)"
+
+  def read_receipt(assigns) do
+    assigns =
+      assign(assigns, :color,
+        cond do
+          assigns.read and assigns.variant == :accent -> "text-sky-300"
+          assigns.read -> "text-sky-500"
+          assigns.variant == :accent -> "text-white/50"
+          true -> "text-muted"
+        end
+      )
+
+    ~H"""
+    <span class={["inline-flex flex-shrink-0", @color]} title={(@read && gettext("Read")) || gettext("Sent")}>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <%= if @read do %>
+          <path d="M18 6 7 17l-5-5" />
+          <path d="m22 10-7.5 7.5L13 16" />
+        <% else %>
+          <path d="M20 6 9 17l-5-5" />
+        <% end %>
+      </svg>
+    </span>
+    """
+  end
+
+  @doc """
+  Media embeds for a chat message — images, GIFs, video and provider URLs
+  (YouTube, Vimeo, Spotify, …) — reusing the same synchronous detection as forum
+  posts. Generic Open Graph link cards (fetched asynchronously for posts) are
+  intentionally excluded; those URLs stay as plain auto-links.
+  """
+  def message_embeds(%{body: body}), do: message_embeds(body)
+  def message_embeds(body) when is_binary(body), do: ColloqWeb.ForumLive.Topic.body_embeds(body)
+  def message_embeds(_), do: []
+
+  @doc """
+  Whether a message still has visible text once its media URLs are stripped out.
+  A message that was *only* a link/image renders as the embed alone (no empty
+  text line).
+  """
+  def has_text?(%{body: body}) when is_binary(body) do
+    urls = body |> message_embeds() |> Enum.map(& &1.url)
+    stripped = Enum.reduce(urls, body, fn url, acc -> String.replace(acc, url, "") end)
+    String.trim(stripped) != ""
+  end
+
+  def has_text?(_), do: false
+
+  @emoji_only ~r/^(?:\s|\p{So}|\p{Sk}|[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{FE0F}\x{200D}\x{20E3}\x{1F1E6}-\x{1F1FF}])+$/u
+
+  @doc """
+  Whether a message is *only* emoji (up to 8) and has no attachment/embed — those
+  render large and bubble-less, WhatsApp/Telegram-style.
+  """
+  def emoji_only?(%{attachment_url: url}) when is_binary(url) and url != "", do: false
+
+  def emoji_only?(%{body: body} = msg) when is_binary(body) do
+    t = String.trim(body)
+    t != "" and String.length(t) <= 8 and message_embeds(msg) == [] and Regex.match?(@emoji_only, t)
+  end
+
+  def emoji_only?(_), do: false
+
+  # Wrap bare http(s) URLs in a link. Runs on already-escaped text.
+  defp autolink(text) do
+    Regex.replace(
+      ~r{(?<!["'=>])(https?://[^\s<>"']+)},
+      text,
+      ~s(<a href="\\1" target="_blank" rel="noopener noreferrer" class="underline break-all">\\1</a>)
+    )
+  end
 
   @doc """
   Annotates messages with grouping flags for a Telegram-style thread:
@@ -383,6 +596,12 @@ defmodule ColloqWeb.UserLive.Messages do
 
   def online?(user_id), do: ColloqWeb.Presence.online?(user_id)
 
+  @doc """
+  One-line preview for the conversation list.
+
+  Attachments are described by *kind* — dumping `attachment_name` verbatim is
+  how a sticker ended up previewing as the literal "📎 sticker".
+  """
   def last_message_preview(conversation) do
     case conversation.last_message do
       nil ->
@@ -391,11 +610,17 @@ defmodule ColloqWeb.UserLive.Messages do
       %{body: body} when is_binary(body) and body != "" ->
         String.slice(body, 0..60)
 
-      %{attachment_name: name} when is_binary(name) ->
-        "📎 " <> name
+      msg ->
+        attachment_preview(msg)
+    end
+  end
 
-      _ ->
-        "📎 " <> gettext("Attachment")
+  defp attachment_preview(msg) do
+    cond do
+      sticker?(msg) -> "🏷 " <> gettext("Sticker")
+      attachment_image?(msg) -> "🖼 " <> gettext("Photo")
+      is_binary(msg.attachment_name) -> "📎 " <> msg.attachment_name
+      true -> "📎 " <> gettext("Attachment")
     end
   end
 end

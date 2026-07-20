@@ -2,7 +2,9 @@ defmodule Colloq.Reactions.Reaction do
   @moduledoc """
   User emoji reaction schema for posts.
 
-  Each [post_id, user_id, emoji] combination must be unique.
+  One reaction per `[post_id, user_id]`: a user reacts to a post once, and
+  choosing a different emoji replaces their previous choice rather than adding
+  to it. Users may not react to their own posts.
   """
   use Ecto.Schema
   import Ecto.Changeset
@@ -23,9 +25,9 @@ defmodule Colloq.Reactions.Reaction do
     |> validate_required([:emoji, :post_id, :user_id])
     # Up to 32 to allow custom-emoji shortcodes (":name:"), not just unicode.
     |> validate_length(:emoji, max: 32)
-    |> unique_constraint([:post_id, :user_id, :emoji],
-      name: :reactions_post_id_user_id_emoji_index,
-      message: gettext("already reacted with this emoji")
+    |> unique_constraint([:post_id, :user_id],
+      name: :reactions_post_id_user_id_index,
+      message: gettext("already reacted to this post")
     )
     |> foreign_key_constraint(:post_id)
     |> foreign_key_constraint(:user_id)

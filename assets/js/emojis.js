@@ -15,32 +15,44 @@
 import twemoji from "@discordapp/twemoji";
 
 // =========================================================================
-// Custom emojis — football forum specific
+// Custom emojis — loaded from the database
 // =========================================================================
-// To add more: upload PNG/SVG to priv/static/emojis/ and add an entry here.
-// Admins can manage these via the admin panel (future feature).
+// Populated at boot from /api/emojis, which serves the `custom_emojis` table
+// that admins manage in the admin panel.
+//
+// This used to be a hardcoded map of 14 shortcodes pointing at files in
+// priv/static/emojis/. None of those files existed, so every one of them
+// rendered as a broken image — while the one emoji an admin had actually
+// uploaded wasn't in the map and rendered as literal ":libertadores:" text.
+// The uploader wrote to a table nothing read.
+let CUSTOM_EMOJIS = {};
 
-const CUSTOM_EMOJIS = {
-  // Club logos
-  racing:    { url: "/emojis/racing.png",    name: "Racing Club" },
-  boca:      { url: "/emojis/boca.png",      name: "Boca Juniors" },
-  river:     { url: "/emojis/river.png",     name: "River Plate" },
-  independiente: { url: "/emojis/independiente.png", name: "Independiente" },
-  sanlorenzo:{ url: "/emojis/sanlorenzo.png",name: "San Lorenzo" },
+/**
+ * Fetch the custom emoji map, then re-parse the page.
+ *
+ * The map arrives after first paint, so anything already rendered has to be
+ * parsed again — otherwise shortcodes stay as text until the next LiveView
+ * patch happens to touch them.
+ */
+export async function loadCustomEmojis() {
+  try {
+    const res = await fetch("/api/emojis", {
+      headers: { accept: "application/json" },
+      credentials: "same-origin",
+    });
+    if (!res.ok) return;
 
-  // Match events
-  gol:       { url: "/emojis/gol.png",       name: "Gol" },
-  roja:      { url: "/emojis/roja.png",      name: "Tarjeta roja" },
-  amarilla:  { url: "/emojis/amarilla.png",  name: "Tarjeta amarilla" },
-  var:       { url: "/emojis/var.png",       name: "VAR" },
-  penal:     { url: "/emojis/penal.png",     name: "Penal" },
+    const { emojis } = await res.json();
+    CUSTOM_EMOJIS = Object.fromEntries(
+      (emojis || []).map((e) => [e.name, { url: e.url, name: e.name }])
+    );
 
-  // Fan culture
-  vamos:     { url: "/emojis/vamos.png",     name: "¡Vamos!" },
-  daleacademia: { url: "/emojis/daleacademia.png", name: "Dale Academia" },
-  escudo:    { url: "/emojis/escudo.png",    name: "Escudo" },
-  campeon:   { url: "/emojis/campeon.png",   name: "Campeón" },
-};
+    if (Object.keys(CUSTOM_EMOJIS).length) parseEmojis(document.body);
+  } catch (_) {
+    // A forum that renders shortcodes as plain text is a much smaller failure
+    // than one that refuses to boot.
+  }
+}
 
 // =========================================================================
 // Twemoji initialization
@@ -74,6 +86,18 @@ export function parseEmojis(element) {
       // Skip if this is inside a custom emoji img
       return undefined;
     }
+  });
+
+  // 3. Racing colours: render the red heart ❤️ (2764) as the blue heart 💙
+  //    (1f499) — a real emoji image, not a filter hack. Applies to hearts from
+  //    any source (keyboard, picker, pasted text).
+  recolorHearts(element);
+}
+
+function recolorHearts(element) {
+  element.querySelectorAll('img.emoji[src*="2764"]').forEach((img) => {
+    img.src = img.src.replace(/2764(-fe0f)?\.svg/, "1f499.svg");
+    img.alt = "💙";
   });
 }
 

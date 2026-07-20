@@ -4,7 +4,7 @@ defmodule ColloqWeb.UserLive.Login do
   alias Colloq.Accounts
   alias ColloqWeb.UserAuth
 
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     form =
       to_form(%{"email" => "", "password" => ""},
         as: :user,
@@ -12,7 +12,39 @@ defmodule ColloqWeb.UserLive.Login do
         action: nil
       )
 
-    {:ok, assign(socket, form: form)}
+    {:ok,
+     socket
+     |> assign(form: form)
+     |> assign(:suspended_notice, suspended_notice(params))}
+  end
+
+  # Spanish suspension/ban banner text, built from the query params set by
+  # SessionController.suspended/2. `nil` when the visitor isn't blocked.
+  defp suspended_notice(%{"blocked" => "banned"}),
+    do:
+      "Tu cuenta fue suspendida de forma permanente. Si creés que es un error, contactá a un moderador."
+
+  defp suspended_notice(%{"blocked" => "suspended", "until" => iso}) do
+    case DateTime.from_iso8601(iso) do
+      {:ok, until, _} ->
+        "Tu cuenta está suspendida hasta el #{format_until(until)}. No podés publicar ni interactuar hasta entonces."
+
+      _ ->
+        "Tu cuenta está suspendida. No podés publicar ni interactuar por ahora."
+    end
+  end
+
+  defp suspended_notice(%{"blocked" => "suspended"}),
+    do: "Tu cuenta está suspendida. No podés publicar ni interactuar por ahora."
+
+  defp suspended_notice(_), do: nil
+
+  # Argentina local time, falling back to UTC if tz data is unavailable.
+  defp format_until(%DateTime{} = dt) do
+    case DateTime.shift_zone(dt, "America/Argentina/Buenos_Aires") do
+      {:ok, local} -> Calendar.strftime(local, "%d/%m/%Y %H:%M") <> " (hora de Argentina)"
+      _ -> Calendar.strftime(dt, "%d/%m/%Y %H:%M UTC")
+    end
   end
 
   def handle_event("validate", %{"user" => params}, socket) do
@@ -71,6 +103,17 @@ defmodule ColloqWeb.UserLive.Login do
       <div class="mb-6 text-center">
         <h1 class="text-2xl font-bold text-white"><%= gettext("Welcome") %></h1>
         <p class="text-gray-400 text-sm mt-1"><%= gettext("The Argentine football community") %></p>
+      </div>
+
+      <div
+        :if={@suspended_notice}
+        class="mb-4 flex items-start gap-3 rounded-xl border border-danger/50 bg-danger-soft px-4 py-3"
+      >
+        <.icon name="ban" class="w-5 h-5 text-danger flex-shrink-0 mt-0.5" />
+        <div>
+          <p class="text-sm font-semibold text-danger">Cuenta suspendida</p>
+          <p class="text-sm text-body mt-0.5"><%= @suspended_notice %></p>
+        </div>
       </div>
 
       <.card>
