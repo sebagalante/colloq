@@ -458,6 +458,24 @@ defmodule Colloq.Forum do
   defp blank_body?(body), do: normalize_body(body) == ""
 
   # Blocks banned/suspended/silenced users from creating topics or posts.
+  # Bot output — ResultaBot's goal and card cards, standings, digests — is a
+  # broadcast, not a conversation opener: threading replies under a goal alert
+  # splits the match chat into dead-end branches. The UI already hides Reply on
+  # system posts, but that is a hidden button, not a rule; a crafted event would
+  # still thread underneath. Enforce it here, where posts are actually created.
+  defp check_parent_repliable(attrs) do
+    case attrs["parent_id"] || attrs[:parent_id] do
+      nil ->
+        :ok
+
+      parent_id ->
+        case Repo.get(Post, parent_id) do
+          %Post{is_system: true} -> {:error, :cannot_reply_to_system_post}
+          _ -> :ok
+        end
+    end
+  end
+
   defp check_can_post(%Accounts.User{} = user) do
     cond do
       user.banned -> {:error, :banned}
@@ -500,6 +518,7 @@ defmodule Colloq.Forum do
   def create_post(%Topic{} = topic, %Accounts.User{} = user, attrs) do
     with :ok <- check_can_post(user),
          :ok <- check_topic_open(topic, user),
+         :ok <- check_parent_repliable(attrs),
          :ok <- check_not_duplicate(user, attrs) do
     # Derive the next post number from the real max (not posts_count, which can
     # drift and cause a unique-constraint collision on (topic_id, post_number)).
@@ -574,6 +593,7 @@ defmodule Colloq.Forum do
         enqueue_sofascore_command(post)
         enqueue_dolar_command(post)
         enqueue_clima_command(post)
+        enqueue_resultabot_command(post)
         enqueue_f1_command(post)
         enqueue_ca_command(post)
         enqueue_spam_check(user, post)
@@ -709,6 +729,21 @@ defmodule Colloq.Forum do
   end
 
   defp enqueue_sofascore_command(_), do: :ok
+
+  # `/resultabot` starts live match coverage. The worker does the authorisation
+  # and match-thread checks — this only decides whether to look at the post at
+  # all, so ordinary posts pay nothing.
+  defp enqueue_resultabot_command(%Post{body: body} = post) when is_binary(body) do
+    if Colloq.Workers.ResultabotCommandWorker.command?(body) do
+      %{post_id: post.id}
+      |> Colloq.Workers.ResultabotCommandWorker.new()
+      |> Oban.insert()
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp enqueue_resultabot_command(_), do: :ok
 
   defp enqueue_dolar_command(%Post{body: body} = post) when is_binary(body) do
     # Same as above: strip the Tiptap HTML before matching the prefix.

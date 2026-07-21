@@ -445,12 +445,12 @@ Hooks.ChatComposer = {
     // never reverts/wipes it when the form re-renders on phx-change.
     const pop = document.createElement("div");
     pop.className =
-      "hidden fixed z-[80] p-2 rounded-lg bg-surface border border-border shadow-lg grid grid-cols-8 gap-0.5 w-64 max-h-56 overflow-y-auto";
+      "hidden fixed z-[80] p-2 rounded-lg bg-surface border border-border shadow-lg grid grid-cols-6 gap-1 w-64 max-h-64 overflow-y-auto";
     emojis.forEach((e) => {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = e;
-      b.className = "text-lg leading-none p-1 rounded hover:bg-surface-alt";
+      b.className = "text-2xl leading-none p-1 rounded hover:bg-surface-alt";
       // mousedown + preventDefault keeps focus/selection on the textarea, so
       // the very first pick inserts correctly instead of losing the caret.
       b.addEventListener("mousedown", (ev) => {
@@ -466,8 +466,8 @@ Hooks.ChatComposer = {
     const positionPop = () => {
       const r = emojiBtn.getBoundingClientRect();
       pop.style.left = `${Math.round(Math.min(r.left, window.innerWidth - 268))}px`;
-      // Prefer showing above the button; the popup is ~230px tall.
-      const top = r.top - 8 - Math.min(pop.offsetHeight || 224, 224);
+      // Prefer showing above the button; the popup is ~256px tall (max-h-64).
+      const top = r.top - 8 - Math.min(pop.offsetHeight || 256, 256);
       pop.style.top = `${Math.round(Math.max(8, top))}px`;
     };
 
@@ -1004,12 +1004,12 @@ Hooks.EmojiInsert = {
 
     const pop = document.createElement("div");
     pop.className =
-      "hidden fixed z-[80] p-2 rounded-lg bg-surface border border-border shadow-lg grid grid-cols-8 gap-0.5 w-64 max-h-56 overflow-y-auto";
+      "hidden fixed z-[80] p-2 rounded-lg bg-surface border border-border shadow-lg grid grid-cols-6 gap-1 w-64 max-h-64 overflow-y-auto";
     emojis.forEach((e) => {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = e;
-      b.className = "text-lg leading-none p-1 rounded hover:bg-surface-alt";
+      b.className = "text-2xl leading-none p-1 rounded hover:bg-surface-alt";
       b.addEventListener("mousedown", (ev) => {
         ev.preventDefault();
         this.insert(targetId, e);
@@ -1024,7 +1024,7 @@ Hooks.EmojiInsert = {
       const r = btn.getBoundingClientRect();
       pop.style.left = `${Math.round(Math.min(r.left, window.innerWidth - 268))}px`;
       const below = r.bottom + 6;
-      pop.style.top = `${Math.round(Math.min(below, window.innerHeight - 232))}px`;
+      pop.style.top = `${Math.round(Math.min(below, window.innerHeight - 264))}px`;
     };
 
     btn.addEventListener("mousedown", (ev) => {
@@ -1915,12 +1915,12 @@ Hooks.TiptapEditor = {
     emojiBtn.innerHTML = svg(I.smile);
     emojiBtn.className = "flex items-center justify-center w-8 h-8 rounded text-muted hover:text-heading hover:bg-border transition-colors";
     const pop = document.createElement("div");
-    pop.className = "hidden absolute z-50 top-full left-0 mt-1 p-2 rounded-lg bg-surface border border-border shadow-lg grid grid-cols-9 gap-0.5 w-72 max-w-[90vw] max-h-64 overflow-y-auto";
+    pop.className = "hidden absolute z-50 top-full left-0 mt-1 p-2 rounded-lg bg-surface border border-border shadow-lg grid grid-cols-7 gap-1 w-72 max-w-[90vw] max-h-64 overflow-y-auto";
     emojis.forEach((e) => {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = e;
-      b.className = "text-lg leading-none p-1 rounded hover:bg-surface-alt";
+      b.className = "text-2xl leading-none p-1 rounded hover:bg-surface-alt";
       b.addEventListener("click", (ev) => {
         ev.preventDefault();
         chain().insertContent(e).run();
@@ -2539,6 +2539,70 @@ Hooks.PostBody = {
     this.el.removeEventListener("keyup", this._deferSelect);
     document.removeEventListener("mousedown", this._onDocMouseDown);
     window.removeEventListener("scroll", this._hideQuotePill, true);
+  },
+};
+
+// =========================================================================
+// ReactionPill — feedback the CSS alone can't give. The pill element is
+// reused across patches (morphdom just swaps the number), so the mount-time
+// `reaction-pop` never re-fires. This watches data-count / data-mine and
+// replays a bump on every change, plus a one-off emoji burst when *you* are
+// the one adding the reaction.
+// =========================================================================
+const BURST_COUNT = 6;
+
+Hooks.ReactionPill = {
+  mounted() {
+    this.count = Number(this.el.dataset.count);
+
+    // The server names the exact pill the viewer just reacted to, so bursting
+    // needs no guesswork about whether this is an initial render. Fires on
+    // add only; the server stays silent when a reaction is removed.
+    this.handleEvent("reaction:burst", ({ post_id, emoji }) => {
+      if (
+        String(post_id) === this.el.dataset.postId &&
+        emoji === this.el.dataset.emojiKey
+      ) {
+        this.burst();
+      }
+    });
+  },
+
+  updated() {
+    const count = Number(this.el.dataset.count);
+    if (count !== this.count) this.bump();
+    this.count = count;
+  },
+
+  // Restart the animation by forcing a reflow between class toggles.
+  bump() {
+    const el = this.el.querySelector("[data-count-text]") || this.el;
+    el.classList.remove("reaction-bump");
+    void el.offsetWidth;
+    el.classList.add("reaction-bump");
+  },
+
+  burst() {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const source = this.el.querySelector("[data-emoji]");
+    if (!source) return;
+
+    for (let i = 0; i < BURST_COUNT; i++) {
+      const particle = source.cloneNode(true);
+      particle.removeAttribute("data-emoji");
+      particle.className = "reaction-particle";
+
+      // Fan out over a 120° arc centred on straight up.
+      const angle = -Math.PI / 2 + (i / (BURST_COUNT - 1) - 0.5) * (Math.PI * 2) / 3;
+      const distance = 26 + Math.random() * 18;
+      particle.style.setProperty("--dx", `${Math.cos(angle) * distance}px`);
+      particle.style.setProperty("--dy", `${Math.sin(angle) * distance}px`);
+      particle.style.animationDelay = `${i * 20}ms`;
+
+      particle.addEventListener("animationend", () => particle.remove());
+      this.el.appendChild(particle);
+    }
   },
 };
 

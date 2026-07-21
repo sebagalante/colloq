@@ -123,6 +123,14 @@ defmodule Colloq.Messaging do
   """
   def can_message?(%Colloq.Accounts.User{} = actor, %Colloq.Accounts.User{} = target) do
     cond do
+      # Bots have no inbox — nothing reads a DM sent to a system account, so
+      # the conversation would be a dead end. Checked before the staff bypass:
+      # this is a capability the target lacks, not a permission the actor has.
+      # Reuses :opted_out rather than a new atom so every existing call site
+      # keeps working; "isn't accepting messages" is true of a bot.
+      target.flair == "BOT" ->
+        {:error, :opted_out}
+
       actor.role in @staff_roles ->
         :ok
 

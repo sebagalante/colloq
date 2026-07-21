@@ -162,16 +162,36 @@
       >
         <.icon name="edit" class="w-4 h-4" /><%= gettext("Edit") %>
       </button>
-      <button
-        :if={@can_delete_topic && is_nil(@topic.deleted_at)}
-        type="button"
-        phx-click="delete-topic"
-        data-confirm={gettext("Delete this topic? Staff can recover it afterwards.")}
-        title={gettext("Delete topic")}
-        class="flex-shrink-0 mt-1 inline-flex items-center gap-1 text-xs text-muted hover:text-danger transition-colors"
-      >
-        <.icon name="trash-2" class="w-4 h-4" /><%= gettext("Delete") %>
-      </button>
+      <%!-- Delete lives behind an overflow menu rather than beside Edit. The two
+            used to sit adjacent, same size and same muted colour, so reaching
+            for Edit and landing on Delete cost only a reflexive click through
+            the confirm dialog — which is exactly how a live topic ended up in
+            the deleted queue. --%>
+      <div :if={@can_delete_topic && is_nil(@topic.deleted_at)} class="relative flex-shrink-0 mt-1" id="topic-actions-menu">
+        <button
+          type="button"
+          phx-click={Phoenix.LiveView.JS.toggle(to: "#topic-actions-dropdown")}
+          title={gettext("More actions")}
+          aria-haspopup="true"
+          class="inline-flex items-center text-xs text-muted hover:text-heading transition-colors"
+        >
+          <.icon name="more-horizontal" class="w-4 h-4" />
+        </button>
+        <div
+          id="topic-actions-dropdown"
+          class="hidden absolute right-0 mt-1 w-48 rounded-lg bg-surface border border-border shadow-lg py-1 z-20"
+          phx-click-away={Phoenix.LiveView.JS.hide()}
+        >
+          <button
+            type="button"
+            phx-click="delete-topic"
+            data-confirm={gettext("Delete this topic? Staff can recover it afterwards.")}
+            class="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-danger hover:bg-border transition-colors"
+          >
+            <.icon name="trash-2" class="w-4 h-4" /><%= gettext("Delete topic") %>
+          </button>
+        </div>
+      </div>
       <button
         :if={@can_delete_topic && @topic.deleted_at}
         type="button"
@@ -218,6 +238,49 @@
         >
         </div>
       </div>
+      <%!-- Match thread setup (staff only). These three fields used to be
+            settable only from the console, so every match needed a developer. --%>
+      <div :if={@can_manage_match} class="rounded-lg border border-border bg-surface-alt p-3 space-y-2">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            name="is_match_thread"
+            checked={@topic.is_match_thread}
+            class="rounded border-border text-accent focus:ring-accent"
+          />
+          <span class="text-sm font-medium text-heading"><%= gettext("Match thread") %></span>
+        </label>
+
+        <p class="text-xs text-muted">
+          <%= gettext("Enables the score banner and lets an operator start ResultaBot with /resultabot.") %>
+        </p>
+
+        <div>
+          <label class="block text-xs font-medium text-muted mb-1"><%= gettext("Fixture") %></label>
+          <select
+            name="match_id"
+            class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+          >
+            <option value=""><%= gettext("— none —") %></option>
+            <%!-- The saved fixture may be older than the upcoming list, so keep
+                  it as an option or editing the title would silently clear it. --%>
+            <option
+              :if={@topic.match_id && !Enum.any?(@match_fixtures, &(&1.id == @topic.match_id))}
+              value={@topic.match_id}
+              selected
+            >
+              <%= gettext("Current fixture (%{id})", id: @topic.match_id) %>
+            </option>
+            <option :for={f <- @match_fixtures} value={f.id} selected={f.id == @topic.match_id}>
+              <%= f.label %>
+            </option>
+          </select>
+          <p :if={@match_fixtures == []} class="text-xs text-muted mt-1">
+            <%= gettext("Could not load upcoming fixtures right now.") %>
+          </p>
+        </div>
+      </div>
+
       <div class="flex gap-2">
         <.button type="submit" class="text-sm"><%= gettext("Save") %></.button>
         <button type="button" phx-click="cancel-edit-topic" class="text-sm text-muted hover:text-heading transition-colors">
@@ -375,6 +438,9 @@
     <%= ngettext("1 new reply", "%{count} new replies", @unread_count) %>
     <span aria-hidden="true">↓</span>
   </button>
+
+  <%!-- Live score banner: sticky at the top of a match thread. --%>
+  <.match_banner :if={@match} match={@match} />
 
   <%!-- Post list --%>
   <div id="posts-container" phx-hook="AutoScroll" data-initial={@scroll_to} data-scroll-anchor={@scroll_anchor} class="space-y-0">

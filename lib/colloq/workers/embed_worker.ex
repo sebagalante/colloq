@@ -33,11 +33,11 @@ defmodule Colloq.Workers.EmbedWorker do
 
             %{
               post_id: post.id,
-              url: url,
-              host: host,
-              title: present(og[:title]) || host || url,
-              description: og[:description] || "",
-              image_url: og[:image_url] || "",
+              url: utf8(url),
+              host: utf8(host),
+              title: utf8(present(og[:title]) || host || url),
+              description: utf8(og[:description] || ""),
+              image_url: utf8(og[:image_url] || ""),
               inserted_at: now,
               updated_at: now
             }
@@ -73,9 +73,80 @@ defmodule Colloq.Workers.EmbedWorker do
     |> Regex.scan(strip_img_tags(body))
     |> List.flatten()
     |> Enum.map(&clean_url/1)
-    |> Enum.uniq()
+    |> Enum.reject(&own_profile_link?/1)
+    |> Enum.uniq_by(&canonical/1)
     |> Enum.take(5)
   end
+
+  # A link posted through the composer appears TWICE in the stored HTML: once
+  # as the href and once as the visible anchor text. Tiptap keeps the canonical
+  # href ("…/the-odyssey-2026/") but renders the text without the trailing
+  # slash, so plain uniq/1 saw two different URLs and unfurled the same page
+  # twice — the second fetch missing its OG tags and rendering as an empty card
+  # titled with the bare host.
+  #
+  # Only the comparison is normalised; the URL actually fetched stays exactly
+  # as written, since some sites do treat the trailing slash as significant.
+  defp canonical(url) do
+    uri = URI.parse(url)
+
+    path =
+      case uri.path do
+        nil -> ""
+        "/" -> ""
+        p -> String.trim_trailing(p, "/")
+      end
+
+    "#{String.downcase(uri.scheme || "https")}://#{String.downcase(uri.host || "")}#{path}?#{uri.query}"
+  end
+
+  # The composer stores an @mention as an absolute link to our own profile page
+  # (http://host/u/username), so unfurling turned every mention into a preview
+  # card of our own site — "localhost · @cocobot · Colloq" sitting under the
+  # post instead of an inline mention. Only our own profile URLs are dropped:
+  # an internal topic link still gets a card, and another site's /u/ path is
+  # somebody else's page and unrelated to us.
+  defp own_profile_link?(url) do
+    uri = URI.parse(url)
+
+    own_host?(uri.host) and is_binary(uri.path) and
+      Regex.match?(~r{^/u/[^/]+/?$}, uri.path)
+  end
+
+  defp own_host?(nil), do: false
+
+  defp own_host?(host) do
+    # Dev serves from localhost while the endpoint may be configured with a
+    # different host, so both are treated as us.
+    host == ColloqWeb.Endpoint.host() or host in ["localhost", "127.0.0.1"]
+  end
+
+
+  # Scraped metadata is whatever encoding the remote site happens to serve, and
+  # plenty of older sites are still Latin-1. Those bytes are not valid UTF-8, so
+  # Postgres rejects the whole insert:
+  #
+  #   ERROR 22021 (character_not_in_repertoire)
+  #   invalid byte sequence for encoding "UTF8": 0xed 0x61 0x20
+  #
+  # The job then burned its three attempts and was discarded, leaving the post
+  # with no preview card and nothing visible to explain why. Convert what we can
+  # and drop what we cannot, so one badly-encoded page never costs the card.
+  defp utf8(nil), do: ""
+
+  defp utf8(value) when is_binary(value) do
+    if String.valid?(value) do
+      value
+    else
+      case :unicode.characters_to_binary(value, :latin1, :utf8) do
+        converted when is_binary(converted) -> converted
+        # Not Latin-1 either: keep only the codepoints that survive.
+        _ -> value |> String.chunk(:valid) |> Enum.filter(&String.valid?/1) |> Enum.join()
+      end
+    end
+  end
+
+  defp utf8(other), do: to_string(other)
 
   defp strip_img_tags(body), do: String.replace(body, ~r/<img[^>]*>/i, "")
 

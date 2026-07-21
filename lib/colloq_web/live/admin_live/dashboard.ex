@@ -73,6 +73,15 @@ defmodule ColloqWeb.AdminLive.Dashboard do
     |> assign(:reaction_distribution, reaction_distribution_data())
     |> assign(:flags_count, recent_flags_count())
     |> assign(:recent_flags, recent_flags())
+    |> assign(:worker_health, Colloq.WorkerHealth.by_worker(since: worker_window(range)))
+    |> assign(:worker_totals, Colloq.WorkerHealth.totals(since: worker_window(range)))
+    |> assign(:worker_failures, Colloq.WorkerHealth.recent_failures(6))
+  end
+
+  # Background jobs follow the dashboard's range selector like every other
+  # panel, so "last 7 days" means the same thing everywhere on the page.
+  defp worker_window(range_days) do
+    NaiveDateTime.add(NaiveDateTime.utc_now(), -range_days * 24 * 3600, :second)
   end
 
   defp refresh_flags(socket) do

@@ -52,8 +52,10 @@
             >
               <.icon name="mail" class="w-4 h-4" /> <%= gettext("Message") %>
             </button>
+            <%!-- Bots have no inbox at all, so the notice would be noise:
+                  show nothing rather than explain a door that never existed. --%>
             <p
-              :if={!@blocked_by_me && !@can_message}
+              :if={!@blocked_by_me && !@can_message && @profile_user.flair != "BOT"}
               class="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs text-muted"
             >
               <.icon name="mail" class="w-3.5 h-3.5" /> <%= gettext("Not accepting messages") %>

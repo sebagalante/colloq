@@ -373,12 +373,17 @@ defmodule ColloqWeb.CoreComponents do
       <button
         :for={%{emoji: emoji, count: count} <- Enum.filter(@reactions, &(&1.count > 0))}
         type="button"
+        id={"reaction-#{@post_id}-#{:erlang.phash2(emoji)}"}
+        phx-hook="ReactionPill"
+        data-count={count}
+        data-post-id={@post_id}
+        data-emoji-key={emoji}
         disabled={!@can_react}
         phx-click={@can_react && "reaction"}
         phx-value-post_id={@post_id}
         phx-value-emoji={emoji}
         class={[
-          "reaction-pill flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors",
+          "reaction-pill relative flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors",
           !@can_react && "cursor-default",
           @user_reactions && MapSet.member?(@user_reactions, emoji) &&
             "bg-accent-soft border border-accent text-accent",
@@ -388,8 +393,8 @@ defmodule ColloqWeb.CoreComponents do
             "hover:bg-border-hover"
         ]}
       >
-        <span><%= emoji_display(emoji, @custom_emojis) %></span>
-        <span class="tabular-nums"><%= count %></span>
+        <span data-emoji><%= emoji_display(emoji, @custom_emojis) %></span>
+        <span data-count-text class="tabular-nums"><%= count %></span>
       </button>
 
       <%!-- Add-reaction button + emoji picker popup --%>
@@ -485,6 +490,183 @@ defmodule ColloqWeb.CoreComponents do
     </div>
     """
   end
+
+  # ============= MATCH BANNER (ResultaBot) =============
+  # Sticky score bar at the top of a match thread. During a match the score is
+  # the thing readers keep glancing back at, so it follows them down a
+  # fast-moving thread rather than scrolling away with the first post.
+  attr :match, :map, required: true, doc: "%{home, away, home_id, away_id, home_score, away_score, status, minute, competition, kickoff}"
+
+  def match_banner(assigns) do
+    ~H"""
+    <div class="sticky top-0 z-30 -mx-4 mb-4 px-4 pt-2 pb-1 bg-bg/95 backdrop-blur">
+      <div class="rounded-xl border border-border bg-surface shadow-sm overflow-hidden">
+        <div class="flex items-center justify-between gap-3 px-3 py-1.5 border-b border-border bg-surface-alt">
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-muted truncate">
+            <%= @match.competition %>
+          </span>
+          <span class={[
+            "inline-flex items-center gap-1.5 flex-shrink-0 rounded-full border px-2 py-0.5",
+            "text-[11px] font-bold uppercase tracking-wide",
+            match_chip_class(@match.status)
+          ]}>
+            <span :if={@match.status == :live} class="w-1.5 h-1.5 rounded-full bg-current match-live-dot"></span>
+            <%= match_status_label(@match.status) %>
+          </span>
+        </div>
+
+        <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 py-3">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <img src={team_crest(@match.home_id)} alt="" class="w-10 h-10 object-contain flex-shrink-0" />
+            <span class="font-bold text-heading text-sm leading-tight truncate"><%= @match.home %></span>
+          </div>
+
+          <div class="px-1 text-center">
+            <%= if @match.status == :prematch do %>
+              <div class="text-base font-bold text-heading tabular-nums whitespace-nowrap">
+                <%= @match.kickoff %>
+              </div>
+            <% else %>
+              <div class="flex items-center gap-2 text-3xl font-extrabold leading-none tabular-nums text-heading">
+                <span class={winner_class(@match.home_score, @match.away_score, @match.status)}>
+                  <%= @match.home_score %>
+                </span>
+                <span class="text-lg font-semibold text-muted">:</span>
+                <span class={winner_class(@match.away_score, @match.home_score, @match.status)}>
+                  <%= @match.away_score %>
+                </span>
+              </div>
+              <div :if={@match.status == :live && @match.minute} class="mt-1 text-xs font-bold text-danger tabular-nums">
+                <%= @match.minute %>'
+              </div>
+            <% end %>
+          </div>
+
+          <div class="flex flex-row-reverse items-center gap-2.5 min-w-0">
+            <img src={team_crest(@match.away_id)} alt="" class="w-10 h-10 object-contain flex-shrink-0" />
+            <span class="font-bold text-heading text-sm leading-tight truncate text-right"><%= @match.away %></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp team_crest(id), do: "https://api.sofascore.com/api/v1/team/#{id}/image"
+
+  defp match_chip_class(:live), do: "text-danger bg-danger-soft border-danger"
+  defp match_chip_class(:halftime), do: "text-warning bg-warning-soft border-warning"
+  defp match_chip_class(:prematch), do: "text-accent bg-accent-soft border-accent"
+  defp match_chip_class(_), do: "text-muted bg-border border-border"
+
+  defp match_status_label(:live), do: gettext("Live")
+  defp match_status_label(:halftime), do: gettext("Half time")
+  defp match_status_label(:prematch), do: gettext("Preview")
+  defp match_status_label(_), do: gettext("Full time")
+
+  # Only mark a winner once the result is final — highlighting a lead mid-match
+  # would read as if the match were over.
+  defp winner_class(a, b, :finished) when is_integer(a) and is_integer(b) and a > b,
+    do: "text-success"
+
+  defp winner_class(_a, _b, _status), do: nil
+
+  # ============= MATCH EVENT CARD (ResultaBot) =============
+  # An inline, highlighted card for a live match event, so a goal stands out
+  # from ordinary replies as you scroll the thread.
+  #
+  # Deliberately NOT the `goal_alert` toast above: that one is `position: fixed`
+  # and rendered once per post, so a four-goal match pinned four bouncing
+  # overlays to the viewport permanently. This renders in the flow of the
+  # thread, where the event actually happened.
+  attr :event, :map, required: true, doc: "the post's event_data (string or atom keys)"
+
+  def match_event_card(assigns) do
+    assigns = assign(assigns, :e, normalize_event(assigns.event))
+
+    ~H"""
+    <div class={[
+      "match-event relative my-2 flex items-center gap-3 rounded-xl border-l-4 px-4 py-3",
+      case @e.variant do
+        :goal -> "match-event-goal bg-emerald-500/10 border-l-emerald-500 border border-emerald-500/30"
+        :red -> "bg-red-500/10 border-l-red-500 border border-red-500/30"
+        :second_yellow -> "bg-red-500/10 border-l-red-500 border border-red-500/30"
+        _ -> "bg-amber-400/10 border-l-amber-400 border border-amber-400/30"
+      end
+    ]}>
+      <span class={[
+        "flex-shrink-0 leading-none",
+        (@e.variant == :goal && "text-3xl") || "text-2xl"
+      ]}>
+        <%= @e.icon %>
+      </span>
+
+      <div class="min-w-0 flex-1">
+        <div class={[
+          "font-bold text-heading leading-tight",
+          (@e.variant == :goal && "text-lg") || "text-sm"
+        ]}>
+          <%= @e.headline %>
+        </div>
+        <div class="text-xs text-muted mt-0.5 truncate">
+          <%= @e.player %><span :if={@e.team != nil}> · <%= @e.team %></span>
+        </div>
+      </div>
+
+      <%!-- Running score, only meaningful on goals. --%>
+      <div
+        :if={@e.score}
+        class="flex-shrink-0 rounded-lg bg-surface-alt px-2.5 py-1 text-sm font-bold tabular-nums text-heading"
+      >
+        <%= @e.score %>
+      </div>
+
+      <div class="flex-shrink-0 text-sm font-semibold tabular-nums text-muted">
+        <%= @e.minute %>'
+      </div>
+    </div>
+    """
+  end
+
+  # event_data round-trips through jsonb, so keys come back as strings — but a
+  # freshly-built event in the same process still has atoms. Read both.
+  defp normalize_event(data) do
+    get = fn key -> data[key] || data[to_string(key)] end
+
+    type = to_string(get.(:type) || "event")
+    detail = to_string(get.(:detail) || "")
+    home = get.(:home_score)
+    away = get.(:away_score)
+
+    variant =
+      cond do
+        type == "goal" -> :goal
+        detail == "yellowRed" -> :second_yellow
+        detail in ["red", "redCard"] -> :red
+        true -> :yellow
+      end
+
+    %{
+      variant: variant,
+      icon: event_icon(variant),
+      headline: event_headline(variant, detail),
+      player: get.(:player) || gettext("Unknown player"),
+      team: get.(:team),
+      minute: get.(:minute) || 0,
+      score: if(home && away, do: "#{home}-#{away}")
+    }
+  end
+
+  defp event_icon(:goal), do: "⚽"
+  defp event_icon(:yellow), do: "🟨"
+  defp event_icon(_), do: "🟥"
+
+  defp event_headline(:goal, "penalty"), do: gettext("GOAL! (penalty)")
+  defp event_headline(:goal, "ownGoal"), do: gettext("Own goal")
+  defp event_headline(:goal, _), do: gettext("GOAL!")
+  defp event_headline(:second_yellow, _), do: gettext("Second yellow")
+  defp event_headline(:red, _), do: gettext("Red card")
+  defp event_headline(_, _), do: gettext("Yellow card")
 
   # ============= LINEUP JERSEY =============
   # A little football shirt drawn in the team's kit colors, used for both the

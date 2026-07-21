@@ -40,11 +40,26 @@ defmodule Colloq.Tags do
   def color(_), do: @default_color
 
   @doc """
-  Lists all tags ordered by topic count (most used first).
+  Lists all tags ordered by topic count (most used first), name breaking ties.
+
+  The name tiebreaker matters more than it looks: most tags sit at a count of
+  one, and without it Postgres is free to return equal rows in any order — so
+  the tail of the list would appear to shuffle itself between page loads.
   """
   def list_tags do
     Tag
-    |> order_by(desc: :topic_count)
+    # Synonyms are an alias for another tag, not a destination: listing them
+    # would show two entries leading to the same topics.
+    |> where([t], is_nil(t.synonym_of_id))
+    |> order_by(desc: :topic_count, asc: :name)
+    |> Repo.all()
+  end
+
+  @doc "Every tag including synonyms, for the admin screen."
+  def list_tags_with_synonyms do
+    Tag
+    |> order_by(desc: :topic_count, asc: :name)
+    |> preload(:synonym_of)
     |> Repo.all()
   end
 
@@ -55,7 +70,7 @@ defmodule Colloq.Tags do
   """
   def popular_tags(limit \\ 12) do
     Tag
-    |> where([t], t.topic_count > 0)
+    |> where([t], t.topic_count > 0 and is_nil(t.synonym_of_id))
     |> order_by(desc: :topic_count, asc: :name)
     |> limit(^limit)
     |> Repo.all()
@@ -149,6 +164,96 @@ defmodule Colloq.Tags do
       end
     end)
     |> Enum.reject(&is_nil/1)
+    # Applying a synonym stores the canonical tag instead, which is the whole
+    # point: the two spellings stop competing for the same topics.
+    |> Enum.map(&resolve/1)
+    |> Enum.uniq_by(& &1.id)
+  end
+
+  @doc """
+  The canonical tag behind a possible synonym.
+
+  Follows one hop only. Chains (a -> b -> c) are prevented at write time by
+  `make_synonym/2`, and stopping here means a cycle introduced by hand can
+  never hang a request.
+  """
+  def resolve(%Tag{synonym_of_id: nil} = tag), do: tag
+
+  def resolve(%Tag{synonym_of_id: id}) do
+    case Repo.get(Tag, id) do
+      nil -> Repo.get!(Tag, id)
+      %Tag{} = canonical -> canonical
+    end
+  end
+
+  def resolve(other), do: other
+
+  @doc """
+  Points `tag` at `canonical` and moves every topic across.
+
+  Existing topics are re-tagged rather than left behind — otherwise merging two
+  tags would hide the synonym's topics from both. `topic_count` is recomputed
+  from the join table afterwards, since topics tagged with both would otherwise
+  be double counted.
+
+  Refuses to build a chain or a cycle: the target must not itself be a synonym,
+  and a tag with its own synonyms cannot become one.
+  """
+  def make_synonym(%Tag{} = tag, %Tag{} = canonical) do
+    cond do
+      tag.id == canonical.id ->
+        {:error, :self}
+
+      canonical.synonym_of_id != nil ->
+        {:error, :target_is_synonym}
+
+      Repo.exists?(from t in Tag, where: t.synonym_of_id == ^tag.id) ->
+        {:error, :has_synonyms}
+
+      true ->
+        Repo.transaction(fn ->
+          move_topics(tag, canonical)
+
+          {:ok, updated} =
+            tag |> Ecto.Changeset.change(synonym_of_id: canonical.id) |> Repo.update()
+
+          recount([tag.id, canonical.id])
+          updated
+        end)
+    end
+  end
+
+  @doc "Turns a synonym back into an independent tag. Topics are not moved back."
+  def unmake_synonym(%Tag{} = tag) do
+    tag |> Ecto.Changeset.change(synonym_of_id: nil) |> Repo.update()
+  end
+
+  # Re-point topic_tags rows at the canonical tag, skipping topics that already
+  # carry it — the join table has a unique pair and would otherwise conflict.
+  defp move_topics(tag, canonical) do
+    Repo.query!(
+      """
+      UPDATE topic_tags SET tag_id = $2
+      WHERE tag_id = $1
+        AND topic_id NOT IN (SELECT topic_id FROM topic_tags WHERE tag_id = $2)
+      """,
+      [tag.id, canonical.id]
+    )
+
+    # Whatever is left is a topic that had both tags; drop the duplicate.
+    Repo.query!("DELETE FROM topic_tags WHERE tag_id = $1", [tag.id])
+  end
+
+  defp recount(tag_ids) do
+    Repo.query!(
+      """
+      UPDATE tags SET topic_count = COALESCE((
+        SELECT COUNT(*) FROM topic_tags WHERE topic_tags.tag_id = tags.id
+      ), 0)
+      WHERE id = ANY($1)
+      """,
+      [tag_ids]
+    )
   end
 
   defp take_limit(names, :unlimited), do: names

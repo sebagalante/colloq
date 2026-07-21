@@ -17,17 +17,34 @@ defmodule Colloq.Forum.Tag do
 
     many_to_many :topics, Colloq.Forum.Topic, join_through: "topic_tags"
 
+    # A synonym points at the tag it defers to; the canonical tag lists them.
+    belongs_to :synonym_of, __MODULE__
+    has_many :synonyms, __MODULE__, foreign_key: :synonym_of_id
+
     timestamps(type: :utc_datetime_usec)
   end
 
   def changeset(tag, attrs) do
     tag
-    |> cast(attrs, [:name, :slug, :description, :color])
+    |> cast(attrs, [:name, :slug, :description, :color, :synonym_of_id])
     |> validate_required([:name])
     |> validate_length(:name, min: 2, max: 40)
     |> unique_constraint(:name)
     |> unique_constraint(:slug)
+    |> validate_not_self_synonym()
     |> generate_slug()
+  end
+
+  # A tag pointing at itself would make resolution loop forever.
+  defp validate_not_self_synonym(changeset) do
+    id = get_field(changeset, :id)
+    target = get_field(changeset, :synonym_of_id)
+
+    if id && target && id == target do
+      add_error(changeset, :synonym_of_id, "a tag cannot be a synonym of itself")
+    else
+      changeset
+    end
   end
 
   defp generate_slug(changeset) do

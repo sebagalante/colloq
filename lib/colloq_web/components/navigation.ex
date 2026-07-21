@@ -267,6 +267,14 @@ defmodule ColloqWeb.Components.Navigation do
               <span class="tabular-nums opacity-60">{tag.topic_count}</span>
             </.link>
           </div>
+          <%!-- The list above is only the top 12, so without this the rest of
+                the tags had no route in from the UI at all. --%>
+          <.link
+            navigate={~p"/tags"}
+            class="block px-3 mt-2 text-xs text-muted hover:text-heading transition-colors"
+          >
+            {gettext("See all tags")} →
+          </.link>
         </div>
 
         <div :if={Permissions.can_any?(@current_user, [:view_dashboard, :view_users, :manage_categories])}>

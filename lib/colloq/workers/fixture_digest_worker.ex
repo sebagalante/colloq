@@ -20,7 +20,12 @@ defmodule Colloq.Workers.FixtureDigestWorker do
 
   require Logger
 
-  @racing_id 174
+  # Fixtures here come from the Sofascore cache, so this must be a *Sofascore*
+  # id. It was hardcoded to 174, which is Farsley Celtic (an English non-league
+  # side) — verified against the API — so the ⭐ that marks Racing's match in
+  # the digest never once appeared. Read from the registry rather than copied,
+  # so it can't drift out of sync again.
+  defp racing_id, do: Colloq.Sofascore.racing_team_id()
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"action" => "preview"} = args}) do
@@ -84,7 +89,12 @@ defmodule Colloq.Workers.FixtureDigestWorker do
   end
 
   defp filter_today(fixtures) do
-    today = Date.utc_to_local_date(DateTime.utc_now(), "America/Argentina/Buenos_Aires")
+    # Date.utc_to_local_date/2 does not exist — this raised on every run, so
+    # filter_today/1 never returned and the digest never published.
+    today =
+      DateTime.utc_now()
+      |> DateTime.shift_zone!("America/Argentina/Buenos_Aires")
+      |> DateTime.to_date()
 
     Enum.filter(fixtures, fn f ->
       event_date = f["startDate"]
@@ -148,7 +158,7 @@ defmodule Colloq.Workers.FixtureDigestWorker do
         home = f["homeTeam"]["name"]
         away = f["awayTeam"]["name"]
         time = format_time(f["startDate"])
-        is_racing = f["homeTeam"]["id"] == @racing_id || f["awayTeam"]["id"] == @racing_id
+        is_racing = f["homeTeam"]["id"] == racing_id() || f["awayTeam"]["id"] == racing_id()
         prefix = if is_racing, do: "⭐ ", else: ""
 
         "#{prefix}**#{home}** vs **#{away}** — #{time}"
@@ -168,7 +178,7 @@ defmodule Colloq.Workers.FixtureDigestWorker do
         away = f["awayTeam"]["name"]
         home_score = f["homeScore"]["current"] || 0
         away_score = f["awayScore"]["current"] || 0
-        is_racing = f["homeTeam"]["id"] == @racing_id || f["awayTeam"]["id"] == @racing_id
+        is_racing = f["homeTeam"]["id"] == racing_id() || f["awayTeam"]["id"] == racing_id()
 
         if is_racing do
           "⭐ <span style=\"color: #22c55e; font-weight: bold;\">#{home} #{home_score} - #{away_score} #{away}</span>"

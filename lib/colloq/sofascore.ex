@@ -445,6 +445,70 @@ defmodule Colloq.Sofascore do
   end
 
   @doc """
+  Upcoming fixtures for a team, ready for a picker: `%{id, label, starts_at}`.
+
+  Backs the "match thread" control in the topic editor, so setting one up is
+  choosing a real fixture from a list rather than pasting an event id — the two
+  silent failure modes were a wrong id (the bot covers another club's game) and
+  a non-string id (the banner just never renders).
+
+  Shares `next_fixture/1`'s 12h cache, so opening the editor costs no request.
+  """
+  def upcoming_fixtures(team_id, limit \\ 8) when is_integer(team_id) do
+    key = "sofascore:fixtures:#{team_id}"
+
+    events =
+      case Cachex.get(:forum_cache, key) do
+        {:ok, evs} when is_list(evs) and evs != [] ->
+          evs
+
+        _ ->
+          case api_get("/team/#{team_id}/events/next/0") do
+            {:ok, %{"events" => evs}} when is_list(evs) ->
+              Cachex.put(:forum_cache, key, evs, ttl: :timer.hours(12))
+              evs
+
+            _ ->
+              []
+          end
+      end
+
+    events
+    |> Enum.take(limit)
+    |> Enum.map(fn e ->
+      %{
+        id: to_string(e["id"]),
+        label: fixture_label(e),
+        starts_at: e["startTimestamp"]
+      }
+    end)
+  end
+
+  defp fixture_label(event) do
+    home = get_in(event, ["homeTeam", "name"]) || "?"
+    away = get_in(event, ["awayTeam", "name"]) || "?"
+    comp = get_in(event, ["tournament", "name"])
+
+    when_ =
+      case event["startTimestamp"] do
+        nil ->
+          ""
+
+        ts ->
+          ts
+          |> DateTime.from_unix!(:second)
+          |> DateTime.shift_zone!("America/Argentina/Buenos_Aires")
+          |> Calendar.strftime(" — %d/%m %H:%M")
+      end
+
+    "#{home} vs #{away}#{when_}#{if comp, do: " (#{comp})", else: ""}"
+  rescue
+    # A picker that raises because the timezone table is still loading would
+    # take the whole topic editor down with it.
+    _ -> "#{get_in(event, ["homeTeam", "name"])} vs #{get_in(event, ["awayTeam", "name"])}"
+  end
+
+  @doc """
   The most relevant match for a team *right now*: a live one if it's playing,
   otherwise the next upcoming fixture, otherwise the most recent finished one.
   Returns `{:ok, event}` or `{:error, :no_fixtures}`.
@@ -1050,6 +1114,112 @@ defmodule Colloq.Sofascore do
         end
     end
   end
+
+  @doc """
+  A single event (match) by id, for its live status and score.
+
+  Not cached: ResultaBot polls this to decide whether a match is still in play,
+  and a stale answer would either miss the kickoff or keep polling past the
+  final whistle.
+  """
+  def event(event_id) when is_integer(event_id) do
+    case api_get("/event/#{event_id}") do
+      {:ok, %{"event" => event}} -> {:ok, event}
+      {:ok, _} -> {:error, :unexpected_payload}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Every incident for an event — goals, cards, substitutions, period markers.
+
+  `goals/1` filters this same feed down to goals; ResultaBot needs the rest too.
+  Each incident carries a stable Sofascore `id`, which is what makes reliable
+  de-duplication across polls possible.
+
+  15s cache: a live poll and a page view moments apart shouldn't both hit the
+  API, but the window has to stay well under the poll interval.
+  """
+  def incidents(event_id) when is_integer(event_id) do
+    key = "sofascore:incidents:#{event_id}"
+
+    case Cachex.get(:forum_cache, key) do
+      {:ok, list} when is_list(list) ->
+        list
+
+      _ ->
+        list =
+          case api_get("/event/#{event_id}/incidents") do
+            {:ok, %{"incidents" => inc}} when is_list(inc) -> inc
+            _ -> []
+          end
+
+        Cachex.put(:forum_cache, key, list, ttl: :timer.seconds(15))
+        list
+    end
+  end
+
+  @doc """
+  Flattens an `event/1` payload into the shape the match banner renders.
+
+  Lives here rather than in the LiveView so the poller and the page agree on
+  what "the score right now" means — the banner is fed from both.
+  """
+  def match_summary(event) when is_map(event) do
+    %{
+      home: get_in(event, ["homeTeam", "name"]),
+      away: get_in(event, ["awayTeam", "name"]),
+      home_id: get_in(event, ["homeTeam", "id"]),
+      away_id: get_in(event, ["awayTeam", "id"]),
+      home_score: get_in(event, ["homeScore", "current"]) || 0,
+      away_score: get_in(event, ["awayScore", "current"]) || 0,
+      status: banner_status(event),
+      minute: get_in(event, ["time", "currentPeriodStartTimestamp"]) && nil,
+      competition: competition_label(event),
+      kickoff: kickoff_label(event["startTimestamp"])
+    }
+  end
+
+  defp banner_status(event) do
+    case get_in(event, ["status", "type"]) do
+      "inprogress" -> if halftime?(event), do: :halftime, else: :live
+      "notstarted" -> :prematch
+      "finished" -> :finished
+      _ -> :finished
+    end
+  end
+
+  defp halftime?(event) do
+    get_in(event, ["status", "description"]) in ["Halftime", "HT"]
+  end
+
+  defp competition_label(event) do
+    name = get_in(event, ["tournament", "name"])
+    round = get_in(event, ["roundInfo", "round"])
+
+    case {name, round} do
+      {nil, _} -> ""
+      {n, nil} -> n
+      {n, r} -> "#{n} · Fecha #{r}"
+    end
+  end
+
+  defp kickoff_label(nil), do: "--:--"
+
+  defp kickoff_label(ts) do
+    ts
+    |> DateTime.from_unix!(:second)
+    |> DateTime.shift_zone!("America/Argentina/Buenos_Aires")
+    |> Calendar.strftime("%H:%M")
+  rescue
+    _ -> "--:--"
+  end
+
+  @doc """
+  Whether an event is currently being played, from a `event/1` payload.
+  """
+  def live?(%{"status" => %{"type" => type}}), do: type == "inprogress"
+  def live?(_), do: false
 
   defp api_get(path) do
     case Req.get("#{api_base()}#{path}",

@@ -82,6 +82,27 @@ defmodule Colloq.Llm do
 
   defp present?(v), do: is_binary(v) and String.trim(v) != ""
 
+  # Reasoning models return their scratchpad inside `content`, wrapped in a tag
+  # (Gemma 4 uses <thought>, DeepSeek R1 uses <think>). The forum's sanitizer
+  # drops unknown tags but keeps their text, so leaving these in means the bot
+  # posts its drafts and self-critique to the forum ahead of the real answer.
+  @reasoning_tags ~w(thought think reasoning antml:thinking)
+
+  defp strip_reasoning(content) when is_binary(content) do
+    @reasoning_tags
+    |> Enum.reduce(content, fn tag, acc ->
+      acc
+      # Complete blocks.
+      |> then(&Regex.replace(~r{<#{tag}>.*?</#{tag}>}is, &1, ""))
+      # An unclosed block means the reply was cut off mid-thought (max_tokens):
+      # everything from the tag on is reasoning, and none of it is an answer.
+      |> then(&Regex.replace(~r{<#{tag}>.*}is, &1, ""))
+    end)
+    |> String.trim()
+  end
+
+  defp strip_reasoning(other), do: other
+
   defp get_provider_config(provider) do
     case Map.get(providers(), provider) do
       nil -> {:error, "proveedor no soportado: #{provider}"}
@@ -116,11 +137,24 @@ defmodule Colloq.Llm do
     case Req.post("#{base_url}/chat/completions",
            json: body,
            headers: headers,
-           receive_timeout: 30_000,
+           # Reasoning models (Gemma 4, DeepSeek R1) think before writing and
+           # routinely take 45-70s; the old 30s cap turned those into
+           # TransportError timeouts that looked like the bot ignoring you.
+           receive_timeout: Map.get(opts, :receive_timeout, 120_000),
            connect_options: [timeout: 10_000]
          ) do
-      {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => content}} | _]}}} ->
-        {:ok, %{content: content}}
+      {:ok, %{status: 200, body: %{"choices" => [choice | _]}}} ->
+        # finish_reason is surfaced (not pattern-matched) because providers
+        # omit it in some responses — and a caller can't tell a complete reply
+        # from one cut off at max_tokens without it. "length" means truncated.
+        case choice |> get_in(["message", "content"]) |> strip_reasoning() do
+          content when is_binary(content) and content != "" ->
+            {:ok, %{content: content, finish_reason: Map.get(choice, "finish_reason")}}
+
+          _ ->
+            Logger.error("LLM devolvió una respuesta sin contenido: #{inspect(choice)}")
+            {:error, :empty_response}
+        end
 
       {:ok, %{status: 429}} ->
         Logger.warning("LLM rate limited en #{base_url}")

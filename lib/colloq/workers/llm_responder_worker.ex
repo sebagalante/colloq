@@ -33,8 +33,20 @@ defmodule Colloq.Workers.LlmResponderWorker do
 
     messages = build_messages(persona, post, topic, bot_config)
 
-    case Llm.complete(provider, messages, %{model: model}) do
-      {:ok, %{content: reply_body}} ->
+    # Left at Llm's 1024 default, replies were coming back cut mid-sentence.
+    # Reasoning models spend part of this budget before writing a word, so the
+    # visible answer can end up far shorter than the number suggests.
+    max_tokens = int_config(bot_config, "max_tokens", 2048)
+
+    case Llm.complete(provider, messages, %{model: model, max_tokens: max_tokens}) do
+      {:ok, %{content: reply_body} = response} ->
+        if response[:finish_reason] == "length" do
+          Logger.warning(
+            "LLM responder: respuesta truncada por max_tokens (#{max_tokens}) " <>
+              "para #{persona_slug}. Subí max_tokens en la config del bot."
+          )
+        end
+
         case Repo.get_by(Colloq.Accounts.User, username: persona_slug) do
           nil ->
             Logger.warning("LLM responder: no existe usuario para persona #{persona_slug}")
@@ -72,6 +84,41 @@ defmodule Colloq.Workers.LlmResponderWorker do
 
   defp maybe_web_search(model, _provider, _bot_config), do: model
 
+  # The admin bot form saves the prompt under "system_prompt", but this worker
+  # only ever read "personality" — so every prompt written through the UI was
+  # silently dropped and the bot answered with the generic fallback below.
+  # "personality" is still honoured for rows created before the form existed.
+  defp persona_prompt(bot_config) do
+    presence(bot_config["system_prompt"]) || presence(bot_config["personality"]) ||
+      "Sos un asistente útil y amable."
+  end
+
+  defp presence(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp presence(_), do: nil
+
+  # Bot config comes from JSON, so a number may arrive as a string.
+  defp int_config(config, key, default) do
+    case Map.get(config, key) do
+      n when is_integer(n) and n > 0 ->
+        n
+
+      s when is_binary(s) ->
+        case Integer.parse(s) do
+          {n, _} when n > 0 -> n
+          _ -> default
+        end
+
+      _ ->
+        default
+    end
+  end
+
   defp build_messages(persona, trigger_post, topic, bot_config) do
     system_prompt = build_system_prompt(persona, bot_config)
 
@@ -87,7 +134,7 @@ defmodule Colloq.Workers.LlmResponderWorker do
 
   defp build_system_prompt(persona, bot_config) do
     persona_name = Map.get(bot_config, "display_name", persona.name)
-    persona_personality = Map.get(bot_config, "personality", "Sos un asistente útil y amable.")
+    persona_personality = persona_prompt(bot_config)
 
     """
     #{persona_personality}

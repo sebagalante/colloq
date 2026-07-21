@@ -65,6 +65,7 @@ defmodule ColloqWeb.Router do
     live "/", ForumLive.Index, :index
     live "/c/:slug", ForumLive.Index, :category
     live "/tag/:slug", ForumLive.Index, :tag
+    live "/tags", TagsLive, :index
     live "/t/:id", ForumLive.Topic, :show
     live "/t/:id/:slug", ForumLive.Topic, :show
     live "/u/:username", UserLive.Profile, :show

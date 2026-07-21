@@ -174,4 +174,93 @@
       <% end %>
     </.card>
   </div>
+
+  <%!-- Background jobs. Oban telemetry only exists while you are watching it;
+        this reads persisted job state, so a worker that died overnight is
+        still visible in the morning. --%>
+  <.card>
+    <div class="flex items-baseline justify-between gap-3 mb-4">
+      <h3 class="text-lg font-semibold text-heading"><%= gettext("Background jobs") %></h3>
+      <span class="text-xs text-muted">
+        <%= gettext("last %{days} days", days: @range_days) %>
+      </span>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+      <div class="rounded-lg bg-surface-alt border border-border px-3 py-2">
+        <div class="text-xs text-muted"><%= gettext("Workers") %></div>
+        <div class="text-xl font-bold text-heading tabular-nums"><%= @worker_totals.workers %></div>
+      </div>
+      <div class="rounded-lg bg-surface-alt border border-border px-3 py-2">
+        <div class="text-xs text-muted"><%= gettext("Completed") %></div>
+        <div class="text-xl font-bold text-heading tabular-nums"><%= @worker_totals.completed %></div>
+      </div>
+      <div class="rounded-lg bg-surface-alt border border-border px-3 py-2">
+        <div class="text-xs text-muted"><%= gettext("Pending") %></div>
+        <div class="text-xl font-bold text-heading tabular-nums"><%= @worker_totals.pending %></div>
+      </div>
+      <%!-- Discarded is the number that matters: Oban gave up and the work is
+            gone. Coloured only when non-zero so a healthy board stays calm. --%>
+      <div class={[
+        "rounded-lg border px-3 py-2",
+        (@worker_totals.discarded > 0 && "bg-danger-soft border-danger") || "bg-surface-alt border-border"
+      ]}>
+        <div class="text-xs text-muted"><%= gettext("Discarded") %></div>
+        <div class={[
+          "text-xl font-bold tabular-nums",
+          (@worker_totals.discarded > 0 && "text-danger") || "text-heading"
+        ]}>
+          <%= @worker_totals.discarded %>
+        </div>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs uppercase tracking-wide text-muted border-b border-border">
+            <th class="text-left font-semibold py-2 pr-3"><%= gettext("Worker") %></th>
+            <th class="text-right font-semibold py-2 px-2"><%= gettext("Total") %></th>
+            <th class="text-right font-semibold py-2 px-2"><%= gettext("Done") %></th>
+            <th class="text-right font-semibold py-2 px-2"><%= gettext("Pending") %></th>
+            <th class="text-right font-semibold py-2 px-2"><%= gettext("Retrying") %></th>
+            <th class="text-right font-semibold py-2 pl-2"><%= gettext("Discarded") %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={w <- @worker_health} class="border-b border-border/60 last:border-0">
+            <td class="py-1.5 pr-3 text-body font-medium whitespace-nowrap"><%= w.worker %></td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-muted"><%= w.total %></td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-muted"><%= w.completed %></td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-muted"><%= w.pending %></td>
+            <td class={["py-1.5 px-2 text-right tabular-nums", (w.retryable > 0 && "text-warning font-semibold") || "text-muted"]}>
+              <%= w.retryable %>
+            </td>
+            <td class={["py-1.5 pl-2 text-right tabular-nums", (w.discarded > 0 && "text-danger font-bold") || "text-muted"]}>
+              <%= w.discarded %>
+            </td>
+          </tr>
+          <tr :if={@worker_health == []}>
+            <td colspan="6" class="py-4 text-center text-muted text-sm">
+              <%= gettext("No jobs ran in this period.") %>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div :if={@worker_failures != []} class="mt-5 pt-4 border-t border-border">
+      <h4 class="text-sm font-semibold text-heading mb-2"><%= gettext("Recent failures") %></h4>
+      <div class="space-y-2">
+        <div :for={f <- @worker_failures} class="rounded-lg bg-surface-alt border border-border px-3 py-2">
+          <div class="flex items-baseline justify-between gap-2">
+            <span class="text-sm font-medium text-body"><%= f.worker %></span>
+            <span class="text-xs text-muted whitespace-nowrap"><%= f.attempt %> <%= gettext("attempts") %></span>
+          </div>
+          <div :if={f.args != ""} class="text-xs text-muted mt-0.5 truncate"><%= f.args %></div>
+          <div class="text-xs text-danger mt-1 break-words"><%= f.error %></div>
+        </div>
+      </div>
+    </div>
+  </.card>
 </section>

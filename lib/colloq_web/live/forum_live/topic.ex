@@ -78,8 +78,13 @@ defmodule ColloqWeb.ForumLive.Topic do
       |> assign(:edit_title, topic.title)
       |> assign(:edit_category_id, topic.category_id)
       |> assign(:edit_tags, "")
+      # Match-thread editor (staff only; fixtures loaded lazily on edit)
+      |> assign(:can_manage_match, Colloq.Permissions.can?(current_user, :start_match_bot))
+      |> assign(:match_fixtures, [])
       # Match mode flag inherited from the topic (e.g. live-match vs static)
       |> assign(:match_mode, topic.match_mode)
+      # Score banner data for match threads (nil everywhere else)
+      |> assign_match_banner(topic)
       # AI-generated summary (persisted on the topic; loaded below)
       |> assign(:summary, nil)
       |> assign(:summary_at, nil)
@@ -175,6 +180,21 @@ defmodule ColloqWeb.ForumLive.Topic do
   end
 
   @impl true
+  # Fired by the PostImpression hook when a post scrolls into view.
+  def handle_event("view-post", %{"id" => id}, socket) do
+    viewer = socket.assigns.current_user
+
+    with {post_id, _} <- Integer.parse(to_string(id)),
+         %Colloq.Forum.Post{} = post <- Enum.find(flatten_posts(socket.assigns.posts), &(&1.id == post_id)),
+         # Reading your own post is not a view: counting it would let anyone
+         # inflate their own profile just by scrolling their history.
+         true <- is_nil(viewer) or viewer.id != post.user_id do
+      Forum.increment_post_view(post)
+    end
+
+    {:noreply, socket}
+  end
+
   def handle_event("toggle-sort", _params, socket) do
     next = if socket.assigns.sort == :top, do: :chrono, else: :top
     {:noreply, assign(socket, :sort, next)}
@@ -280,6 +300,7 @@ defmodule ColloqWeb.ForumLive.Topic do
       {:noreply,
        socket
        |> assign(:editing_topic, true)
+       |> assign(:match_fixtures, load_match_fixtures(socket.assigns.can_manage_match))
        |> assign(:edit_title, socket.assigns.topic.title)
        |> assign(:edit_category_id, socket.assigns.topic.category_id)
        |> assign(:edit_tags, current_tag_string(socket))}
@@ -431,6 +452,7 @@ defmodule ColloqWeb.ForumLive.Topic do
 
       case Forum.update_topic(topic, attrs, opts) do
         {:ok, _} ->
+          maybe_update_match_thread(topic, params, socket.assigns.can_manage_match)
           topic = Forum.get_topic!(topic.id, socket.assigns.blocked_user_ids)
 
           {:noreply,
@@ -553,7 +575,7 @@ defmodule ColloqWeb.ForumLive.Topic do
           {:noreply,
            put_flash(socket, :error, gettext("You can't react to your own comment."))}
 
-        _ ->
+        result ->
           user_reactions =
             Map.put(
               socket.assigns.user_reactions,
@@ -561,7 +583,20 @@ defmodule ColloqWeb.ForumLive.Topic do
               Reactions.user_reactions(post_id, user.id)
             )
 
-          {:noreply, assign(socket, :user_reactions, user_reactions)}
+          socket = assign(socket, :user_reactions, user_reactions)
+
+          # Tell the client to burst *this* pill. Only on add — removing a
+          # reaction shouldn't celebrate. Pushed events are dispatched after
+          # the DOM patch, so a pill created by this same diff is mounted and
+          # listening by the time it arrives.
+          socket =
+            if match?({:ok, :added, _}, result) do
+              push_event(socket, "reaction:burst", %{post_id: post_id, emoji: emoji})
+            else
+              socket
+            end
+
+          {:noreply, socket}
       end
     else
       {:noreply, socket}
@@ -1084,6 +1119,12 @@ defmodule ColloqWeb.ForumLive.Topic do
      |> assign(:reaction_data, Map.put(socket.assigns.reaction_data, post_id, counts))}
   end
 
+  # ResultaBot pushes the score with every poll, so the banner updates without
+  # the page doing its own polling — and without a refresh.
+  def handle_info(%{event: "match_score", payload: %{match: match}}, socket) do
+    {:noreply, assign(socket, :match, match)}
+  end
+
   def handle_info(%{event: "match_event", payload: _payload}, socket) do
     topic = Forum.get_topic!(socket.assigns.topic.id)
 
@@ -1185,6 +1226,61 @@ defmodule ColloqWeb.ForumLive.Topic do
 
   defp already_rendered?(posts, post_id) do
     posts |> flatten_posts() |> Enum.any?(&(&1.id == post_id))
+  end
+
+  # Match threads carry a Sofascore event id; anything else has no banner.
+  # A failed fetch is not fatal — the thread still renders, just without the
+  # score bar, which beats 500-ing a live match thread because an unofficial
+  # API blipped.
+  defp assign_match_banner(socket, %{is_match_thread: true, match_id: match_id})
+       when is_binary(match_id) and match_id != "" do
+    case Integer.parse(match_id) do
+      {event_id, _} ->
+        case Colloq.Sofascore.event(event_id) do
+          {:ok, event} -> assign(socket, :match, Colloq.Sofascore.match_summary(event))
+          {:error, _} -> assign(socket, :match, nil)
+        end
+
+      :error ->
+        assign(socket, :match, nil)
+    end
+  end
+
+  defp assign_match_banner(socket, _topic), do: assign(socket, :match, nil)
+
+  # Racing's upcoming fixtures for the picker. Only fetched for someone who can
+  # actually use it, and never fatal: a Sofascore blip should leave the topic
+  # editor working, just without the dropdown.
+  defp load_match_fixtures(false), do: []
+
+  defp load_match_fixtures(true) do
+    Colloq.Sofascore.upcoming_fixtures(Colloq.Sofascore.racing_team_id())
+  rescue
+    _ -> []
+  end
+
+  # Match-thread fields are staff-only and live outside update_topic/3, which
+  # handles title/category/tags. Unticking the box clears the fixture too —
+  # otherwise a stale match_id stays behind and ResultaBot would still accept
+  # /resultabot in a thread no longer marked as a match.
+  defp maybe_update_match_thread(_topic, _params, false), do: :ok
+
+  defp maybe_update_match_thread(topic, params, true) do
+    match? = params["is_match_thread"] == "on"
+    match_id = String.trim(params["match_id"] || "")
+
+    attrs =
+      if match? and match_id != "" do
+        %{
+          is_match_thread: true,
+          match_id: match_id,
+          match_mode: topic.match_mode || "prematch"
+        }
+      else
+        %{is_match_thread: false, match_id: nil, match_mode: nil}
+      end
+
+    topic |> Ecto.Changeset.change(attrs) |> Repo.update()
   end
 
   defp load_user(session) do
@@ -1489,7 +1585,7 @@ defmodule ColloqWeb.ForumLive.Topic do
 
     img =
       if e.image_url && e.image_url != "" do
-        ~s(<img src="#{esc.(e.image_url)}" alt="" class="w-28 sm:w-40 object-cover flex-shrink-0 self-stretch bg-surface" loading="lazy" />)
+        ~s(<img src="#{esc.(e.image_url)}" alt="" class="link-card-img w-28 sm:w-40 object-cover flex-shrink-0 self-stretch bg-surface" loading="lazy" />)
       else
         ""
       end
@@ -1618,12 +1714,52 @@ defmodule ColloqWeb.ForumLive.Topic do
 
   # Turn bare http(s) URLs into clickable links (skips ones already in an attribute/tag).
   defp autolink(text) do
-    Regex.replace(
-      ~r{(?<!["'=>])(https?://[^\s<>"']+)},
-      text,
-      ~s(<a href="\\1" target="_blank" rel="noopener noreferrer">\\1</a>)
-    )
+    Regex.replace(~r{(?<!["'=>])(https?://[^\s<>"']+)}, text, fn _full, url ->
+      # The pattern runs to the next space, so sentence punctuation and a
+      # closing bracket get swallowed into the href: a URL ending a sentence
+      # linked to "…/page." (404), and a URL inside parentheses — including
+      # the `[label](url)` markdown the LLM bots emit — linked to "…/page)".
+      {url, trailing} = split_trailing_punctuation(url)
+
+      ~s(<a href="#{url}" target="_blank" rel="noopener noreferrer">#{url}</a>) <> trailing
+    end)
   end
+
+  # Punctuation that can never end a URL, peeled off the tail and returned so
+  # the caller can re-emit it as plain text after the link.
+  @url_trailing_punctuation ~w(. , ; : ! ? " ')
+
+  # Brackets are only trailing punctuation when they're unbalanced. A wiki URL
+  # like /wiki/Estadio_(Boca) closes what it opened and must stay intact; the
+  # ) in markdown's [label](url) has no opener inside the URL, so it goes.
+  @url_brackets %{")" => "(", "]" => "[", "}" => "{"}
+
+  defp split_trailing_punctuation(url, trailing \\ "") do
+    last = String.last(url)
+
+    cond do
+      last == nil ->
+        {url, trailing}
+
+      last in @url_trailing_punctuation ->
+        url |> chop() |> split_trailing_punctuation(last <> trailing)
+
+      Map.has_key?(@url_brackets, last) and unbalanced_bracket?(url, last) ->
+        url |> chop() |> split_trailing_punctuation(last <> trailing)
+
+      true ->
+        {url, trailing}
+    end
+  end
+
+  defp chop(str), do: String.slice(str, 0, String.length(str) - 1)
+
+  defp unbalanced_bracket?(url, closing) do
+    opening = Map.fetch!(@url_brackets, closing)
+    count(url, closing) > count(url, opening)
+  end
+
+  defp count(str, char), do: str |> String.graphemes() |> Enum.count(&(&1 == char))
 
   # Turn @username into a link to the user's profile. The negative lookbehind
   # avoids touching emails (foo@bar) and anything already inside a URL/attribute.
@@ -2084,15 +2220,41 @@ defmodule ColloqWeb.ForumLive.Topic do
   # --- Reply sorting ("Top replies") ----------------------------------------
 
   # Orders the top-level posts for display. `:top` pins the opening post and
-  # ranks the rest by reactions (`reactions_count`, kept in sync by
-  # Colloq.Reactions), most points first; `:chrono` (default) leaves them in
-  # posting order. Nested replies keep their own order in both modes so the
+  # ranks the rest by engagement, most first; `:chrono` (default) leaves them
+  # in posting order. Nested replies keep their own order in both modes so the
   # threading stays intact.
   def sorted_posts([op | rest], :top) do
-    [op | Enum.sort_by(rest, &(&1.reactions_count || 0), :desc)]
+    [op | Enum.sort_by(rest, &top_score/1, :desc)]
   end
 
   def sorted_posts(posts, _sort), do: posts
+
+  # Ranking key for `:top`, compared as a tuple (left to right, highest wins).
+  #
+  # Reactions alone rank badly in practice: on a real thread only a handful of
+  # posts have any, and they nearly all sit at exactly 1 — so the sort became
+  # "move a few posts up, leave the rest alone" and read as broken. The extra
+  # terms break those ties with signals that already exist on the tree.
+  #
+  #   1. own reactions      — the post's own score stays dominant, so the
+  #                           button keeps meaning what its label says
+  #   2. thread reactions   — reactions on descendants: a reply that started a
+  #                           busy subthread outranks an equally-liked dead end
+  #   3. reply count        — engagement even when nobody reacted
+  #
+  # Ties fall through to Enum.sort_by's stability, which leaves equal posts in
+  # posting order — the chronological order they already had.
+  defp top_score(post) do
+    {post.reactions_count || 0, thread_reactions(post.replies), count_replies(post.replies)}
+  end
+
+  # Total reactions across every descendant of a post (the post itself excluded
+  # — that's term 1 above, and it must not be double-counted).
+  defp thread_reactions(replies) do
+    replies
+    |> flatten_posts()
+    |> Enum.reduce(0, fn reply, acc -> acc + (reply.reactions_count || 0) end)
+  end
 
   # Distinct participants (users), ordered by their number of posts descending
   # so the most active people show first in the avatar strip.
@@ -2237,12 +2399,20 @@ defmodule ColloqWeb.ForumLive.Topic do
     # Shown whether the URL is quoted or not (quoted links get a preview too).
     body = assigns.post.body || ""
 
+    # Match against the DECODED body. Embed URLs are stored decoded, while the
+    # body keeps them HTML-escaped — so a link with a query string lives in the
+    # markup as "?a=1&amp;b=2" and never matched "?a=1&b=2". Every URL carrying
+    # an ampersand was silently dropped here and rendered without a card.
+    # (The quoted/unquoted split below already decoded for this same reason;
+    # this filter was missed.)
+    decoded_body = Colloq.Workers.EmbedWorker.decode_entities(body)
+
     og_embeds =
       case assigns.post.embeds do
         list when is_list(list) ->
           list
           |> Enum.reject(&(&1.url in provider_urls))
-          |> Enum.filter(&String.contains?(body, &1.url))
+          |> Enum.filter(&String.contains?(decoded_body, &1.url))
           |> Enum.map(&%{type: :og, url: &1.url, data: &1})
 
         _ ->
@@ -2256,7 +2426,7 @@ defmodule ColloqWeb.ForumLive.Topic do
     # written "?a=1&b=2" lives in the HTML as "&amp;"), so matching the raw
     # markup would miss every URL containing an ampersand and file it as
     # "quoted" by mistake.
-    unquoted = body |> strip_blockquotes() |> Colloq.Workers.EmbedWorker.decode_entities()
+    unquoted = decoded_body |> strip_blockquotes()
     {quoted_og, outer_og} = Enum.split_with(og_embeds, &(not String.contains?(unquoted, &1.url)))
     below_embeds = provider_embeds ++ outer_og
 
@@ -2284,7 +2454,15 @@ defmodule ColloqWeb.ForumLive.Topic do
       <%= gettext("New replies") %>
       <span class="h-px flex-1 bg-accent/40"></span>
     </div>
-    <div id={"post-#{@post.id}"} class="group py-4 border-b border-border last:border-b-0 scroll-mt-24">
+    <%!-- PostImpression reports the post as seen once it is half on screen.
+          The hook and Forum.increment_post_view/1 both already existed but were
+          never connected to each other, so every profile read "Views 0". --%>
+    <div
+      id={"post-#{@post.id}"}
+      phx-hook="PostImpression"
+      data-post-id={@post.id}
+      class="group py-4 border-b border-border last:border-b-0 scroll-mt-24"
+    >
       <div class={[!@nested && "flex gap-4"]}>
         <%!-- Big avatar gutter — top-level post only --%>
         <div :if={!@nested} class="flex-shrink-0">
@@ -2406,9 +2584,11 @@ defmodule ColloqWeb.ForumLive.Topic do
             </div>
           </form>
 
-          <.goal_alert :if={@post.system_type == "goal" && @post.event_data}
-            player={@post.event_data[:player] || @post.event_data["player"] || gettext("Player")}
-            minute={@post.event_data[:minute] || @post.event_data["minute"] || 0}
+          <%!-- Live match events (ResultaBot) render as a highlighted inline
+                card so a goal is unmistakable while scrolling the thread. --%>
+          <.match_event_card
+            :if={@post.system_type in ["goal", "card"] && @post.event_data}
+            event={@post.event_data}
           />
 
           <.standings_table :if={@post.system_type == "standings" && @post.event_data} data={@post.event_data} />

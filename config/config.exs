@@ -3,6 +3,11 @@ import Config
 # General application configuration — compile-time only.
 # Runtime config lives in runtime.exs. Secrets NEVER go here.
 
+# Real timezone data. Elixir ships a UTC-only database by default, under which
+# every DateTime.shift_zone!(…, "America/Argentina/Buenos_Aires") raises — which
+# is what stopped the fixture digest from ever publishing.
+config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
+
 config :colloq,
   ecto_repos: [Colloq.Repo],
   generators: [timestamp_type: :utc_datetime_usec],

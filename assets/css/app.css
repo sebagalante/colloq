@@ -238,8 +238,37 @@ body {
 .emoji-choice { transition: transform 0.12s ease; }
 .emoji-choice:hover { animation: emoji-wiggle 0.4s ease; }
 
+/* Count bump — replayed by the ReactionPill hook whenever the number changes,
+   since morphdom reuses the pill and mount animations never re-fire. */
+@keyframes reaction-bump {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+.reaction-bump {
+  display: inline-block;
+  animation: reaction-bump 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Emoji burst — clones of the pill's emoji fly out when you add a reaction.
+   Pointer-events off so they never eat a follow-up click on the pill. */
+@keyframes reaction-burst {
+  0% { transform: translate(0, 0) scale(0.6); opacity: 0; }
+  25% { opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(1.1); opacity: 0; }
+}
+.reaction-particle {
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  pointer-events: none;
+  z-index: 10;
+  animation: reaction-burst 0.6s ease-out forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .reaction-pill, .emoji-choice:hover { animation: none; }
+  .reaction-pill, .emoji-choice:hover, .reaction-bump { animation: none; }
+  .reaction-particle { display: none; }
 }
 
 /* =========================================================================
@@ -1040,7 +1069,11 @@ h1 img.custom-emoji, h2 img.custom-emoji, h3 img.custom-emoji {
   height: auto;
 }
 
-.prose blockquote img:not(.emoji):not(.custom-emoji) {
+/* Sizes a user's own image inside a quote. Link-preview thumbnails are
+   excluded: this rule's `width: auto` beat their Tailwind width class on
+   specificity, so an onebox quoted inside a blockquote rendered as one giant
+   image instead of a card. */
+.prose blockquote img:not(.emoji):not(.custom-emoji):not(.link-card-img) {
   max-height: 20rem;
   width: auto;
   object-fit: contain;

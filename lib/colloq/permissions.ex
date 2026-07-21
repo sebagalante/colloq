@@ -41,6 +41,11 @@ defmodule Colloq.Permissions do
     manage_badges:         ["admin", "super_admin"],
     manage_automations:    ["admin", "super_admin"],
     manage_bots:           ["admin", "super_admin"],
+    # Starting ResultaBot's live polling on a match thread. Moderators are
+    # included because it is a match-day operational action, not a config
+    # change — and someone has to be able to start it at kickoff on a Sunday.
+    # Non-staff can also be designated via the `resultabot_operators` setting.
+    start_match_bot:       ["moderator", "admin", "super_admin"],
 
     # Settings & Config
     view_settings:         ["admin", "super_admin"],
