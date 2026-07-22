@@ -26,10 +26,28 @@
             </div>
           </div>
 
-          <div class="flex items-center gap-2">
-            <.badge color={if persona.active, do: "green", else: "gray"}>
-              <%= if persona.active, do: gettext("Active"), else: gettext("Inactive") %>
-            </.badge>
+          <div class="flex items-center gap-3">
+            <%!-- On/Off switch — flips the bot live without opening the editor. --%>
+            <label class="inline-flex items-center gap-2 cursor-pointer" title={gettext("Toggle bot on/off")}>
+              <span class={[
+                "text-xs font-medium w-7 text-right",
+                if(persona.active, do: "text-success", else: "text-muted")
+              ]}>
+                <%= if persona.active, do: gettext("On"), else: gettext("Off") %>
+              </span>
+              <span class="relative inline-flex items-center">
+                <input
+                  type="checkbox"
+                  checked={persona.active}
+                  phx-click="toggle-active"
+                  phx-value-id={persona.id}
+                  class="sr-only peer"
+                />
+                <span class="w-9 h-5 bg-border peer-checked:bg-success rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-full">
+                </span>
+              </span>
+            </label>
+
             <button phx-click="edit" phx-value-id={persona.id} class="text-muted hover:text-heading text-sm">
               <%= gettext("Edit") %>
             </button>

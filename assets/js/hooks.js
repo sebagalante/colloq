@@ -141,7 +141,12 @@ window.addEventListener("phx:set-theme", (e) => applyTheme(e.detail && e.detail.
 // Instant client-side preview when picking a theme in Settings.
 Hooks.ThemePreview = {
   mounted() {
-    this.el.addEventListener("change", () => applyTheme(this.el.value));
+    // Reads the event target so this works whether the hook sits on a <select>
+    // or on a wrapper around a group of radio inputs.
+    this.el.addEventListener("change", (e) => {
+      const value = e.target && e.target.value;
+      if (value) applyTheme(value);
+    });
   }
 };
 
@@ -318,10 +323,24 @@ Hooks.TopicTimeline = {
     const ES_MONTHS = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
     const startMs = Date.parse(el.dataset.tlStart || "") || null;
     const endMs = Date.parse(el.dataset.tlEnd || "") || startMs;
+
+    // Format in the site's display timezone, not the viewer's. getDate() reads
+    // local time, so a reader outside Argentina — or inside it, for a post made
+    // late at night — saw a thumb date a day off from the labels above and
+    // below it, which the server renders in the site zone.
+    const tz = el.dataset.tlTz || "UTC";
+    const dayFmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
     const dateAt = (frac) => {
       if (!startMs) return "";
       const d = new Date(startMs + (endMs - startMs) * frac);
-      return `${d.getDate()} ${ES_MONTHS[d.getMonth()]}`;
+      // en-CA is stable YYYY-MM-DD, so this parse doesn't depend on the locale.
+      const [, month, day] = dayFmt.format(d).split("-");
+      return `${parseInt(day, 10)} ${ES_MONTHS[parseInt(month, 10) - 1]}`;
     };
 
     const docHeight = () => document.documentElement.scrollHeight - window.innerHeight;

@@ -2288,23 +2288,8 @@ defmodule ColloqWeb.ForumLive.Topic do
     |> length()
   end
 
-  def initials(user) do
-    name = user.display_name || user.username
-    String.slice(name, 0..0) |> String.upcase()
-  end
-
-  def avatar_class(user) do
-    colors = %{
-      blue: "bg-blue-600",
-      green: "bg-green-600",
-      red: "bg-red-600",
-      amber: "bg-amber-600",
-      purple: "bg-purple-600"
-    }
-
-    idx = :erlang.phash2(user.id, map_size(colors))
-    colors |> Map.values() |> Enum.at(idx)
-  end
+  # initials/1 and avatar_class/1 now live in CoreComponents so the forum index
+  # facepile and the topic page render the same colours for a given user.
 
   def trust_badge_color(level) do
     case level do

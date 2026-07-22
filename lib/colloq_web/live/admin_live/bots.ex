@@ -56,6 +56,31 @@ defmodule ColloqWeb.AdminLive.Bots do
   @impl true
   def handle_event("validate", _params, socket), do: {:noreply, socket}
 
+  def handle_event("toggle-active", %{"id" => id}, socket) do
+    persona = Enum.find(socket.assigns.personas, &(&1.id == String.to_integer(id)))
+
+    changeset =
+      persona
+      |> BotSystem.changeset(%{active: !persona.active})
+      |> Map.put(:action, :update)
+
+    case Repo.update(changeset) do
+      {:ok, updated} ->
+        flash =
+          if updated.active,
+            do: gettext("%{name} is on.", name: updated.name),
+            else: gettext("%{name} is off.", name: updated.name)
+
+        {:noreply,
+         socket
+         |> assign(:personas, replace_in_list(socket.assigns.personas, updated))
+         |> put_flash(:info, flash)}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, gettext("Could not update the bot."))}
+    end
+  end
+
   def handle_event("delete", %{"id" => id}, socket) do
     persona = Enum.find(socket.assigns.personas, &(&1.id == String.to_integer(id)))
 
@@ -246,11 +271,6 @@ defmodule ColloqWeb.AdminLive.Bots do
       "managed_by_worker" => attrs["managed_by_worker"] == "true"
     }
   end
-
-  def upload_error_to_string(:too_large), do: gettext("File too large (max 2MB).")
-  def upload_error_to_string(:not_accepted), do: gettext("File type not allowed.")
-  def upload_error_to_string(:too_many_files), do: gettext("Only one image allowed.")
-  def upload_error_to_string(_), do: gettext("Upload error.")
 
   # Uploads the chosen avatar to Media and returns its URL, or nil if none.
   defp consume_avatar(socket) do

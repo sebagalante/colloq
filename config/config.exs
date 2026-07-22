@@ -8,6 +8,11 @@ import Config
 # is what stopped the fixture digest from ever publishing.
 config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
 
+# The zone every user-facing date is rendered in. Timestamps are stored in UTC,
+# so anything formatted straight off a DateTime shows UTC — which is a day off
+# for the three hours either side of UTC midnight.
+config :colloq, :display_timezone, "America/Argentina/Buenos_Aires"
+
 config :colloq,
   ecto_repos: [Colloq.Repo],
   generators: [timestamp_type: :utc_datetime_usec],

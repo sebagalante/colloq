@@ -24,7 +24,7 @@ defmodule ColloqWeb.UserLive.TwoFactor do
           |> assign(:user, user)
           |> assign(:code, "")
           |> assign(:use_backup, false)
-          |> assign(:page_title, "Verificación de dos pasos")
+          |> assign(:page_title, gettext("Two-factor verification"))
 
         {:ok, socket}
     end
@@ -40,7 +40,7 @@ defmodule ColloqWeb.UserLive.TwoFactor do
     code = String.trim(code)
 
     if code == "" do
-      {:noreply, put_flash(socket, :error, "Ingresá el código.")}
+      {:noreply, put_flash(socket, :error, gettext("Enter the code."))}
     else
       case Accounts.verify_totp(user, code) do
         :ok ->
@@ -54,11 +54,10 @@ defmodule ColloqWeb.UserLive.TwoFactor do
           token = Phoenix.Token.sign(ColloqWeb.Endpoint, "2fa_complete", user.id)
           {:noreply, redirect(socket, to: ~p"/session/2fa/complete?#{[token: token]}")}
 
+        # verify_totp/2 folds replay (NimbleTOTP `since:`) into :invalid_code,
+        # so there is no separate :code_already_used to match on.
         {:error, :invalid_code} ->
-          {:noreply, put_flash(socket, :error, "Código incorrecto. Probá de nuevo.")}
-
-        {:error, :code_already_used} ->
-          {:noreply, put_flash(socket, :error, "Este código ya fue usado. Usá el siguiente.")}
+          {:noreply, put_flash(socket, :error, gettext("Incorrect code. Try again."))}
       end
     end
   end
@@ -79,12 +78,12 @@ defmodule ColloqWeb.UserLive.TwoFactor do
     ~H"""
     <div class="max-w-md mx-auto mt-12 px-4">
       <div class="mb-6 text-center">
-        <h1 class="text-2xl font-bold text-heading">Verificación de dos pasos</h1>
+        <h1 class="text-2xl font-bold text-heading"><%= gettext("Two-factor verification") %></h1>
         <p class="text-muted text-sm mt-1">
           <%= if @use_backup do %>
-            Ingresá uno de tus códigos de respaldo.
+            <%= gettext("Enter one of your backup codes.") %>
           <% else %>
-            Ingresá el código de 6 dígitos de tu app autenticadora.
+            <%= gettext("Enter the 6-digit code from your authenticator app.") %>
           <% end %>
         </p>
       </div>
@@ -93,7 +92,7 @@ defmodule ColloqWeb.UserLive.TwoFactor do
         <form phx-submit="verify" class="space-y-4">
           <div>
             <label class="block text-sm font-medium text-muted mb-1">
-              <%= if @use_backup, do: "Código de respaldo", else: "Código de verificación" %>
+              <%= if @use_backup, do: gettext("Backup code"), else: gettext("Verification code") %>
             </label>
             <input
               type="text"
@@ -119,11 +118,11 @@ defmodule ColloqWeb.UserLive.TwoFactor do
             phx-click="toggle-backup"
             class="text-sm text-accent hover:text-accent-hover transition-colors"
           >
-            <%= if @use_backup, do: "Usar código de autenticador", else: "Usar código de respaldo" %>
+            <%= if @use_backup, do: gettext("Use authenticator code"), else: gettext("Use backup code") %>
           </button>
 
           <p class="text-xs text-muted">
-            ¿No tenés acceso? <.link href="/login" class="text-accent hover:underline">Volver al login</.link>
+            <%= gettext("Lost access?") %> <.link href="/login" class="text-accent hover:underline"><%= gettext("Back to login") %></.link>
           </p>
         </div>
       </.card>

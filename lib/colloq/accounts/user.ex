@@ -43,6 +43,8 @@ defmodule Colloq.Accounts.User do
     field :oauth_provider, :string
     field :oauth_uid, :string
     field :avatar_url, :string
+    field :profile_header_url, :string
+    field :card_background_url, :string
 
     # Profile
     field :bio, :string
@@ -95,7 +97,8 @@ defmodule Colloq.Accounts.User do
     user
     |> cast(attrs, [
       :username, :display_name, :bio, :location, :website,
-      :theme, :locale, :notifications_enabled, :allow_messages, :avatar_url, :flair
+      :theme, :locale, :notifications_enabled, :allow_messages, :avatar_url, :flair,
+      :profile_header_url, :card_background_url
     ])
     |> validate_length(:display_name, max: 50)
     |> validate_length(:bio, max: 500)

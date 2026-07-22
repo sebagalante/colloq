@@ -15,7 +15,8 @@ defmodule Colloq.Workers.PushNotificationWorker do
 
   require Logger
 
-  @vapid_subject "mailto:no-reply@colloq.ar"
+  # Match events are only interesting live, so let them expire quickly.
+  @ttl_seconds 60
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"event_type" => "goal"} = args}) do
@@ -101,59 +102,56 @@ defmodule Colloq.Workers.PushNotificationWorker do
     :ok
   end
 
+  # Encryption, VAPID headers and the POST are all handled by send_web_push/4.
+  # This used to hand-roll them via WebPushEncryption.encrypt/5, which does not
+  # exist (the library exports encrypt/2 and /3), so every send raised.
   defp send_push(subscription, payload) do
-    vapid_public = Application.get_env(:colloq, :vapid_public_key)
-    vapid_private = Application.get_env(:colloq, :vapid_private_key)
-
-    if vapid_public && vapid_private do
-      message = WebPushEncryption.encrypt(
-        Jason.encode!(payload),
-        %{
-          endpoint: subscription.endpoint,
-          keys: %{
-            p256dh: subscription.p256dh,
-            auth: subscription.auth
-          }
-        },
-        vapid_private,
-        vapid_public,
-        @vapid_subject
-      )
-
-      case message do
-        {:ok, %{body: body, headers: headers}} ->
-          send_to_endpoint(subscription.endpoint, body, headers)
-
-        {:error, reason} ->
-          Logger.error("[PushNotification] Error cifrando mensaje: #{inspect(reason)}")
-      end
+    if vapid_configured?() do
+      subscription
+      |> to_web_push_subscription()
+      |> then(&WebPushEncryption.send_web_push(Jason.encode!(payload), &1, nil, @ttl_seconds))
+      |> handle_push_response(subscription)
     else
       Logger.warning("[PushNotification] VAPID keys no configuradas")
       {:discard, "sin VAPID keys"}
     end
   end
 
-  defp send_to_endpoint(endpoint, body, headers) do
-    case Req.post(endpoint,
-           headers: Map.merge(headers, %{
-             "content-type" => "application/octet-stream",
-             "content-encoding" => "aes128gcm",
-             "ttl" => "60"
-           }),
-           body: body,
-           receive_timeout: 5_000
-         ) do
-      {:ok, %{status: status}} when status in 200..299 ->
+  defp vapid_configured? do
+    case Application.get_env(:web_push_encryption, :vapid_details) do
+      details when is_list(details) ->
+        is_binary(details[:public_key]) and is_binary(details[:private_key])
+
+      _ ->
+        false
+    end
+  end
+
+  defp to_web_push_subscription(subscription) do
+    %{
+      endpoint: subscription.endpoint,
+      keys: %{p256dh: subscription.p256dh, auth: subscription.auth}
+    }
+  end
+
+  defp handle_push_response(response, subscription) do
+    case response do
+      {:ok, %{status_code: status}} when status in 200..299 ->
         :ok
 
-      {:ok, %{status: 410}} ->
-        Logger.info("[PushNotification] Suscripción expirada: #{endpoint}")
+      # 404/410 mean the browser dropped the subscription — stop retrying it.
+      {:ok, %{status_code: status}} when status in [404, 410] ->
+        Logger.info("[PushNotification] Suscripción expirada: #{subscription.endpoint}")
+        PushSubscriptions.unsubscribe(subscription.user_id, subscription.endpoint)
+        :ok
 
-      {:ok, %{status: status}} ->
-        Logger.warning("[PushNotification] Status #{status} para #{endpoint}")
+      {:ok, %{status_code: status}} ->
+        Logger.warning("[PushNotification] Status #{status} para #{subscription.endpoint}")
+        :ok
 
       {:error, reason} ->
         Logger.warning("[PushNotification] Error enviando push: #{inspect(reason)}")
+        :ok
     end
   end
 end

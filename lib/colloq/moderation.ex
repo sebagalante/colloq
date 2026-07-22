@@ -98,6 +98,9 @@ defmodule Colloq.Moderation do
   # Passing the result through unchanged keeps hide/restore's return contract.
   defp tap_resync({:ok, %Post{} = post} = result) do
     Colloq.Forum.resync_post_counts(post)
+    # Hiding/restoring the newest post also shifts "last activity"; keep
+    # bumped_at and last_post_id pointing at the newest visible post.
+    Colloq.Forum.resync_topic_last_post(post.topic_id)
     result
   end
 
@@ -364,6 +367,33 @@ defmodule Colloq.Moderation do
           banned: true,
           banned_at: DateTime.utc_now(),
           ban_reason: reason
+        )
+        |> Repo.update()
+    end
+  end
+
+  @doc """
+  Clears a user's warnings, returning them to good standing.
+
+  Symmetric with `warn_user/3`, so it requires the same `:warn_users`
+  permission. Resets `warnings_count` and the last-warning fields, so
+  `user_status/1` reads `:active` again.
+  Returns `{:ok, user}` or `{:error, reason}`.
+  """
+  def clear_warnings(%User{} = actor, %User{} = user) do
+    cond do
+      not Permissions.can?(actor, :warn_users) ->
+        {:error, :unauthorized}
+
+      not Permissions.can_moderate?(actor, user) ->
+        {:error, :forbidden}
+
+      true ->
+        user
+        |> Ecto.Changeset.change(
+          warnings_count: 0,
+          last_warning_at: nil,
+          last_warning_reason: nil
         )
         |> Repo.update()
     end

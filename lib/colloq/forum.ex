@@ -1056,11 +1056,26 @@ defmodule Colloq.Forum do
         # posts_count and the author's kept counting posts nobody can see.
         resync_post_counts(post)
 
+        # Deleting the newest post left bumped_at (and last_post_id) pointing at
+        # a post nobody can see, so the topic kept showing "now" in the list.
+        # Roll both back to the newest surviving post.
+        resync_topic_last_post(post.topic_id)
+
         # Push the removal to everyone viewing the topic so it disappears in
         # real time instead of lingering until their next reload.
         ColloqWeb.Endpoint.broadcast("forum:topic:#{post.topic_id}", "post_deleted", %{
           post_id: post.id
         })
+
+        # The delete changed the topic's "last activity" and its order in the
+        # list, so tell the index the same way a new reply does — otherwise the
+        # front page shows the stale time until a manual refresh.
+        if topic = Repo.get(Topic, post.topic_id) do
+          ColloqWeb.Endpoint.broadcast("forum:topic_list", "topic_bumped", %{
+            topic_id: topic.id,
+            category_id: topic.category_id
+          })
+        end
 
         ok
 
@@ -1101,6 +1116,44 @@ defmodule Colloq.Forum do
 
       from(u in Colloq.Accounts.User, where: u.id == ^user_id)
       |> Repo.update_all(set: [posts_count: live])
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  @doc """
+  Recompute a topic's `last_post_id` and `bumped_at` from its newest surviving
+  post, so deleting/hiding the last reply rolls "last activity" back instead of
+  freezing on the removed post.
+
+  Idempotent: if the newest post still survives, both values are simply set to
+  what they already were. If nothing survives, `bumped_at` falls back to the
+  topic's creation time and `last_post_id` to nil.
+  """
+  def resync_topic_last_post(topic_id) do
+    last =
+      Repo.one(
+        from p in Post,
+          where: p.topic_id == ^topic_id and is_nil(p.deleted_at),
+          order_by: [desc: p.post_number],
+          limit: 1,
+          select: %{id: p.id, inserted_at: p.inserted_at}
+      )
+
+    topic = Repo.get(Topic, topic_id)
+
+    if topic do
+      {last_post_id, bumped_at} =
+        case last do
+          nil -> {nil, topic.inserted_at}
+          %{id: id, inserted_at: at} -> {id, at}
+        end
+
+      topic
+      |> Ecto.Changeset.change(last_post_id: last_post_id, bumped_at: bumped_at)
+      |> Repo.update()
     end
 
     :ok

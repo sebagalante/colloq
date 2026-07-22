@@ -1,7 +1,10 @@
 defmodule ColloqWeb.UploadController do
   @moduledoc """
-  Image uploads for the composer. Stores files under priv/static/uploads and
-  returns a web path. (Dev-grade local storage; swap for BunnyCDN in prod.)
+  Image uploads for the composer and chat attachments.
+
+  In prod (R2 selected) files go to Cloudflare R2 via `Colloq.Media`; otherwise
+  they're written under priv/static/uploads and served from a local web path,
+  which keeps dev/test working without object-storage credentials.
   """
   use ColloqWeb, :controller
 
@@ -55,15 +58,24 @@ defmodule ColloqWeb.UploadController do
     end
   end
 
-  defp store(%Plug.Upload{path: tmp, filename: name}) do
-    dir = Path.join(:code.priv_dir(:colloq), "static/uploads")
-    File.mkdir_p!(dir)
-
+  defp store(%Plug.Upload{path: tmp, filename: name} = upload) do
     ext = name |> Path.extname() |> String.downcase()
     fname = "#{System.system_time(:millisecond)}-#{:rand.uniform(1_000_000)}#{ext}"
-    File.cp!(tmp, Path.join(dir, fname))
 
-    {:ok, "/uploads/#{fname}"}
+    if Application.get_env(:colloq, :media_storage) == Colloq.Media.R2 do
+      case Colloq.Media.upload(File.read!(tmp),
+             filename: fname,
+             content_type: upload.content_type
+           ) do
+        {:ok, %{url: url}} -> {:ok, url}
+        {:error, reason} -> {:error, "No se pudo subir el archivo: #{inspect(reason)}"}
+      end
+    else
+      dir = Path.join(:code.priv_dir(:colloq), "static/uploads")
+      File.mkdir_p!(dir)
+      File.cp!(tmp, Path.join(dir, fname))
+      {:ok, "/uploads/#{fname}"}
+    end
   rescue
     e -> {:error, Exception.message(e)}
   end

@@ -308,11 +308,6 @@ defmodule ColloqWeb.UserLive.Profile do
     |> String.replace(~r{/$}, "")
   end
 
-  def initials(user) do
-    name = user.display_name || user.username
-    String.slice(name, 0..0) |> String.upcase()
-  end
-
   def trust_level_badge_color(level) do
     case level do
       0 -> "gray"

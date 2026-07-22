@@ -92,15 +92,34 @@ defmodule ColloqWeb do
 
       # Absolute date, no time — dd/mm/yyyy.
       defp es_date(nil), do: ""
-      defp es_date(datetime), do: Calendar.strftime(datetime, "%d/%m/%Y")
+      defp es_date(datetime), do: datetime |> to_display_tz() |> Calendar.strftime("%d/%m/%Y")
 
       # Compact Spanish date like "3 jul" (day + short month, no year).
       defp es_short_date(nil), do: ""
 
       defp es_short_date(datetime) do
         months = ~w(ene feb mar abr may jun jul ago sep oct nov dic)
-        "#{datetime.day} #{Enum.at(months, datetime.month - 1)}"
+        local = to_display_tz(datetime)
+        "#{local.day} #{Enum.at(months, local.month - 1)}"
       end
+
+      @doc false
+      def display_timezone do
+        Application.get_env(:colloq, :display_timezone, "Etc/UTC")
+      end
+
+      # Timestamps are stored in UTC. Reading .day/.month straight off one shows
+      # the UTC date, which is a day ahead for anything between 21:00 and 24:00
+      # local — the timeline scrubber disagreed with its own end labels because
+      # the server formatted UTC while the browser formatted local time.
+      defp to_display_tz(%DateTime{} = datetime) do
+        case DateTime.shift_zone(datetime, display_timezone()) do
+          {:ok, local} -> local
+          {:error, _} -> datetime
+        end
+      end
+
+      defp to_display_tz(%NaiveDateTime{} = naive), do: naive
     end
   end
 

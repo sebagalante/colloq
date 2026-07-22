@@ -1152,3 +1152,62 @@ h1 img.custom-emoji, h2 img.custom-emoji, h3 img.custom-emoji {
     opacity: 1;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Scrollbars
+
+   Every theme block defines --color-scheme and --scrollbar-{thumb,track}, but
+   nothing consumed them, so scrollbars rendered in the browser's native chrome
+   — a light track with stepper arrows sitting inside dark panels.
+
+   `color-scheme` handles Firefox and any native widget we don't style; the
+   WebKit pseudo-elements handle Chrome, where the stepper buttons have to be
+   removed explicitly or they stay.
+   --------------------------------------------------------------------------- */
+:root {
+  color-scheme: var(--color-scheme, dark);
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 6px;
+  /* Inset the thumb so it reads as a pill rather than filling the gutter. */
+  border: 2px solid var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover, var(--scrollbar-thumb));
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
+}
+
+/* The stepper arrows are the ugliest part of the default chrome. */
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* Scrollable regions that shouldn't advertise it — the sidebar and the settings
+   tab strip scroll on overflow, but a visible gutter there is just noise.
+   Content still scrolls by wheel, touch, and keyboard. */
+.scrollbar-none {
+  scrollbar-width: none;      /* Firefox */
+  -ms-overflow-style: none;   /* legacy Edge */
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}

@@ -30,7 +30,7 @@
   <div class="space-y-3">
     <.sofascore_action
       title={gettext("Refresh Racing fixtures")}
-      desc={gettext("Upcoming matches for Racing Club (team 174). Cached 12h.")}
+      desc={gettext("Upcoming matches for Racing Club (team %{id}). Cached 12h.", id: Colloq.Sofascore.racing_team_id())}
       event="refresh-racing-fixtures"
       last={last_run(@last_runs, "racing_fixtures")}
     />
@@ -39,6 +39,12 @@
       desc={gettext("Upcoming matches for every team that has players registered.")}
       event="refresh-all-fixtures"
       last={last_run(@last_runs, "all_fixtures")}
+    />
+    <.sofascore_action
+      title={gettext("Refresh Racing squad")}
+      desc={gettext("Re-fetch just Racing Club's roster (team %{id}) and update the local DB. Adds new signings; existing players are updated.", id: Colloq.Sofascore.racing_team_id())}
+      event="refresh-racing-squad"
+      last={last_run(@last_runs, "racing_squad")}
     />
     <.sofascore_action
       title={gettext("Refresh squads")}

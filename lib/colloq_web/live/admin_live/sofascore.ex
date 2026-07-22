@@ -49,6 +49,11 @@ defmodule ColloqWeb.AdminLive.Sofascore do
     {:noreply, ran(socket, "all_fixtures")}
   end
 
+  def handle_event("refresh-racing-squad", _params, socket) do
+    Sofascore.refresh_squad(Sofascore.racing_team_id())
+    {:noreply, ran(socket, "racing_squad")}
+  end
+
   def handle_event("refresh-squads", _params, socket) do
     Sofascore.refresh_squads()
     {:noreply, ran(socket, "squads")}

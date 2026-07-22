@@ -118,6 +118,9 @@ defmodule ColloqWeb.AdminLive.Users do
         "unsilence" ->
           Moderation.unsilence_user(actor, user)
 
+        "unwarn" ->
+          Moderation.clear_warnings(actor, user)
+
         "reinstate" ->
           Moderation.reinstate_user(actor, user)
 
@@ -136,6 +139,7 @@ defmodule ColloqWeb.AdminLive.Users do
             "suspend" -> gettext("User suspended.")
             "ban" -> gettext("User banned.")
             "unsilence" -> gettext("Silence lifted.")
+            "unwarn" -> gettext("Warnings cleared.")
             "reinstate" -> gettext("User reinstated.")
           end
 

@@ -5,6 +5,7 @@
   data-total={@topic.posts_count}
   data-tl-start={DateTime.to_iso8601(@topic.inserted_at)}
   data-tl-end={DateTime.to_iso8601(@topic.bumped_at || @topic.inserted_at)}
+  data-tl-tz={display_timezone()}
   class="hidden xl:flex fixed top-24 z-30 flex-col items-center gap-2 select-none"
   style="left: 0; visibility: hidden;"
 >

@@ -81,6 +81,13 @@ defmodule Colloq.MixProject do
       # HTTP client
       {:req, "~> 0.5"},
 
+      # Cloudflare R2 (S3-compatible) media storage. ex_aws handles SigV4;
+      # sweet_xml (already present) parses S3 error/list responses.
+      # Pinned to 2.5.x: 2.6+ requires hackney ~> 4.0, which conflicts with the
+      # hackney ~> 1.x that httpoison/swoosh/web_push already depend on.
+      {:ex_aws, "~> 2.5.11"},
+      {:ex_aws_s3, "~> 2.5"},
+
       # Web Push (PWA)
       {:web_push_encryption, "~> 0.3.1"},
 

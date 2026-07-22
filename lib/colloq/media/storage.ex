@@ -2,9 +2,9 @@ defmodule Colloq.Media do
   @moduledoc """
   Media storage behaviour and runtime dispatch.
   
-  Swappable by env:
+  Swappable by env (see runtime.exs, MEDIA_STORAGE):
   - Dev  → Colloq.Media.Imgbb (1h auto-expiry, free at imgbb.com)
-  - Prod → Colloq.Media.Bunny (BunnyCDN storage zone)
+  - Prod → Colloq.Media.R2 (Cloudflare R2, S3-compatible)
   - Test → Colloq.Media.Local (/tmp writes, no HTTP)
   """
 

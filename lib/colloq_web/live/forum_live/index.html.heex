@@ -176,9 +176,12 @@
             />
             <span
               :if={!u.avatar_url}
-              class="w-6 h-6 rounded-full bg-border ring-2 ring-surface flex items-center justify-center text-[10px] font-bold text-muted"
+              class={[
+                "w-6 h-6 rounded-full ring-2 ring-surface flex items-center justify-center text-[10px] font-bold text-white",
+                avatar_class(u)
+              ]}
             >
-              <%= String.slice(u.display_name || u.username, 0..0) |> String.upcase() %>
+              <%= initials(u) %>
             </span>
           </span>
         </div>

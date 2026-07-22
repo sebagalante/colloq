@@ -29,26 +29,44 @@ port = String.to_integer(System.get_env("PORT", "4000"))
 
 # --- Application ---
 # Media storage: swappable per env
+media_adapter = fn
+  "local" -> Colloq.Media.Local
+  "imgbb" -> Colloq.Media.Imgbb
+  "r2" -> Colloq.Media.R2
+  _ -> nil
+end
+
 media_storage =
   case config_env() do
-    :prod ->
-      case System.get_env("MEDIA_STORAGE", "bunny") do
-        "local" -> Colloq.Media.Local
-        "imgbb" -> Colloq.Media.Imgbb
-        "bunny" -> Colloq.Media.Bunny
-        _ -> Colloq.Media.Bunny
-      end
-    :dev ->
-      case System.get_env("MEDIA_STORAGE", "imgbb") do
-        "local" -> Colloq.Media.Local
-        "imgbb" -> Colloq.Media.Imgbb
-        "bunny" -> Colloq.Media.Bunny
-        _ -> Colloq.Media.Imgbb
-      end
+    :prod -> media_adapter.(System.get_env("MEDIA_STORAGE", "r2")) || Colloq.Media.R2
+    :dev -> media_adapter.(System.get_env("MEDIA_STORAGE", "imgbb")) || Colloq.Media.Imgbb
     :test -> Colloq.Media.Local
   end
 
 config :colloq, media_storage: media_storage
+
+# Cloudflare R2 (S3-compatible). Credentials + endpoint for ex_aws; bucket and
+# public custom-domain base for Colloq.Media.R2. Only wired when R2 is selected
+# so dev/test don't need the env vars.
+if media_storage == Colloq.Media.R2 do
+  r2_account_id = System.fetch_env!("R2_ACCOUNT_ID")
+
+  config :ex_aws,
+    access_key_id: System.fetch_env!("R2_ACCESS_KEY_ID"),
+    secret_access_key: System.fetch_env!("R2_SECRET_ACCESS_KEY"),
+    # R2 ignores the region but SigV4 requires one; "auto" is Cloudflare's.
+    region: "auto"
+
+  config :ex_aws, :s3,
+    scheme: "https://",
+    host: "#{r2_account_id}.r2.cloudflarestorage.com",
+    region: "auto"
+
+  config :colloq, Colloq.Media.R2,
+    bucket: System.fetch_env!("R2_BUCKET"),
+    # The custom domain bound to the bucket, e.g. "https://cdn.example.com".
+    public_base_url: System.fetch_env!("R2_PUBLIC_BASE_URL")
+end
 
 # --- Repo ---
 if config_env() != :test or System.get_env("DATABASE_URL") do
@@ -108,9 +126,6 @@ config :colloq, :nitter_url, System.get_env("NITTER_URL", "https://nitter.net")
 
 # Storage & upload
 config :colloq, :imgbb_api_key, System.get_env("IMGBB_API_KEY")
-config :colloq, :bunny_api_key, System.get_env("BUNNY_API_KEY")
-config :colloq, :bunny_storage_zone, System.get_env("BUNNY_STORAGE_ZONE")
-config :colloq, :bunny_storage_url, System.get_env("BUNNY_STORAGE_URL", "https://storage.bunnycdn.com")
 
 # Base URL (for password reset links, etc.)
 config :colloq, :base_url, System.get_env("BASE_URL", "https://colloq.ar")
@@ -144,6 +159,12 @@ config :ueberauth, Ueberauth.Strategy.Discord.OAuth,
 # Web Push (PWA)
 config :colloq, :vapid_public_key, System.get_env("VAPID_PUBLIC_KEY")
 config :colloq, :vapid_private_key, System.get_env("VAPID_PRIVATE_KEY")
+
+# web_push_encryption reads its keys from its own app env, not ours.
+config :web_push_encryption, :vapid_details,
+  subject: System.get_env("VAPID_SUBJECT", "mailto:no-reply@colloq.ar"),
+  public_key: System.get_env("VAPID_PUBLIC_KEY"),
+  private_key: System.get_env("VAPID_PRIVATE_KEY")
 
 # WebRTC (Voice Rooms)
 config :colloq, :voice_rooms_enabled, System.get_env("VOICE_ROOMS_ENABLED", "false") == "true"

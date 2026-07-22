@@ -90,7 +90,7 @@ defmodule ColloqWeb.CoreComponents do
   attr :type, :string, default: "text"
   attr :field, Phoenix.HTML.FormField, default: nil
   attr :errors, :list, default: []
-  attr :rest, :global, include: ~w(placeholder required disabled min max step pattern autocomplete inputmode)
+  attr :rest, :global, include: ~w(placeholder required disabled min max maxlength minlength step pattern autocomplete inputmode)
 
   def input(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
     # Force the field's id/name/value (attrs carry a default of nil, so assign_new
@@ -192,44 +192,175 @@ defmodule ColloqWeb.CoreComponents do
     """
   end
 
+  # ============= IMAGE DROP ZONE =============
+
+  attr :upload, :any, required: true, doc: "the @uploads.<name> struct"
+  attr :label, :string, required: true
+  attr :hint, :string, default: nil
+  attr :current_url, :string, default: nil
+  attr :remove_field, :string, default: nil, doc: "column to null out on remove"
+  attr :aspect, :string, default: "aspect-[3/1]"
+
+  @doc """
+  Click-or-drag image upload with a live preview of the current image.
+
+  `live_file_input` already accepts drops on its own label, so the whole zone is
+  wrapped in one — no JS drag handlers needed.
+  """
+  def image_drop_zone(assigns) do
+    ~H"""
+    <div>
+      <div class="flex items-baseline justify-between mb-2">
+        <span class="text-sm font-medium text-heading"><%= @label %></span>
+        <button
+          :if={@current_url && @remove_field}
+          type="button"
+          phx-click="remove-image"
+          phx-value-field={@remove_field}
+          class="text-xs text-danger hover:underline"
+        >
+          <%= gettext("Remove") %>
+        </button>
+      </div>
+
+      <label class={[
+        "relative block w-full rounded-xl border-2 border-dashed border-border hover:border-accent",
+        "bg-surface-alt/40 cursor-pointer transition-colors overflow-hidden group",
+        @aspect
+      ]}>
+        <.live_file_input upload={@upload} class="sr-only" />
+
+        <img
+          :if={@current_url}
+          src={@current_url}
+          alt=""
+          class="absolute inset-0 w-full h-full object-cover"
+        />
+
+        <div class={[
+          "absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-center px-4",
+          @current_url && "bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity"
+        ]}>
+          <.icon name="image" class="w-5 h-5 text-muted" />
+          <span class="text-sm text-muted">
+            <%= gettext("Click to upload or drag & drop") %>
+          </span>
+          <%!-- Live per-file progress while the entry uploads --%>
+          <span :for={entry <- @upload.entries} class="text-xs text-accent">
+            <%= entry.client_name %> — <%= entry.progress %>%
+          </span>
+        </div>
+      </label>
+
+      <p :if={@hint} class="text-xs text-muted mt-1.5"><%= @hint %></p>
+
+      <p :for={err <- upload_errors(@upload)} class="text-xs text-danger mt-1">
+        <%= upload_error_to_string(err) %>
+      </p>
+      <p :for={entry <- @upload.entries} :if={upload_errors(@upload, entry) != []} class="text-xs text-danger mt-1">
+        <%= Enum.map_join(upload_errors(@upload, entry), ", ", &upload_error_to_string/1) %>
+      </p>
+    </div>
+    """
+  end
+
+  @doc false
+  def upload_error_to_string(:too_large), do: gettext("File is too large.")
+  def upload_error_to_string(:not_accepted), do: gettext("File type not accepted.")
+  def upload_error_to_string(:too_many_files), do: gettext("Only one file allowed.")
+  def upload_error_to_string(err), do: gettext("Upload error: %{err}", err: inspect(err))
+
+  # ============= SETTING TOGGLE =============
+
+  attr :id, :string, required: true
+  attr :name, :string, required: true
+  attr :checked, :boolean, default: false
+  attr :label, :string, required: true
+  attr :hint, :string, default: nil
+
+  @doc """
+  Labelled on/off switch for a settings row.
+
+  Ships a hidden "false" input ahead of the checkbox so the field is present in
+  the params even when unchecked — callers can then distinguish "toggled off"
+  from "this pane wasn't submitted".
+  """
+  def setting_toggle(assigns) do
+    ~H"""
+    <div class="flex items-center justify-between gap-4 py-3">
+      <div class="min-w-0">
+        <label for={@id} class="text-sm font-medium text-heading cursor-pointer"><%= @label %></label>
+        <p :if={@hint} class="text-xs text-muted mt-0.5"><%= @hint %></p>
+      </div>
+
+      <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+        <input type="hidden" name={@name} value="false" />
+        <input type="checkbox" id={@id} name={@name} value="true" checked={@checked} class="sr-only peer" />
+        <div class="w-9 h-5 bg-border peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-full">
+        </div>
+      </label>
+    </div>
+    """
+  end
+
+  # ============= AVATAR =============
+
+  @avatar_colors ~w(bg-blue-600 bg-green-600 bg-red-600 bg-amber-600 bg-purple-600)
+
+  @doc """
+  Deterministic background class for a user's initials avatar.
+
+  Hashed off the user id so a given user keeps the same colour everywhere.
+  """
+  def avatar_class(user) do
+    Enum.at(@avatar_colors, :erlang.phash2(user.id, length(@avatar_colors)))
+  end
+
+  @doc """
+  First letter of a user's display name (or username), upcased.
+  """
+  def initials(user) do
+    (user.display_name || user.username)
+    |> String.slice(0..0)
+    |> String.upcase()
+  end
+
   # ============= BADGE =============
   attr :color, :string, default: "blue"
+  attr :class, :string, default: nil
   slot :inner_block, required: true
 
-  def badge(assigns) do
-    colors = %{
-      "blue" => "bg-accent-soft text-accent border-accent-border",
-      "green" => "bg-success-soft text-success border-success/50",
-      "red" => "bg-danger-soft text-danger border-danger/50",
-      "amber" => "bg-warning-soft text-warning border-warning/50",
-      "purple" => "bg-purple-900/30 text-purple-300 border-purple-700",
-      "gray" => "bg-surface-alt text-muted border-border"
-    }
+  @badge_colors %{
+    "blue" => "bg-accent-soft text-accent border-accent-border",
+    "green" => "bg-success-soft text-success border-success/50",
+    "red" => "bg-danger-soft text-danger border-danger/50",
+    "amber" => "bg-warning-soft text-warning border-warning/50",
+    "purple" => "bg-purple-900/30 text-purple-300 border-purple-700",
+    "gray" => "bg-surface-alt text-muted border-border"
+  }
+  @badge_base "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border"
 
-    hex_color = if @color && String.starts_with?(@color, "#"), do: @color
+  def badge(assigns) do
+    # Read from assigns — inside the function body (outside ~H) the @ form is a
+    # module attribute, not the assign, so `@color` was always nil here and
+    # every badge fell through to the "blue" default regardless of color=.
+    color = assigns.color
+    hex_color = if is_binary(color) and String.starts_with?(color, "#"), do: color
 
     assigns =
       assigns
-      |> assign(:named_class, colors[@color])
+      |> assign(:base, @badge_base)
+      |> assign(:named_class, @badge_colors[color] || unless(hex_color, do: @badge_colors["blue"]))
       |> assign(:hex_color, hex_color)
 
     ~H"""
-    <span
-      :if={@named_class}
-      class={["inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border", @named_class]}
-    >
+    <span :if={@named_class} class={[@base, @named_class, @class]}>
       <%= render_slot(@inner_block) %>
     </span>
     <span
       :if={!@named_class && @hex_color}
-      class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border"
+      class={[@base, @class]}
       style={"background-color: #{@hex_color}20; color: #{@hex_color}; border-color: #{@hex_color}60"}
-    >
-      <%= render_slot(@inner_block) %>
-    </span>
-    <span
-      :if={!@named_class && !@hex_color}
-      class={["inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border", colors["blue"]]}
     >
       <%= render_slot(@inner_block) %>
     </span>

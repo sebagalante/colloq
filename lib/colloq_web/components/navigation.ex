@@ -159,7 +159,7 @@ defmodule ColloqWeb.Components.Navigation do
     ~H"""
     <aside
       id="app-sidebar"
-      class="hidden md:block w-60 flex-shrink-0 border-r border-border px-3 py-4 overflow-y-auto"
+      class="hidden md:block w-60 flex-shrink-0 border-r border-border px-3 py-4 overflow-y-auto scrollbar-none"
     >
       <nav class="space-y-6">
         <div class="space-y-1">

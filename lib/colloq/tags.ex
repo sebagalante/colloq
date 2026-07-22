@@ -386,7 +386,7 @@ defmodule Colloq.Tags do
       order_by: [desc: topic.inserted_at],
       preload: [:user, :category, :last_post]
     )
-    |> Colloq.Pagination.paginate(page, per_page)
+    |> Colloq.Pagination.paginate(page: page, page_size: per_page)
   end
 
   defp slugify(text) do

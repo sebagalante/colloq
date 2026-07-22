@@ -263,8 +263,10 @@ defmodule Colloq.Workers.FixtureDigestWorker do
   end
 
   defp schedule_result_fetch(args) do
+    # Oban's schedule_in is in *seconds*; :timer.hours/1 returns milliseconds,
+    # which scheduled the summary ~1.6 years out instead of 14 hours.
     %{args | "action" => "summary"}
-    |> Colloq.Workers.FixtureDigestWorker.new(schedule_in: :timer.hours(14))
+    |> Colloq.Workers.FixtureDigestWorker.new(schedule_in: {14, :hours})
     |> Oban.insert()
   end
 

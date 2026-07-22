@@ -150,7 +150,11 @@ defmodule ColloqWeb.PredictionsLive do
           fixture_id: topic.match_id,
           title: topic.title,
           home_team: topic.home_team || gettext("Home"),
-          away_team: topic.away_team || gettext("Away")
+          away_team: topic.away_team || gettext("Away"),
+          # The template reads @next_match.match_date; a missing key raises
+          # KeyError (not nil), so it must be present. Topics carry no kickoff
+          # time yet, so it's nil and the date line stays hidden.
+          match_date: nil
         }
     end
   end
@@ -200,11 +204,9 @@ defmodule ColloqWeb.PredictionsLive do
   end
 
   defp get_match_title(fixture_id) do
-    case Colloq.Forum.get_topic!(fixture_id) do
-      nil -> gettext("Match #%{id}", id: fixture_id)
-      topic -> topic.title
-    end
+    Colloq.Forum.get_topic!(fixture_id).title
   rescue
+    # get_topic!/1 raises on a missing topic; there is no nil return to match.
     _ -> gettext("Match #%{id}", id: fixture_id)
   end
 

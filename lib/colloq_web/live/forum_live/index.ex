@@ -20,6 +20,10 @@ defmodule ColloqWeb.ForumLive.Index do
 
   @per_page 20
 
+  # The "new or updated topics" banner auto-hides this long after the *last*
+  # update — each new event reschedules, so a burst keeps it up, then it clears.
+  @banner_ttl_ms 8_000
+
   @impl true
   def mount(_params, session, socket) do
     current_user = load_user(session)
@@ -57,6 +61,8 @@ defmodule ColloqWeb.ForumLive.Index do
       |> assign(:topics_empty?, false)
       |> assign(:new_count, 0)
       |> assign(:pending_ids, MapSet.new())
+      # Ref for the banner auto-dismiss timer, so we can cancel/reschedule it.
+      |> assign(:banner_timer, nil)
       |> stream(:topics, [])
       |> assign_new(:page_title, fn -> gettext("Forum") end)
 
@@ -235,10 +241,20 @@ defmodule ColloqWeb.ForumLive.Index do
 
     if relevant_to_view?(payload, viewing) do
       pending = MapSet.put(socket.assigns.pending_ids, payload.topic_id)
-      {:noreply, socket |> assign(:pending_ids, pending) |> assign(:new_count, MapSet.size(pending))}
+
+      {:noreply,
+       socket
+       |> assign(:pending_ids, pending)
+       |> assign(:new_count, MapSet.size(pending))
+       |> schedule_banner_dismiss()}
     else
       {:noreply, socket}
     end
+  end
+
+  # Fired by the auto-dismiss timer: drop the banner if the reader never clicked.
+  def handle_info(:clear_banner, socket) do
+    {:noreply, reset_banner(socket)}
   end
 
   # When viewing "All", everything is relevant; in a category, only that category.
@@ -311,8 +327,24 @@ defmodule ColloqWeb.ForumLive.Index do
   end
 
   defp reset_banner(socket) do
-    socket |> assign(:new_count, 0) |> assign(:pending_ids, MapSet.new())
+    cancel_banner_timer(socket.assigns[:banner_timer])
+
+    socket
+    |> assign(:new_count, 0)
+    |> assign(:pending_ids, MapSet.new())
+    |> assign(:banner_timer, nil)
   end
+
+  # Reschedule the auto-dismiss on every update, so the banner stays visible
+  # through a burst and disappears @banner_ttl_ms after the last one.
+  defp schedule_banner_dismiss(socket) do
+    cancel_banner_timer(socket.assigns[:banner_timer])
+    ref = Process.send_after(self(), :clear_banner, @banner_ttl_ms)
+    assign(socket, :banner_timer, ref)
+  end
+
+  defp cancel_banner_timer(nil), do: :ok
+  defp cancel_banner_timer(ref), do: Process.cancel_timer(ref)
 
   @doc "Auto-load this many batches on scroll before switching to a button."
   def auto_batches, do: @auto_batches

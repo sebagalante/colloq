@@ -73,7 +73,7 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-1 flex-shrink-0">
+      <div class="flex items-start justify-end gap-2 flex-shrink-0">
         <%!-- Shown only for targets the actor outranks, and listing only roles
               they may actually grant — mirrors Permissions.can_assign_role?/3
               so the UI can't offer something the server will reject. --%>
@@ -102,66 +102,74 @@
             </option>
           </select>
         </form>
+        <%!-- Labelled moderation actions in a uniform 2-col grid, so every
+              button is the same width regardless of label length. icon + text
+              so an admin never has to guess what a bare icon does. --%>
+        <div class="grid grid-cols-2 gap-1.5 w-[15rem]">
         <button
           :if={Permissions.can?(@current_user, :warn_users) && user_status(user) == :active && Permissions.can_moderate?(@current_user, user)}
           phx-click="moderate"
           phx-value-user_id={user.id}
           phx-value-action="warn"
-          class="px-2 py-1 text-xs text-warning rounded hover:bg-warning-soft transition-colors"
-          title={gettext("Warn")}
+          class="flex w-full items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-warning rounded-md border border-warning/30 hover:bg-warning-soft transition-colors"
         >
-          <.icon name="alert-triangle" class="w-3.5 h-3.5" />
+          <.icon name="alert-triangle" class="w-3.5 h-3.5" /> <%= gettext("Warn") %>
         </button>
         <button
           :if={Permissions.can?(@current_user, :silence_users) && user_status(user) in [:active, :warned] && Permissions.can_moderate?(@current_user, user)}
           phx-click="moderate"
           phx-value-user_id={user.id}
           phx-value-action="silence"
-          class="px-2 py-1 text-xs text-accent rounded hover:bg-accent-soft transition-colors"
-          title={gettext("Silence")}
+          class="flex w-full items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-accent rounded-md border border-accent/30 hover:bg-accent-soft transition-colors"
         >
-          <.icon name="mic-off" class="w-3.5 h-3.5" />
+          <.icon name="mic-off" class="w-3.5 h-3.5" /> <%= gettext("Silence") %>
         </button>
         <button
           :if={Permissions.can?(@current_user, :suspend_users) && user_status(user) in [:active, :warned, :silenced] && Permissions.can_moderate?(@current_user, user)}
           phx-click="moderate"
           phx-value-user_id={user.id}
           phx-value-action="suspend"
-          class="px-2 py-1 text-xs text-orange rounded hover:bg-orange-soft transition-colors"
-          title={gettext("Suspend")}
+          class="flex w-full items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-orange rounded-md border border-orange/30 hover:bg-orange-soft transition-colors"
         >
-          <.icon name="clock" class="w-3.5 h-3.5" />
+          <.icon name="clock" class="w-3.5 h-3.5" /> <%= gettext("Suspend") %>
         </button>
         <button
           :if={Permissions.can?(@current_user, :ban_users) && user_status(user) in [:active, :warned, :silenced, :suspended] && !user.banned && Permissions.can_moderate?(@current_user, user)}
           phx-click="moderate"
           phx-value-user_id={user.id}
           phx-value-action="ban"
-          class="px-2 py-1 text-xs text-danger rounded hover:bg-danger-soft transition-colors"
-          title={gettext("Ban")}
+          class="flex w-full items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-danger rounded-md border border-danger/30 hover:bg-danger-soft transition-colors"
         >
-          <.icon name="x" class="w-3.5 h-3.5" />
+          <.icon name="ban" class="w-3.5 h-3.5" /> <%= gettext("Ban") %>
         </button>
         <button
           :if={Permissions.can?(@current_user, :silence_users) && user_status(user) == :silenced}
           phx-click="moderate"
           phx-value-user_id={user.id}
           phx-value-action="unsilence"
-          class="px-2 py-1 text-xs text-success rounded hover:bg-success-soft transition-colors"
-          title={gettext("Lift silence")}
+          class="flex w-full items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-success rounded-md border border-success/30 hover:bg-success-soft transition-colors"
         >
-          <.icon name="mic" class="w-3.5 h-3.5" />
+          <.icon name="mic" class="w-3.5 h-3.5" /> <%= gettext("Lift silence") %>
         </button>
         <button
           :if={Permissions.can?(@current_user, :reinstate_users) && user_status(user) in [:silenced, :suspended, :banned]}
           phx-click="moderate"
           phx-value-user_id={user.id}
           phx-value-action="reinstate"
-          class="px-2 py-1 text-xs text-success rounded hover:bg-success-soft transition-colors"
-          title={gettext("Reinstate")}
+          class="flex w-full items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-success rounded-md border border-success/30 hover:bg-success-soft transition-colors"
         >
-          <.icon name="check" class="w-3.5 h-3.5" />
+          <.icon name="check" class="w-3.5 h-3.5" /> <%= gettext("Reinstate") %>
         </button>
+        <button
+          :if={Permissions.can?(@current_user, :warn_users) && user_status(user) == :warned && Permissions.can_moderate?(@current_user, user)}
+          phx-click="moderate"
+          phx-value-user_id={user.id}
+          phx-value-action="unwarn"
+          class="flex w-full items-center justify-center gap-1 px-2 py-1 text-xs font-medium text-success rounded-md border border-success/30 hover:bg-success-soft transition-colors"
+        >
+          <.icon name="check" class="w-3.5 h-3.5" /> <%= gettext("Clear warning") %>
+        </button>
+        </div>
       </div>
     </div>
   </div>
@@ -200,7 +208,9 @@
         <% "suspend" -> %><%= gettext("Suspend user") %>
         <% "ban" -> %><%= gettext("Ban user") %>
         <% "unsilence" -> %><%= gettext("Lift silence") %>
+        <% "unwarn" -> %><%= gettext("Clear warning") %>
         <% "reinstate" -> %><%= gettext("Reinstate user") %>
+        <% _ -> %><%= gettext("Moderate user") %>
       <% end %>
     </h2>
 
@@ -247,6 +257,10 @@
         <p><%= gettext("This will clear the suspension or ban and restore full access.") %></p>
       </div>
 
+      <div :if={@moderation_action == "unwarn"} class="text-sm text-muted">
+        <p><%= gettext("This will reset the user's warnings and return them to good standing.") %></p>
+      </div>
+
       <div class="flex gap-2 pt-2">
         <.button type="submit" class="text-sm">
           <%= case @moderation_action do %>
@@ -255,7 +269,9 @@
             <% "suspend" -> %><%= gettext("Suspend") %>
             <% "ban" -> %><%= gettext("Ban") %>
             <% "unsilence" -> %><%= gettext("Lift silence") %>
+            <% "unwarn" -> %><%= gettext("Clear warning") %>
             <% "reinstate" -> %><%= gettext("Reinstate") %>
+            <% _ -> %><%= gettext("Confirm") %>
           <% end %>
         </.button>
         <button type="button" phx-click="close-moderation" class="text-sm text-muted hover:text-heading transition-colors">

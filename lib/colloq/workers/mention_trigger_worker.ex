@@ -14,6 +14,8 @@ defmodule Colloq.Workers.MentionTriggerWorker do
   alias Colloq.Forum
   alias Colloq.Notifications
 
+  require Logger
+
   @mention_regex ~r/@([a-zA-Z0-9_]{3,30})/
 
   @impl Oban.Worker
@@ -86,10 +88,43 @@ defmodule Colloq.Workers.MentionTriggerWorker do
         active: true
       )
 
-    if bot do
-      %{post_id: post.id, persona_slug: bot.slug}
-      |> Colloq.Workers.LlmResponderWorker.new()
-      |> Oban.insert()
+    cond do
+      is_nil(bot) ->
+        :ok
+
+      # Trust-level gate: only users at or above the bot's configured
+      # allowed_trust_level may invoke it. Checked here, before enqueueing, so a
+      # low-trust account never creates a job or reaches the LLM.
+      not meets_trust_level?(post.user, bot) ->
+        Logger.info(
+          "[Bot] @#{post.user.username} (TL#{post.user.trust_level}) is below " <>
+            "@#{bot.slug}'s required trust level (#{trust_level_required(bot)}); not triggering"
+        )
+
+        :ok
+
+      true ->
+        %{post_id: post.id, persona_slug: bot.slug}
+        |> Colloq.Workers.LlmResponderWorker.new()
+        |> Oban.insert()
     end
   end
+
+  defp meets_trust_level?(user, bot) do
+    (user.trust_level || 0) >= trust_level_required(bot)
+  end
+
+  # allowed_trust_level lives in the bot's config map (0 = everyone, the admin
+  # default). Missing or malformed config is treated as 0 rather than blocking.
+  defp trust_level_required(%{config: config}) when is_map(config) do
+    case Map.get(config, "allowed_trust_level", 0) do
+      n when is_integer(n) -> n
+      n when is_binary(n) -> String.to_integer(String.trim(n))
+      _ -> 0
+    end
+  rescue
+    _ -> 0
+  end
+
+  defp trust_level_required(_), do: 0
 end
