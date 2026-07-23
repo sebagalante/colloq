@@ -29,26 +29,69 @@ defmodule ColloqWeb.ForumLive.Topic do
   # Longest quote (whole-post or selected) that gets inserted into a composer.
   @quote_limit 4_000
 
+  # Root (top-level) comments loaded per page; the rest come via "load more".
+  @page_size 40
+
   @impl true
   def mount(%{"id" => id} = params, session, socket) do
     current_user = load_user(session)
     blocked_ids = if current_user, do: Accounts.hidden_user_ids(current_user.id), else: MapSet.new()
-    topic = Forum.get_topic!(id, blocked_ids)
+    topic_meta = Forum.get_topic_meta!(id)
     can_delete_topic = current_user && Colloq.Permissions.can?(current_user, :delete_topics)
 
     # A topic in a staff-only category 404s for everyone else, so a shared or
     # guessed /t/:id link leaks nothing. Filtering the listings isn't enough on
     # its own — direct access is the case that actually matters.
-    if topic.category && topic.category.read_restricted &&
+    if topic_meta.category && topic_meta.category.read_restricted &&
          !Forum.can_view_restricted?(current_user) do
       raise Ecto.NoResultsError, queryable: Colloq.Forum.Topic
     end
 
     # A soft-deleted topic 404s for everyone except staff, who see it with a
     # tombstone so they can recover it.
-    if topic.deleted_at && !can_delete_topic do
+    if topic_meta.deleted_at && !can_delete_topic do
       raise Ecto.NoResultsError, queryable: Colloq.Forum.Topic
     end
+
+    # Normally: first page of root comments (+ capped subtrees). With `?c=post_id`
+    # (the "Continuar hilo" permalink): the view is rooted at that comment.
+    {posts, has_more_roots, rooted_at} =
+      case params["c"] do
+        c when is_binary(c) ->
+          case Integer.parse(c) do
+            {cid, _} -> {Forum.list_thread_from(id, cid, blocked_ids), false, cid}
+            :error -> normal_page(id, blocked_ids)
+          end
+
+        _ ->
+          normal_page(id, blocked_ids)
+      end
+
+    topic = %{topic_meta | posts: posts}
+
+    # Author of the rooted comment's parent, shown as "en respuesta a @X" on the
+    # permalink root only (nil in the normal view, where nesting shows it).
+    rooted_parent =
+      with true <- rooted_at != nil,
+           %{parent: %{user: %{} = user}} <- List.first(posts) do
+        user
+      else
+        _ -> nil
+      end
+
+    # Where "Volver" goes: the previous rooted view (one branch up) if we're deep
+    # in a "Continuar hilo" chain, else the whole topic — always scrolled back to
+    # the comment we branched from.
+    back_to =
+      if rooted_at do
+        base =
+          case Forum.previous_branch_root(rooted_at) do
+            nil -> ~p"/t/#{id}"
+            cid -> ~p"/t/#{id}?c=#{cid}"
+          end
+
+        base <> "#post-#{rooted_at}"
+      end
 
     # Set up all assigns with sensible defaults.
     # UI-only state (form visibility, replying_to, poll form) is initialised
@@ -58,13 +101,31 @@ defmodule ColloqWeb.ForumLive.Topic do
       |> assign(:current_user, current_user)
       |> assign(:topic, topic)
       |> assign(:can_delete_topic, can_delete_topic)
-      |> assign(:posts, topic.posts)
+      |> assign(:posts, posts)
+      # Comment pagination: which page of root comments is loaded, whether more
+      # exist, the total (for the button), and whether the whole thread is loaded
+      # (true only while sorted by :top).
+      |> assign(:has_more_roots, has_more_roots)
+      |> assign(:root_offset, length(posts))
+      |> assign(:root_count, Forum.count_root_posts(id, blocked_ids))
+      |> assign(:all_loaded?, false)
+      # Set when viewing via the "Continuar hilo" permalink (?c=post_id): the id
+      # the tree is rooted at, for the "← Volver al tema" banner and reloads.
+      |> assign(:rooted_at, rooted_at)
+      |> assign(:rooted_parent, rooted_parent)
+      |> assign(:back_to, back_to)
+      # Topic-wide engagement, computed with aggregates (not the paginated tree).
+      |> assign(:topic_stats, Forum.topic_stats(id, blocked_ids))
       # Reply ordering: :chrono (posting order) or :top (most reactions first)
       |> assign(:sort, :chrono)
       # Emoji reaction counts per post id, e.g. %{123 => %{"👍" => 2}}
       |> assign(:reaction_data, %{})
+      # Reactor names per post/emoji for the pills' hover tooltip.
+      |> assign(:reactor_names, %{})
       # Current user's reactions per post id, e.g. %{123 => ["👍"]}
       |> assign(:user_reactions, %{})
+      # Open "who reacted" modal: %{post_id, reactors} or nil.
+      |> assign(:reactors_modal, nil)
       # List of {user_id, username} tuples for the typing indicator bar
       |> assign(:typing_users, [])
       # Top-level reply composer state
@@ -197,7 +258,124 @@ defmodule ColloqWeb.ForumLive.Topic do
 
   def handle_event("toggle-sort", _params, socket) do
     next = if socket.assigns.sort == :top, do: :chrono, else: :top
-    {:noreply, assign(socket, :sort, next)}
+
+    # "Top" ranks by whole-subtree engagement, so it needs the full thread; load
+    # it all and drop the load-more button. Switching back to chrono returns to
+    # page 1.
+    socket =
+      socket
+      |> assign(:sort, next)
+      |> assign(:all_loaded?, next == :top)
+      |> assign(:root_offset, if(next == :top, do: socket.assigns.root_offset, else: 0))
+      |> reload_window()
+
+    {:noreply, socket}
+  end
+
+  def handle_event("load-more-comments", _params, socket) do
+    # "Show all comments": load the complete thread at once (so the scroll
+    # timeline can reach the end) rather than another page. Reuses the full-load
+    # path (`all_loaded?`), the same one the "Top" sort uses.
+    {:noreply, socket |> assign(:all_loaded?, true) |> reload_window()}
+  end
+
+  # Loads the next batch of one comment's direct replies ("ver N más") and splices
+  # them into the in-memory tree at that node. `depth` (the parent's depth) keeps
+  # the loaded subtrees within the global depth cap.
+  def handle_event("load-more-replies", %{"post_id" => id, "depth" => depth}, socket) do
+    pid = String.to_integer(id)
+    parent_depth = String.to_integer(depth)
+    topic = socket.assigns.topic
+    blocked = socket.assigns.blocked_user_ids
+    user = socket.assigns.current_user
+
+    offset =
+      case find_post_in_tree(socket.assigns.posts, pid) do
+        nil -> 0
+        node -> length(node.replies)
+      end
+
+    {more, remaining} = Forum.list_child_posts(topic.id, pid, blocked, offset, parent_depth)
+
+    posts =
+      update_post_in_tree(socket.assigns.posts, pid, fn p ->
+        %{p | replies: p.replies ++ more, more_child_count: remaining}
+      end)
+
+    {:noreply,
+     socket
+     |> assign(:topic, %{topic | posts: posts})
+     |> assign(:posts, posts)
+     |> load_reaction_data(posts)
+     |> load_user_reactions(posts, user)
+     |> load_poll_data(posts, user)
+     |> load_bookmarked_posts(posts, user)
+     |> load_user_badges(posts)
+     |> load_lineup_data(posts)}
+  end
+
+  # First page of root comments for the normal (non-rooted) topic view.
+  defp normal_page(topic_id, blocked_ids) do
+    {posts, has_more} = Forum.list_root_posts(topic_id, blocked_ids, @page_size, 0)
+    {posts, has_more, nil}
+  end
+
+  # Finds a post by id anywhere in the nested tree, or nil.
+  defp find_post_in_tree(posts, id) when is_list(posts) do
+    Enum.find_value(posts, fn p ->
+      if p.id == id, do: p, else: find_post_in_tree(p.replies, id)
+    end)
+  end
+
+  defp find_post_in_tree(_posts, _id), do: nil
+
+  # Applies `fun` to the post with `id` in the nested tree, rebuilding the path.
+  defp update_post_in_tree(posts, id, fun) when is_list(posts) do
+    Enum.map(posts, fn p ->
+      if p.id == id do
+        fun.(p)
+      else
+        %{p | replies: update_post_in_tree(p.replies, id, fun)}
+      end
+    end)
+  end
+
+  defp update_post_in_tree(posts, _id, _fun), do: posts
+
+  # Reloads the currently-loaded window (or the whole thread when sorted by :top)
+  # and refreshes all per-post data + topic stats. Used after posting a reply and
+  # on the PubSub new-post/delete events, so a live update never re-fetches the
+  # entire thread for every viewer.
+  defp reload_window(socket) do
+    topic = socket.assigns.topic
+    blocked = socket.assigns.blocked_user_ids
+    user = socket.assigns.current_user
+
+    {posts, has_more} =
+      cond do
+        socket.assigns.rooted_at ->
+          {Forum.list_thread_from(topic.id, socket.assigns.rooted_at, blocked), false}
+
+        socket.assigns.all_loaded? ->
+          {Forum.get_topic!(topic.id, blocked).posts, false}
+
+        true ->
+          Forum.list_root_posts(topic.id, blocked, max(socket.assigns.root_offset, @page_size), 0)
+      end
+
+    socket
+    |> assign(:topic, %{topic | posts: posts})
+    |> assign(:posts, posts)
+    |> assign(:has_more_roots, has_more)
+    |> assign(:root_offset, length(posts))
+    |> assign(:root_count, Forum.count_root_posts(topic.id, blocked))
+    |> assign(:topic_stats, Forum.topic_stats(topic.id, blocked))
+    |> load_reaction_data(posts)
+    |> load_user_reactions(posts, user)
+    |> load_poll_data(posts, user)
+    |> load_bookmarked_posts(posts, user)
+    |> load_user_badges(posts)
+    |> load_lineup_data(posts)
   end
 
   def handle_event("start-nested-reply", %{"post_id" => post_id}, socket) do
@@ -238,16 +416,11 @@ defmodule ColloqWeb.ForumLive.Topic do
 
       case Forum.create_reply(topic, user, parent_post, %{"body" => body}) do
         {:ok, _post} ->
-          topic = Forum.get_topic!(topic.id)
-
           {:noreply,
            socket
-           |> assign(:topic, topic)
-           |> assign(:posts, topic.posts)
            |> assign(:replying_to, nil)
            |> assign(:nested_reply_body, "")
-           |> load_reaction_data(topic.posts)
-           |> load_user_reactions(topic.posts, socket.assigns.current_user)}
+           |> reload_window()}
 
         {:error, reason} when reason in [:silenced, :suspended, :banned, :duplicate_post] ->
           {:noreply, put_flash(socket, :error, moderation_block_message(reason))}
@@ -267,16 +440,11 @@ defmodule ColloqWeb.ForumLive.Topic do
     if user && Forum.can_reply?(topic, user) do
       case Forum.create_post(topic, user, %{"body" => body}) do
         {:ok, _post} ->
-          topic = Forum.get_topic!(topic.id)
-
           {:noreply,
            socket
-           |> assign(:topic, topic)
-           |> assign(:posts, topic.posts)
            |> assign(:reply_body, "")
            |> push_event("tiptap:clear", %{})
-           |> load_reaction_data(topic.posts)
-           |> load_user_reactions(topic.posts, socket.assigns.current_user)}
+           |> reload_window()}
 
         {:error, reason} when reason in [:silenced, :suspended, :banned, :duplicate_post] ->
           {:noreply, put_flash(socket, :error, moderation_block_message(reason))}
@@ -562,6 +730,15 @@ defmodule ColloqWeb.ForumLive.Topic do
       true ->
         {:noreply, put_flash(socket, :error, gettext("You can't delete this comment."))}
     end
+  end
+
+  def handle_event("show-reactors", %{"post_id" => id}, socket) do
+    pid = String.to_integer(id)
+    {:noreply, assign(socket, :reactors_modal, %{post_id: pid, reactors: Reactions.reactors(pid)})}
+  end
+
+  def handle_event("close-reactors", _params, socket) do
+    {:noreply, assign(socket, :reactors_modal, nil)}
   end
 
   def handle_event("reaction", %{"post_id" => post_id_str, "emoji" => emoji}, socket) do
@@ -1200,26 +1377,19 @@ defmodule ColloqWeb.ForumLive.Topic do
   # Shared reload for structural changes (new post / deletion): rebuild the
   # topic tree and refresh reaction/poll/bookmark/badge data.
   defp handle_new_post(socket) do
-    topic = Forum.get_topic!(socket.assigns.topic.id, socket.assigns.blocked_user_ids)
     user = socket.assigns.current_user
+    topic_id = socket.assigns.topic.id
 
     # The reader is looking at the topic right now, so a post that just arrived
     # counts as read — keep their marker current so the next visit doesn't flag
     # posts they already saw as unread.
     if user do
-      max_number = topic.posts |> flatten_posts() |> Enum.map(& &1.post_number) |> Enum.max(fn -> 0 end)
-      Reads.mark_read(user.id, topic.id, max_number)
+      Reads.mark_read(user.id, topic_id, Forum.max_post_number(topic_id))
     end
 
-    {:noreply,
-     socket
-     |> assign(:topic, topic)
-     |> assign(:posts, topic.posts)
-     |> load_reaction_data(topic.posts)
-     |> load_user_reactions(topic.posts, user)
-     |> load_poll_data(topic.posts, user)
-     |> load_bookmarked_posts(topic.posts, user)
-     |> load_user_badges(topic.posts)}
+    # Reload only the loaded window (not the whole thread) so a live update on a
+    # busy thread stays cheap for every connected viewer.
+    {:noreply, reload_window(socket)}
   end
 
   defp already_rendered?(_posts, nil), do: false
@@ -1314,20 +1484,15 @@ defmodule ColloqWeb.ForumLive.Topic do
   defp assign_unread(socket, topic, user, to_latest) do
     last = Reads.last_read(user.id, topic.id)
 
-    # Posts newer than last read that aren't the reader's own — no point
-    # flagging someone's own replies as "new".
-    unread =
-      topic.posts
-      |> flatten_posts()
-      |> Enum.filter(&(&1.post_number > last && &1.user_id != user.id))
-      |> Enum.sort_by(& &1.post_number)
+    # Posts newer than last read that aren't the reader's own — computed with a
+    # cheap topic-wide query, not the (paginated) in-memory tree. The divider
+    # still only renders if that post is in the loaded window.
+    {first_unread_id, unread_count} = Forum.unread_since(topic.id, last, user.id)
 
-    first_unread = List.first(unread)
-
-    if last > 0 && first_unread do
+    if last > 0 && first_unread_id do
       socket
-      |> assign(:first_unread_id, first_unread.id)
-      |> assign(:unread_count, length(unread))
+      |> assign(:first_unread_id, first_unread_id)
+      |> assign(:unread_count, unread_count)
       # On a normal revisit, land the reader on the divider so they read forward
       # from where they left. When they explicitly asked for the latest post
       # (activity-time link), honour that instead — the pill still lets them jump
@@ -1350,8 +1515,7 @@ defmodule ColloqWeb.ForumLive.Topic do
   defp mark_topic_read(socket, _topic, nil), do: socket
 
   defp mark_topic_read(socket, topic, user) do
-    max_number = topic.posts |> flatten_posts() |> Enum.map(& &1.post_number) |> Enum.max(fn -> 0 end)
-    Reads.mark_read(user.id, topic.id, max_number)
+    Reads.mark_read(user.id, topic.id, Forum.max_post_number(topic.id))
     socket
   end
 
@@ -1362,8 +1526,12 @@ defmodule ColloqWeb.ForumLive.Topic do
   end
 
   defp load_reaction_data(socket, posts) do
-    reaction_data = collect_reaction_data(posts)
-    assign(socket, :reaction_data, reaction_data)
+    ids = posts |> flatten_posts() |> Enum.map(& &1.id)
+
+    socket
+    |> assign(:reaction_data, collect_reaction_data(posts))
+    # Names behind each reaction, for the pills' hover tooltip.
+    |> assign(:reactor_names, Reactions.reactor_names_for(ids))
   end
 
   defp load_user_reactions(socket, _posts, nil), do: socket
@@ -2291,15 +2459,14 @@ defmodule ColloqWeb.ForumLive.Topic do
   # initials/1 and avatar_class/1 now live in CoreComponents so the forum index
   # facepile and the topic page render the same colours for a given user.
 
-  def trust_badge_color(level) do
-    case level do
-      0 -> "gray"
-      1 -> "blue"
-      2 -> "green"
-      3 -> "purple"
-      4 -> "amber"
-      _ -> "gray"
-    end
+  # Thread-line colour by nesting level, cycled so each reply depth reads as a
+  # distinct colour (level 1 blue → 2 green → 3 red → 4 amber → 5 purple → …).
+  # Authors use profile pictures, so the *level* — not the author — carries the
+  # colour; the "en respuesta a @x" line names who's being answered.
+  @level_colors ~w(border-blue-500 border-green-500 border-red-500 border-amber-500 border-purple-500)
+
+  def level_border_class(depth) do
+    Enum.at(@level_colors, rem(depth, length(@level_colors)))
   end
 
   def typing_text(users) when users == [], do: ""
@@ -2352,6 +2519,7 @@ defmodule ColloqWeb.ForumLive.Topic do
   attr :editing_post, :any, default: nil
   attr :editing_body, :string, default: ""
   attr :reaction_data, :map, default: %{}
+  attr :reactor_names, :map, default: %{}
   attr :user_reactions, :map, default: %{}
   attr :poll_data, :map, default: nil
   attr :user_votes, :list, default: []
@@ -2362,6 +2530,7 @@ defmodule ColloqWeb.ForumLive.Topic do
   attr :first_unread_id, :any, default: nil
   attr :blocked_user_ids, :any, default: MapSet.new()
   attr :depth, :integer, default: 0
+  attr :parent_author, :any, default: nil
 
   # Past this nesting depth we stop indenting (Reddit/HN style) so deep threads
   # don't march off the right edge into a one-character-wide column. Each level
@@ -2489,11 +2658,20 @@ defmodule ColloqWeb.ForumLive.Topic do
             <a href={~p"/u/#{@post.user.username}"} class="font-semibold text-heading hover:underline text-sm">
               <%= @post.user.display_name || @post.user.username %>
             </a>
+            <%!-- Explicit "who is being answered" — a non-colour cue that stays
+                  clear regardless of nesting depth or level colour. --%>
+            <a
+              :if={@parent_author}
+              href={~p"/u/#{@parent_author.username}"}
+              class="text-xs text-muted hover:text-accent hover:underline"
+            >
+              <%= gettext("↳ replying to %{name}", name: "@#{@parent_author.username}") %>
+            </a>
             <.staff_badge role={@post.user.role} show_label={false} />
             <span :if={@post.user.flair} class="text-xs px-1.5 py-0.5 rounded bg-border text-body">
               <%= @post.user.flair %>
             </span>
-            <.badge color={trust_badge_color(@post.user.trust_level)}>
+            <.badge :if={Colloq.Permissions.staff?(@current_user)} color="gray">
               TL<%= @post.user.trust_level %>
             </.badge>
             <span
@@ -2605,10 +2783,26 @@ defmodule ColloqWeb.ForumLive.Topic do
           <div :if={!@post.is_system} class="flex items-center flex-wrap gap-x-4 gap-y-2 mt-3">
             <.reaction_bar
               post_id={@post.id}
-              reactions={Map.get(@reaction_data, @post.id, %{}) |> Enum.map(fn {emoji, count} -> %{emoji: emoji, count: count} end)}
+              reactions={
+                Map.get(@reaction_data, @post.id, %{})
+                |> Enum.map(fn {emoji, count} ->
+                  %{emoji: emoji, count: count, who: get_in(@reactor_names, [@post.id, emoji])}
+                end)
+              }
               user_reactions={Map.get(@user_reactions, @post.id)}
               can_react={@current_user && @current_user.id != @post.user_id}
             />
+            <%!-- See everyone who reacted to this post. --%>
+            <button
+              :if={Map.get(@reaction_data, @post.id, %{}) != %{}}
+              type="button"
+              phx-click="show-reactors"
+              phx-value-post_id={@post.id}
+              title={gettext("See who reacted")}
+              class="inline-flex items-center text-muted hover:text-heading transition-colors"
+            >
+              <.icon name="users" class="w-4 h-4" />
+            </button>
 
             <div :if={@current_user && !@topic.closed && !@topic.archived} class="flex items-center gap-3">
               <button
@@ -2828,6 +3022,15 @@ defmodule ColloqWeb.ForumLive.Topic do
             </form>
           </div>
 
+          <%!-- Depth cap reached: the rest of this branch continues on its own
+                permalink page (Reddit's "continue thread"). --%>
+          <a
+            :if={@post.thread_truncated}
+            href={~p"/t/#{@topic.id}?c=#{@post.id}"}
+            class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent-hover transition-colors"
+          >
+            <%= gettext("Continue thread →") %>
+          </a>
           <div :if={@post.replies != []} class="mt-2">
             <button
               type="button"
@@ -2846,10 +3049,15 @@ defmodule ColloqWeb.ForumLive.Topic do
             </button>
             <%!-- Visible by default; only branches deeper than @collapse_depth
                  start collapsed. The toggle above works either way. --%>
+            <%!-- Thread line coloured by nesting level (level_border_class/1),
+                  so each reply depth reads as a distinct colour. Indent stays
+                  shallow (pl-3/pl-2) — the colour, not deep nesting, carries the
+                  structure. --%>
             <div id={"replies-#{@post.id}"} class={[
               "mt-2 border-l-2",
               @collapse_replies && "hidden",
-              @indent_replies && "pl-3 border-border" || "pl-2 border-accent-border"
+              @indent_replies && "pl-3" || "pl-2",
+              level_border_class(@depth)
             ]}>
               <%= for reply <- @post.replies do %>
                 <.post_item
@@ -2862,6 +3070,7 @@ defmodule ColloqWeb.ForumLive.Topic do
                   editing_post={@editing_post}
                   editing_body={@editing_body}
                   reaction_data={@reaction_data}
+                  reactor_names={@reactor_names}
                   user_reactions={@user_reactions}
                   poll_data={@poll_data}
                   user_votes={@user_votes}
@@ -2873,6 +3082,17 @@ defmodule ColloqWeb.ForumLive.Topic do
                   depth={@depth + 1}
                 />
               <% end %>
+              <%!-- More of THIS comment's direct replies, loaded on demand. --%>
+              <button
+                :if={@post.more_child_count > 0}
+                type="button"
+                phx-click="load-more-replies"
+                phx-value-post_id={@post.id}
+                phx-value-depth={@depth}
+                class="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent-hover transition-colors"
+              >
+                <%= gettext("show %{count} more replies", count: @post.more_child_count) %>
+              </button>
             </div>
           </div>
         </div>

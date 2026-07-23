@@ -76,7 +76,7 @@ defmodule ColloqWeb.LeaderboardLive do
           <div class="min-w-0 flex-1">
             <div class="text-sm font-semibold text-heading truncate"><%= u.display_name || u.username %></div>
             <div class="text-xs text-muted">
-              TL<%= u.trust_level %> · <%= ngettext("%{count} post", "%{count} posts", u.posts_count) %>
+              <span :if={Colloq.Permissions.staff?(@current_user)}>TL<%= u.trust_level %> · </span><%= ngettext("%{count} post", "%{count} posts", u.posts_count) %>
             </div>
           </div>
           <div class="text-right flex-shrink-0">

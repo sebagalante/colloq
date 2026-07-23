@@ -501,32 +501,44 @@ defmodule ColloqWeb.CoreComponents do
       <%!-- Existing reactions (only those with at least one) --%>
       <%!-- On your own posts the pills are inert: you can see who reacted, but
             clicking would be rejected server-side anyway. --%>
-      <button
-        :for={%{emoji: emoji, count: count} <- Enum.filter(@reactions, &(&1.count > 0))}
-        type="button"
-        id={"reaction-#{@post_id}-#{:erlang.phash2(emoji)}"}
-        phx-hook="ReactionPill"
-        data-count={count}
-        data-post-id={@post_id}
-        data-emoji-key={emoji}
-        disabled={!@can_react}
-        phx-click={@can_react && "reaction"}
-        phx-value-post_id={@post_id}
-        phx-value-emoji={emoji}
-        class={[
-          "reaction-pill relative flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors",
-          !@can_react && "cursor-default",
-          @user_reactions && MapSet.member?(@user_reactions, emoji) &&
-            "bg-accent-soft border border-accent text-accent",
-          (!@user_reactions || !MapSet.member?(@user_reactions, emoji)) &&
-            "bg-border border border-transparent text-muted",
-          @can_react && (!@user_reactions || !MapSet.member?(@user_reactions, emoji)) &&
-            "hover:bg-border-hover"
-        ]}
+      <%!-- Wrapper carries the hover group so the tooltip fires even on disabled
+            pills (your own posts) — a disabled <button> doesn't reliably get
+            :hover, so the trigger must live on the always-enabled wrapper. --%>
+      <div
+        :for={%{emoji: emoji, count: count} = reaction <- Enum.filter(@reactions, &(&1.count > 0))}
+        class="group/react relative"
       >
-        <span data-emoji><%= emoji_display(emoji, @custom_emojis) %></span>
-        <span data-count-text class="tabular-nums"><%= count %></span>
-      </button>
+        <button
+          type="button"
+          id={"reaction-#{@post_id}-#{:erlang.phash2(emoji)}"}
+          phx-hook="ReactionPill"
+          data-count={count}
+          data-post-id={@post_id}
+          data-emoji-key={emoji}
+          disabled={!@can_react}
+          phx-click={@can_react && "reaction"}
+          phx-value-post_id={@post_id}
+          phx-value-emoji={emoji}
+          class={[
+            "reaction-pill relative flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors",
+            !@can_react && "cursor-default",
+            @user_reactions && MapSet.member?(@user_reactions, emoji) &&
+              "bg-accent-soft border border-accent text-accent",
+            (!@user_reactions || !MapSet.member?(@user_reactions, emoji)) &&
+              "bg-border border border-transparent text-muted",
+            @can_react && (!@user_reactions || !MapSet.member?(@user_reactions, emoji)) &&
+              "hover:bg-border-hover"
+          ]}
+        >
+          <span data-emoji><%= emoji_display(emoji, @custom_emojis) %></span>
+          <span data-count-text class="tabular-nums"><%= count %></span>
+        </button>
+        <%!-- Who reacted with this emoji, on hover. --%>
+        <span
+          :if={reaction[:who]}
+          class="reaction-who pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/react:block max-w-[240px] truncate whitespace-nowrap rounded-lg bg-surface-alt border border-border px-2 py-1 text-[11px] font-normal text-body shadow-lg z-50"
+        ><%= reaction[:who] %></span>
+      </div>
 
       <%!-- Add-reaction button + emoji picker popup --%>
       <div :if={@can_react} class="relative">

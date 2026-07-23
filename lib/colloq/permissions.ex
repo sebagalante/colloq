@@ -160,6 +160,17 @@ defmodule Colloq.Permissions do
 
   def staff_badge(_), do: nil
 
+  @staff_roles ~w(moderator admin super_admin)
+
+  @doc """
+  Whether a user (or role string) is staff — moderator, admin, or super admin.
+  Regular users and `nil` are not staff. Used to gate staff-only visibility such
+  as trust levels.
+  """
+  def staff?(%{role: role}), do: staff?(role)
+  def staff?(role) when is_binary(role), do: role in @staff_roles
+  def staff?(_), do: false
+
   @doc "Returns a human-readable permission name in Spanish."
   def permission_name(:view_flags), do: "Ver reportes"
   def permission_name(:resolve_flags), do: "Resolver reportes"

@@ -28,6 +28,8 @@ defmodule ColloqWeb.UserCardController do
 
   defp card_payload(conn, user) do
     current_user = conn.assigns[:current_user]
+    # Only staff (mods/admins) may see trust levels anywhere in the UI.
+    staff_viewer = Colloq.Permissions.staff?(current_user)
 
     %{
       username: user.username,
@@ -45,8 +47,9 @@ defmodule ColloqWeb.UserCardController do
       last_post_at: last_post_at(user.id),
       posts_count: user.posts_count || 0,
       cheers: cheers(user.id),
-      trust_level: user.trust_level,
-      trust_level_name: ColloqWeb.UserLive.Profile.trust_level_name(user.trust_level),
+      # Trust level is staff-only — never exposed to regular users.
+      trust_level: staff_viewer && user.trust_level,
+      trust_level_name: staff_viewer && ColloqWeb.UserLive.Profile.trust_level_name(user.trust_level),
       badges: badges(user.id),
       can_message:
         current_user != nil and current_user.id != user.id and

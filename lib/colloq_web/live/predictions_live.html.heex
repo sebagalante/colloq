@@ -1,155 +1,173 @@
 <section class="space-y-6">
-  <h1 class="text-2xl font-bold text-heading"><%= gettext("Predictions") %></h1>
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-bold text-heading"><%= pgettext("prode", "Predictions") %></h1>
+  </div>
 
-  <%= if @next_match do %>
+  <%= if is_nil(@season_id) do %>
     <.card>
-      <h2 class="text-lg font-semibold text-heading mb-1"><%= gettext("Next Match") %></h2>
-      <div class="flex items-center justify-center gap-6 my-4">
-        <div class="text-center">
-          <p class="text-xl font-bold text-heading"><%= @next_match.home_team %></p>
-        </div>
-        <div class="text-center">
-          <p class="text-3xl font-bold text-muted">vs</p>
-          <%= if @next_match.match_date do %>
-            <p class="text-xs text-muted"><%= Calendar.strftime(@next_match.match_date, "%d/%m %H:%M") %></p>
-          <% end %>
-        </div>
-        <div class="text-center">
-          <p class="text-xl font-bold text-heading"><%= @next_match.away_team %></p>
-        </div>
-      </div>
-
-      <form phx-submit="predict" class="space-y-4 mt-4 pt-4 border-t border-border">
-        <h3 class="text-sm font-semibold text-body"><%= gettext("Your Prediction") %></h3>
-
-        <div class="grid grid-cols-2 gap-4">
-          <.input
-            label={gettext("Home Goals")}
-            name="home_score"
-            type="number"
-            min="0"
-            value={@form_home_score}
-            placeholder="0"
-          />
-          <.input
-            label={gettext("Away Goals")}
-            name="away_score"
-            type="number"
-            min="0"
-            value={@form_away_score}
-            placeholder="0"
-          />
-        </div>
-
-        <div class="grid grid-cols-2 gap-4">
-          <.input
-            label={gettext("First Scorer")}
-            name="first_scorer"
-            value={@form_first_scorer}
-            placeholder={gettext("Player name")}
-          />
-          <.input
-            label={gettext("Man of the Match")}
-            name="motm"
-            value={@form_motm}
-            placeholder={gettext("Player name")}
-          />
-        </div>
-
-        <.button type="submit" disabled={@submitting}>
-          <%= gettext("Submit Prediction") %>
-        </.button>
-      </form>
+      <p class="text-sm text-muted">
+        <%= gettext("The league isn't configured yet (missing season id). Ask an admin to set it in Settings ▸ Match Day.") %>
+      </p>
     </.card>
   <% else %>
     <.card>
-      <p class="text-sm text-muted"><%= gettext("No upcoming matches scheduled. Come back when there's a fixture!") %></p>
-    </.card>
-  <% end %>
-
-  <%= if @user_history != [] do %>
-    <.card>
-      <h2 class="text-lg font-semibold text-heading mb-3"><%= gettext("Your History") %></h2>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-border">
-              <th class="text-left py-2 px-3 text-muted font-medium"><%= gettext("Match") %></th>
-              <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Result") %></th>
-              <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Points") %></th>
-              <th class="text-right py-2 px-3 text-muted font-medium"><%= gettext("Date") %></th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for pred <- @user_history do %>
-              <tr class="border-b border-border/50">
-                <td class="py-2 px-3 text-body truncate max-w-[200px]"><%= pred.match_title %></td>
-                <td class="py-2 px-3 text-center text-heading tabular-nums">
-                  <%= pred.home_score %> - <%= pred.away_score %>
-                </td>
-                <td class="py-2 px-3 text-center">
-                  <.badge color={if pred.points > 0, do: "green", else: "gray"}><%= pred.points %> pts</.badge>
-                </td>
-                <td class="py-2 px-3 text-right text-muted text-xs">
-                  <%= if pred.inserted_at, do: Calendar.strftime(pred.inserted_at, "%d/%m/%Y") %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
+      <div class="flex items-center justify-between mb-4">
+        <button
+          type="button"
+          phx-click="nav-round"
+          phx-value-dir="prev"
+          disabled={@round <= 1}
+          class="px-3 py-1.5 rounded-md text-sm bg-surface-alt text-body hover:text-heading disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          ← <%= gettext("Prev") %>
+        </button>
+        <h2 class="text-lg font-semibold text-heading">
+          <%= gettext("Matchday %{n}", n: @round) %>
+        </h2>
+        <button
+          type="button"
+          phx-click="nav-round"
+          phx-value-dir="next"
+          disabled={!@next_available?}
+          class="px-3 py-1.5 rounded-md text-sm bg-surface-alt text-body hover:text-heading disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <%= gettext("Next") %> →
+        </button>
       </div>
-    </.card>
-  <% end %>
 
-  <.card>
-    <h2 class="text-lg font-semibold text-heading mb-3"><%= gettext("Leaderboard") %></h2>
+      <%= if @matches == [] do %>
+        <p class="text-sm text-muted">
+          <%= gettext("No matches for this matchday. Try another one.") %>
+        </p>
+      <% else %>
+        <form phx-submit="save-round" class="space-y-2">
+          <%= for m <- @matches do %>
+            <% pred = @predictions[m.fixture_id] %>
+            <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-2.5 border-b border-border/50 last:border-0">
+              <div class="flex items-center justify-end gap-2 min-w-0">
+                <span class="text-right text-sm font-medium text-heading truncate"><%= m.home %></span>
+                <img
+                  :if={crest(m.home_id)}
+                  src={crest(m.home_id)}
+                  alt={m.home}
+                  loading="lazy"
+                  class="w-6 h-6 shrink-0 object-contain"
+                />
+              </div>
 
-    <%= if @leaderboard == [] do %>
-      <p class="text-sm text-muted"><%= gettext("No scored predictions this season yet.") %></p>
-    <% else %>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-border">
-              <th class="text-left py-2 px-3 text-muted font-medium w-10">#</th>
-              <th class="text-left py-2 px-3 text-muted font-medium"><%= gettext("User") %></th>
-              <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Points") %></th>
-              <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Streak") %></th>
-              <th class="text-right py-2 px-3 text-muted font-medium"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for entry <- @leaderboard do %>
-              <tr class="border-b border-border/50">
-                <td class="py-2 px-3 text-muted">
-                  <%= if entry.rank <= 3 do %>
-                    <.badge color="amber"><%= entry.rank %></.badge>
-                  <% else %>
-                    <span class="text-muted"><%= entry.rank %></span>
-                  <% end %>
-                </td>
-                <td class="py-2 px-3 text-heading font-medium"><%= entry.username %></td>
-                <td class="py-2 px-3 text-center text-heading font-bold tabular-nums"><%= entry.points %></td>
-                <td class="py-2 px-3 text-center">
-                  <%= if entry.streak > 0 do %>
-                    <span class="text-emerald-400">🔥 <%= entry.streak %></span>
-                  <% else %>
-                    <span class="text-gray-600">-</span>
-                  <% end %>
-                </td>
-                <td class="py-2 px-3 text-right">
-                  <a
-                    href={~p"/comparar"}
-                    class="text-xs text-accent hover:text-accent-hover"
-                  >
-                    <%= gettext("Compare with...") %>
+              <div class="flex items-center gap-1.5 justify-center min-w-[130px]">
+                <%= if m.locked? do %>
+                  <div class="flex flex-col items-center">
+                    <span class="text-base font-bold text-heading tabular-nums">
+                      <%= score_cell(m.home_score) %> - <%= score_cell(m.away_score) %>
+                    </span>
+                    <span class="text-[10px] uppercase tracking-wide text-muted">
+                      <%= match_state_label(m.status) %>
+                    </span>
+                  </div>
+                <% else %>
+                  <input
+                    type="number"
+                    name={"home_#{m.fixture_id}"}
+                    min="0"
+                    max="99"
+                    value={pred && pred.home_score}
+                    placeholder="–"
+                    class="w-11 text-center rounded-md bg-surface-alt border border-border text-heading tabular-nums py-1"
+                  />
+                  <span class="text-muted">-</span>
+                  <input
+                    type="number"
+                    name={"away_#{m.fixture_id}"}
+                    min="0"
+                    max="99"
+                    value={pred && pred.away_score}
+                    placeholder="–"
+                    class="w-11 text-center rounded-md bg-surface-alt border border-border text-heading tabular-nums py-1"
+                  />
+                <% end %>
+              </div>
+
+              <div class="flex items-center gap-2 min-w-0">
+                <img
+                  :if={crest(m.away_id)}
+                  src={crest(m.away_id)}
+                  alt={m.away}
+                  loading="lazy"
+                  class="w-6 h-6 shrink-0 object-contain"
+                />
+                <span class="text-left text-sm font-medium text-heading truncate"><%= m.away %></span>
+                <%= cond do %>
+                  <% pred && pred.scored_at -> %>
+                    <.badge color={if pred.points > 0, do: "green", else: "gray"}>
+                      +<%= pred.points %>
+                    </.badge>
+                  <% pred && m.locked? -> %>
+                    <span class="text-[11px] text-muted whitespace-nowrap" title={gettext("Your prediction")}>
+                      (<%= pred.home_score %>-<%= pred.away_score %>)
+                    </span>
+                  <% true -> %>
+                    <span class="text-[11px] text-muted whitespace-nowrap"><%= m.kickoff_label %></span>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+
+          <%= if Enum.any?(@matches, &(!&1.locked?)) do %>
+            <div class="pt-4">
+              <%= if @current_user do %>
+                <.button type="submit"><%= gettext("Save Predictions") %></.button>
+              <% else %>
+                <p class="text-sm text-muted">
+                  <a href={~p"/login"} class="text-accent hover:text-accent-hover">
+                    <%= gettext("Log in") %>
                   </a>
-                </td>
+                  <%= gettext("to submit your predictions.") %>
+                </p>
+              <% end %>
+            </div>
+          <% end %>
+        </form>
+      <% end %>
+    </.card>
+
+    <.card>
+      <h2 class="text-lg font-semibold text-heading mb-3"><%= gettext("Leaderboard") %></h2>
+
+      <%= if @leaderboard == [] do %>
+        <p class="text-sm text-muted"><%= gettext("No scored predictions this season yet.") %></p>
+      <% else %>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left py-2 px-3 text-muted font-medium w-10">#</th>
+                <th class="text-left py-2 px-3 text-muted font-medium"><%= gettext("User") %></th>
+                <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Points") %></th>
+                <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Predictions") %></th>
               </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-    <% end %>
-  </.card>
+            </thead>
+            <tbody>
+              <%= for {entry, rank} <- Enum.with_index(@leaderboard, 1) do %>
+                <tr class="border-b border-border/50">
+                  <td class="py-2 px-3 text-muted">
+                    <%= if rank <= 3 do %>
+                      <.badge color="amber"><%= rank %></.badge>
+                    <% else %>
+                      <span class="text-muted"><%= rank %></span>
+                    <% end %>
+                  </td>
+                  <td class="py-2 px-3 text-heading font-medium">
+                    <%= if entry.user, do: entry.user.username, else: gettext("User #%{id}", id: entry.user_id) %>
+                  </td>
+                  <td class="py-2 px-3 text-center text-heading font-bold tabular-nums"><%= entry.total_points %></td>
+                  <td class="py-2 px-3 text-center text-muted tabular-nums"><%= entry.predictions_count %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      <% end %>
+    </.card>
+  <% end %>
 </section>

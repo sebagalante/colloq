@@ -160,7 +160,108 @@ defmodule Colloq.Predictions do
     Repo.get_by(Prediction, user_id: user_id, fixture_id: fixture_id)
   end
 
+  # ===========================================================================
+  # Fecha (round) based predictions — Sofascore league rounds
+  # ===========================================================================
+
+  @doc """
+  A user's predictions for one fecha, keyed by Sofascore `fixture_id` (string)
+  so a template can look each match up in O(1).
+  """
+  def for_user_round(user_id, season_id, round) do
+    Prediction
+    |> where([p], p.user_id == ^user_id and p.season_id == ^season_id and p.round == ^round)
+    |> Repo.all()
+    |> Map.new(&{&1.fixture_id, &1})
+  end
+
+  @doc """
+  Upserts a batch of predictions for one user across a fecha.
+
+  `entries` is a list of `%{fixture_id, home_score, away_score}` maps (already
+  parsed to integers). Each is inserted or updated on the
+  `[user_id, fixture_id]` unique key. Returns `{:ok, count_saved}`.
+
+  Callers are responsible for excluding matches whose deadline has passed —
+  this trusts the list it's given, so the LiveView filters out locked fixtures
+  before calling.
+  """
+  def upsert_round(user_id, season_id, round, entries) when is_list(entries) do
+    now = DateTime.utc_now()
+
+    {count, _} =
+      Repo.transaction(fn ->
+        Enum.reduce(entries, 0, fn entry, acc ->
+          attrs = %{
+            "user_id" => user_id,
+            "season_id" => season_id,
+            "round" => round,
+            "fixture_id" => to_string(entry.fixture_id),
+            "home_score" => entry.home_score,
+            "away_score" => entry.away_score
+          }
+
+          existing =
+            Repo.get_by(Prediction, user_id: user_id, fixture_id: to_string(entry.fixture_id))
+
+          # Never overwrite a prediction that was already scored — a late edit
+          # must not rewrite history after the match finished.
+          if existing && not is_nil(existing.scored_at) do
+            acc
+          else
+            changeset = Prediction.changeset(existing || %Prediction{}, attrs)
+
+            case Repo.insert_or_update(changeset) do
+              {:ok, _} -> acc + 1
+              {:error, _} -> acc
+            end
+          end
+        end)
+      end)
+      |> case do
+        {:ok, n} -> {n, now}
+        _ -> {0, now}
+      end
+
+    {:ok, count}
+  end
+
+  @doc """
+  Scores every finished match of a fecha against the round's live payload.
+
+  Pulls the round from Sofascore once, then scores predictions for each match
+  the provider reports as finished. Safe to re-run — `score_predictions_for_fixture/2`
+  only touches unscored rows. Returns `{:ok, total_scored}` or `{:error, reason}`.
+  """
+  def score_round(round) when is_integer(round) do
+    case Colloq.Sofascore.round_fixtures(round) do
+      {:ok, events} ->
+        total =
+          events
+          |> Enum.reduce(0, fn event, acc ->
+            case Colloq.Sofascore.event_result(event) do
+              {:ok, result} ->
+                {:ok, n} = score_predictions_for_fixture(to_string(event["id"]), result)
+                acc + n
+
+              {:error, :not_finished} ->
+                acc
+            end
+          end)
+
+        {:ok, total}
+
+      other ->
+        other
+    end
+  end
+
   defp filter_season(query, nil), do: query
+
+  defp filter_season(query, season) when is_integer(season) do
+    where(query, [p], p.season_id == ^season)
+  end
+
   defp filter_season(query, season) do
     where(query, [p], like(p.fixture_id, ^"#{season}%"))
   end

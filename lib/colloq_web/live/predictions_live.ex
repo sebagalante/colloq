@@ -1,270 +1,211 @@
 defmodule ColloqWeb.PredictionsLive do
   use ColloqWeb, :live_view
 
-  alias Colloq.Repo
-  alias Phoenix.PubSub
+  alias Colloq.{Predictions, Sofascore}
 
-  # Point values live in Colloq.Predictions.Scorer (`weights/0`) — this module
-  # used to carry its own unused copy describing a different ladder entirely.
+  # Point values live in Colloq.Predictions.Scorer (`weights/0`).
 
   @impl true
   def mount(_params, _session, socket) do
-    next_match = get_next_match()
-    leaderboard = get_leaderboard()
-    current_user = socket.assigns[:current_user]
-    user_history = if current_user, do: get_user_history(current_user.id), else: []
+    season_id = Sofascore.current_season_id()
 
     socket =
       socket
-      |> assign(:page_title, gettext("Predictions"))
-      |> assign(:next_match, next_match)
-      |> assign(:leaderboard, leaderboard)
-      |> assign(:user_history, user_history)
-      |> assign(:form_home_score, "")
-      |> assign(:form_away_score, "")
-      |> assign(:form_first_scorer, "")
-      |> assign(:form_motm, "")
-      |> assign(:submitting, false)
+      |> assign(:page_title, pgettext("prode", "Predictions"))
+      |> assign(:season_id, season_id)
 
-    if connected?(socket) && next_match do
-      PubSub.subscribe(Colloq.PubSub, "match:#{next_match.id}")
-    end
+    socket =
+      if season_id do
+        load_round(socket, Sofascore.current_round())
+      else
+        assign(socket, round: nil, matches: [], predictions: %{}, leaderboard: [], next_available?: false)
+      end
 
     {:ok, socket}
   end
 
   @impl true
-  def handle_event("predict", %{
-    "home_score" => home_score,
-    "away_score" => away_score,
-    "first_scorer" => first_scorer,
-    "motm" => motm
-  }, socket) do
-    user = socket.assigns.current_user
-    match = socket.assigns.next_match
+  def handle_event("nav-round", %{"dir" => dir}, socket) do
+    delta = if dir == "next", do: 1, else: -1
+    round = max(1, (socket.assigns.round || 1) + delta)
+    {:noreply, load_round(socket, round)}
+  end
 
+  def handle_event("save-round", params, socket) do
     cond do
-      is_nil(user) ->
+      is_nil(socket.assigns[:current_user]) ->
         {:noreply, put_flash(socket, :error, gettext("You must log in to make predictions."))}
 
-      is_nil(match) ->
-        {:noreply, put_flash(socket, :error, gettext("There is no match open for predictions."))}
-
-      # Re-check against the DB rather than trusting the assign: the match may
-      # have kicked off since this client mounted, and a stale tab must not be
-      # able to submit a prediction for a match in progress.
-      not open_for_predictions?(match.fixture_id) ->
-        {:noreply,
-         socket
-         |> assign(:next_match, nil)
-         |> put_flash(:error, gettext("The match has started. No more predictions are accepted."))}
+      is_nil(socket.assigns.season_id) ->
+        {:noreply, socket}
 
       true ->
-        with {:ok, home} <- parse_score(home_score),
-             {:ok, away} <- parse_score(away_score) do
-          prediction = %{
-            user_id: user.id,
-            fixture_id: match.fixture_id,
-            home_score: home,
-            away_score: away,
-            first_scorer: String.trim(first_scorer),
-            motm: String.trim(motm)
-          }
+        entries = collect_entries(params, socket.assigns.matches)
 
-          case save_prediction(prediction) do
-            {:ok, _} ->
-              {:noreply,
-               socket
-               |> assign(:user_history, get_user_history(user.id))
-               |> assign(:leaderboard, get_leaderboard())
-               |> assign(:form_home_score, "")
-               |> assign(:form_away_score, "")
-               |> assign(:form_first_scorer, "")
-               |> assign(:form_motm, "")
-               |> put_flash(:info, gettext("Prediction saved!"))}
+        case Predictions.upsert_round(
+               socket.assigns.current_user.id,
+               socket.assigns.season_id,
+               socket.assigns.round,
+               entries
+             ) do
+          {:ok, 0} ->
+            {:noreply,
+             put_flash(socket, :info, gettext("No open matches to save. Kickoff has passed."))}
 
-            {:error, reason} ->
-              {:noreply, put_flash(socket, :error, reason)}
-          end
-        else
-          :error ->
-            {:noreply, put_flash(socket, :error, gettext("Goals must be valid numbers."))}
+          {:ok, count} ->
+            {:noreply,
+             socket
+             |> load_round(socket.assigns.round)
+             |> put_flash(:info, gettext("%{count} predictions saved!", count: count))}
         end
     end
   end
 
-  @impl true
-  def handle_info({:match_started, _}, socket) do
-    {:noreply, socket |> assign(:next_match, nil) |> put_flash(:info, gettext("The match has started. No more predictions are accepted."))}
+  # ---------------------------------------------------------------------------
+  # Round loading
+  # ---------------------------------------------------------------------------
+
+  defp load_round(socket, round) do
+    matches = fetch_matches(round)
+
+    # Cap forward navigation at the last defined fecha: Sofascore only publishes
+    # the Clausura a few rounds ahead, so without this "Siguiente" walks into a
+    # dozen "no definida" pages and reads as broken. `fetch_matches/1` is
+    # cache-backed (10 min), so this peek is cheap.
+    next_available? = fetch_matches(round + 1) != []
+
+    predictions =
+      case socket.assigns[:current_user] do
+        nil -> %{}
+        user -> Predictions.for_user_round(user.id, socket.assigns.season_id, round)
+      end
+
+    socket
+    |> assign(:round, round)
+    |> assign(:matches, matches)
+    |> assign(:next_available?, next_available?)
+    |> assign(:predictions, predictions)
+    |> assign(:leaderboard, Predictions.leaderboard(season: socket.assigns.season_id, limit: 20))
   end
 
-  def handle_info({:scores_updated, _}, socket) do
-    {:noreply, socket |> assign(:leaderboard, get_leaderboard())}
+  # Fetches the fecha and normalises each event into the view shape. Trims the
+  # Apertura/Clausura round-number collision two ways: `current_phase/1` keeps
+  # the nearest cluster, and the active-window filter drops a round whose only
+  # matches belong to the previous tournament (so it reads as "not defined yet"
+  # rather than showing months-old results). Sorted by kickoff.
+  defp fetch_matches(round) do
+    case Sofascore.round_fixtures(round) do
+      {:ok, events} ->
+        events
+        |> Sofascore.current_phase()
+        |> Enum.map(&to_match/1)
+        |> Enum.filter(&within_active_window?/1)
+        |> Enum.sort_by(& &1.kickoff_ts)
+        |> lock_from_first_kickoff()
+
+      _ ->
+        []
+    end
   end
 
-  def handle_info(_, socket), do: {:noreply, socket}
+  # Classic Prode deadline: the whole fecha closes the moment its first match
+  # kicks off — one deadline for the round, not a per-match trickle. A finished
+  # match stays locked regardless (it always sits after the first kickoff).
+  defp lock_from_first_kickoff([]), do: []
 
-  # Authoritative deadline: predictions close the moment the thread leaves
-  # "prematch". Checked at submit time, not just when rendering the form.
-  defp open_for_predictions?(nil), do: false
+  defp lock_from_first_kickoff(matches) do
+    now = System.system_time(:second)
 
-  defp open_for_predictions?(fixture_id) do
-    import Ecto.Query
+    first_kickoff =
+      matches
+      |> Enum.map(& &1.kickoff_ts)
+      |> Enum.filter(&(&1 > 0))
+      |> Enum.min(fn -> nil end)
 
-    Repo.exists?(
-      from(t in Colloq.Forum.Topic,
-        where:
-          t.is_match_thread == true and t.match_id == ^fixture_id and t.match_mode == "prematch"
-      )
-    )
+    fecha_started? = is_integer(first_kickoff) and now >= first_kickoff
+
+    Enum.map(matches, fn m -> %{m | locked?: fecha_started? or m.status == "finished"} end)
   end
 
-  defp parse_score(str) do
-    case Integer.parse(str) do
-      {n, _} when n >= 0 -> {:ok, n}
+  defp within_active_window?(%{kickoff_ts: ts}) when is_integer(ts) and ts > 0 do
+    abs(ts - System.system_time(:second)) <= Sofascore.fixture_window_days() * 86_400
+  end
+
+  defp within_active_window?(_), do: false
+
+  defp to_match(event) do
+    status = get_in(event, ["status", "type"])
+    ts = event["startTimestamp"]
+
+    %{
+      fixture_id: to_string(event["id"]),
+      home: get_in(event, ["homeTeam", "name"]) || "?",
+      away: get_in(event, ["awayTeam", "name"]) || "?",
+      home_id: get_in(event, ["homeTeam", "id"]),
+      away_id: get_in(event, ["awayTeam", "id"]),
+      kickoff_ts: ts || 0,
+      kickoff_label: kickoff_label(ts),
+      status: status,
+      # Once a match has finished, Sofascore keeps the score in the round payload.
+      home_score: get_in(event, ["homeScore", "current"]),
+      away_score: get_in(event, ["awayScore", "current"]),
+      # Provisional lock; `lock_from_first_kickoff/1` finalises it for the whole
+      # fecha. A finished match is always locked. Enforced again server-side in
+      # `collect_entries/2`.
+      locked?: status == "finished"
+    }
+  end
+
+  defp kickoff_label(nil), do: "--"
+
+  defp kickoff_label(ts) do
+    ts
+    |> DateTime.from_unix!(:second)
+    |> DateTime.shift_zone!("America/Argentina/Buenos_Aires")
+    |> Calendar.strftime("%d/%m %H:%M")
+  rescue
+    _ -> "--"
+  end
+
+  # Pulls home_<id>/away_<id> pairs from the form, keeping only open matches
+  # with two valid non-negative integers.
+  defp collect_entries(params, matches) do
+    matches
+    |> Enum.reject(& &1.locked?)
+    |> Enum.flat_map(fn m ->
+      with {:ok, home} <- parse_score(params["home_#{m.fixture_id}"]),
+           {:ok, away} <- parse_score(params["away_#{m.fixture_id}"]) do
+        [%{fixture_id: m.fixture_id, home_score: home, away_score: away}]
+      else
+        _ -> []
+      end
+    end)
+  end
+
+  defp parse_score(str) when is_binary(str) do
+    case Integer.parse(String.trim(str)) do
+      {n, ""} when n >= 0 and n <= 99 -> {:ok, n}
       _ -> :error
     end
   end
 
-  # Only prematch threads are open for predictions. "live" used to be included,
-  # which meant anyone loading the page after kickoff got a prediction form for
-  # a match already in progress — with the running score visible on the same
-  # page. The {:match_started, _} handler only closes the form for clients
-  # already connected, so it was never a real deadline.
-  defp get_next_match do
-    import Ecto.Query
+  defp parse_score(_), do: :error
 
-    query =
-      from(t in Colloq.Forum.Topic,
-        where: t.is_match_thread == true,
-        where: t.match_mode == "prematch",
-        order_by: [desc: t.inserted_at],
-        limit: 1
-      )
+  # ---------------------------------------------------------------------------
+  # Template helpers
+  # ---------------------------------------------------------------------------
 
-    case Repo.all(query) do
-      [] -> nil
-      [topic | _] ->
-        %{
-          id: topic.id,
-          fixture_id: topic.match_id,
-          title: topic.title,
-          home_team: topic.home_team || gettext("Home"),
-          away_team: topic.away_team || gettext("Away"),
-          # The template reads @next_match.match_date; a missing key raises
-          # KeyError (not nil), so it must be present. Topics carry no kickoff
-          # time yet, so it's nil and the date line stays hidden.
-          match_date: nil
-        }
-    end
-  end
+  @doc false
+  def score_cell(nil), do: "–"
+  def score_cell(n), do: n
 
-  defp save_prediction(prediction) do
-    import Ecto.Query
+  @doc false
+  # Sofascore team crest. Nil id → nil src so the <img> is skipped entirely.
+  def crest(nil), do: nil
+  def crest(team_id), do: "https://api.sofascore.com/api/v1/team/#{team_id}/image"
 
-    # Check if user already predicted this match
-    existing =
-      Colloq.Predictions.Prediction
-      |> where([p], p.user_id == ^prediction.user_id and p.fixture_id == ^prediction.fixture_id)
-      |> Repo.one()
-
-    schema = if existing, do: existing, else: struct!(Colloq.Predictions.Prediction)
-
-    changeset =
-      schema
-      |> Ecto.Changeset.cast(prediction, [:user_id, :fixture_id, :home_score, :away_score, :first_scorer, :motm])
-      |> Ecto.Changeset.validate_required([:home_score, :away_score])
-
-    case Repo.insert_or_update(changeset) do
-      {:ok, pred} -> {:ok, pred}
-      {:error, _} -> {:error, gettext("Error saving the prediction.")}
-    end
-  end
-
-  defp get_user_history(user_id) do
-    import Ecto.Query
-
-    query =
-      from(p in Colloq.Predictions.Prediction,
-        where: p.user_id == ^user_id,
-        order_by: [desc: p.inserted_at],
-        limit: 20
-      )
-
-    Repo.all(query)
-    |> Enum.map(fn p ->
-      %{
-        match_title: get_match_title(p.fixture_id),
-        home_score: p.home_score,
-        away_score: p.away_score,
-        points: p.points || 0,
-        inserted_at: p.inserted_at
-      }
-    end)
-  end
-
-  defp get_match_title(fixture_id) do
-    Colloq.Forum.get_topic!(fixture_id).title
-  rescue
-    # get_topic!/1 raises on a missing topic; there is no nil return to match.
-    _ -> gettext("Match #%{id}", id: fixture_id)
-  end
-
-  defp get_leaderboard do
-    import Ecto.Query
-
-    season_start = Date.new!(Date.utc_today().year - 1, 7, 1)
-
-    query =
-      from(p in Colloq.Predictions.Prediction,
-        where: p.points > 0,
-        group_by: p.user_id,
-        select: %{
-          user_id: p.user_id,
-          total_points: sum(p.points),
-          predictions_count: count(p.id)
-        },
-        order_by: [desc: sum(p.points)],
-        limit: 20
-      )
-
-    entries =
-      Repo.all(query)
-      |> Enum.with_index(1)
-      |> Enum.map(fn {entry, rank} ->
-        user = Colloq.Accounts.get_user(entry.user_id)
-        streak = get_user_streak(entry.user_id)
-
-        %{
-          rank: rank,
-          username: if(user, do: user.username, else: gettext("User #%{id}", id: entry.user_id)),
-          points: entry.total_points,
-          predictions: entry.predictions_count,
-          streak: streak
-        }
-      end)
-
-    entries
-  end
-
-  defp get_user_streak(user_id) do
-    import Ecto.Query
-
-    predictions =
-      from(p in Colloq.Predictions.Prediction,
-        where: p.user_id == ^user_id,
-        order_by: [desc: p.inserted_at],
-        select: %{points: p.points},
-        limit: 10
-      )
-      |> Repo.all()
-
-    find_streak(predictions)
-  end
-
-  defp find_streak([]), do: 0
-  defp find_streak([%{points: points} | rest]) when points > 0 do
-    1 + find_streak(rest)
-  end
-  defp find_streak(_), do: 0
+  @doc false
+  def match_state_label("finished"), do: gettext("Final")
+  def match_state_label("inprogress"), do: gettext("Live")
+  def match_state_label(_), do: gettext("Started")
 end

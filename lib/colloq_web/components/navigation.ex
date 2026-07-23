@@ -164,7 +164,7 @@ defmodule ColloqWeb.Components.Navigation do
       <nav class="space-y-6">
         <div class="space-y-1">
           <.nav_link navigate={~p"/"} icon="home" label={gettext("Forum")} />
-          <.nav_link navigate={~p"/predicciones"} icon="trending-up" label={gettext("Predictions")} />
+          <.nav_link navigate={~p"/predicciones"} icon="trending-up" label={pgettext("prode", "Predictions")} />
           <.nav_link :if={@current_user} navigate={~p"/bookmarks"} icon="bookmark" label={gettext("Bookmarks")} />
 
           <%!-- More (expandable) --%>

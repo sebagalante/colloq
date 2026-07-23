@@ -11,6 +11,8 @@ defmodule Colloq.Predictions.Prediction do
 
   schema "predictions" do
     field :fixture_id, :string
+    field :season_id, :integer
+    field :round, :integer
     field :home_score, :integer
     field :away_score, :integer
     field :first_scorer, :string
@@ -27,7 +29,7 @@ defmodule Colloq.Predictions.Prediction do
   def changeset(prediction, attrs) do
     prediction
     |> cast(attrs, [
-      :fixture_id, :home_score, :away_score, :first_scorer, :motm,
+      :fixture_id, :season_id, :round, :home_score, :away_score, :first_scorer, :motm,
       :points, :scored_at, :user_id
     ])
     |> validate_required([:fixture_id, :home_score, :away_score, :user_id])

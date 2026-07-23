@@ -9,6 +9,12 @@ defmodule Colloq.Forum do
 
   alias Colloq.Pagination
 
+  # Pagination bounds for nested replies. `child_cap` direct replies per comment
+  # before "ver N más"; stop loading past `max_depth` and offer "Continuar hilo".
+  # Defined up here so every function that defaults to them sees a value.
+  @default_child_cap 10
+  @default_max_depth 6
+
   # --- TOPICS ---
 
   @doc """
@@ -206,6 +212,273 @@ defmodule Colloq.Forum do
       |> Repo.get!(id)
 
     %{topic | posts: nest_posts(posts)}
+  end
+
+  @doc """
+  A page of **root** (top-level) comments with their full subtrees, for the
+  paginated topic view. Roots are chronological (by `post_number`, so the OP —
+  post_number 1 — is always on page 1). Returns `{tree, has_more?}`.
+
+  Only the loaded roots' descendants are fetched (a bounded level-by-level walk),
+  so a huge thread never loads in one shot. `blocked_ids` filters authors the
+  reader has hidden, in both the root and descendant queries.
+  """
+  def list_root_posts(topic_id, blocked_ids, page_size, offset, opts \\ [])
+      when is_integer(page_size) and is_integer(offset) do
+    blocked = MapSet.to_list(blocked_ids)
+
+    roots =
+      Post
+      |> where([p], p.topic_id == ^topic_id and is_nil(p.parent_id) and is_nil(p.deleted_at))
+      |> maybe_exclude_blocked(blocked)
+      |> order_by(asc: :post_number)
+      |> limit(^(page_size + 1))
+      |> offset(^offset)
+      |> preload([:user, :embeds])
+      |> Repo.all()
+
+    has_more = length(roots) > page_size
+    roots = Enum.take(roots, page_size)
+
+    {build_capped_tree(topic_id, roots, blocked, 0, opts), has_more}
+  end
+
+  @doc """
+  Next batch of a comment's **direct** replies (each with its own capped subtree),
+  for "ver N más". `parent_depth` is the parent's depth in the tree so the loaded
+  subtrees respect the global depth cap. Returns `{built_children, remaining}`.
+  """
+  def list_child_posts(topic_id, parent_id, blocked_ids, offset, parent_depth, opts \\ []) do
+    cap = Keyword.get(opts, :child_cap, @default_child_cap)
+    blocked = MapSet.to_list(blocked_ids)
+
+    children =
+      Post
+      |> where([p], p.topic_id == ^topic_id and p.parent_id == ^parent_id and is_nil(p.deleted_at))
+      |> maybe_exclude_blocked(blocked)
+      |> order_by(asc: :inserted_at)
+      |> limit(^(cap + 1))
+      |> offset(^offset)
+      |> preload([:user, :embeds])
+      |> Repo.all()
+      |> Enum.take(cap)
+
+    total = child_counts(topic_id, [parent_id], blocked) |> Map.get(parent_id, 0)
+    remaining = max(total - (offset + length(children)), 0)
+    built = build_capped_tree(topic_id, children, blocked, parent_depth + 1, opts)
+
+    {built, remaining}
+  end
+
+  @doc """
+  The branch root one level *up* from a rooted comment, so "Volver" from a deep
+  "Continuar hilo" returns to the previous rooted view rather than the top of the
+  topic. Branch roots sit `max_depth` apart, so this walks that many ancestors:
+  a nested ancestor's id (→ root there), or `nil` when the ancestor is top-level
+  (→ back to the whole topic). Walks `max_depth` cheap `parent_id` lookups.
+  """
+  def previous_branch_root(post_id, levels \\ @default_max_depth) do
+    ancestor =
+      Enum.reduce_while(1..levels, post_id, fn _, current ->
+        case Repo.one(from p in Post, where: p.id == ^current, select: p.parent_id) do
+          nil -> {:halt, nil}
+          parent -> {:cont, parent}
+        end
+      end)
+
+    with id when not is_nil(id) <- ancestor,
+         parent_id when not is_nil(parent_id) <-
+           Repo.one(from p in Post, where: p.id == ^id, select: p.parent_id) do
+      id
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  A single comment as the root of the view (its capped subtree), for the
+  "Continuar hilo →" permalink (`/t/:id?c=post_id`). `[]` if not found.
+  """
+  def list_thread_from(topic_id, root_post_id, blocked_ids, opts \\ []) do
+    blocked = MapSet.to_list(blocked_ids)
+
+    root =
+      Post
+      |> where([p], p.id == ^root_post_id and p.topic_id == ^topic_id and is_nil(p.deleted_at))
+      # Preload the parent (+ its author): the rooted view shows "en respuesta a
+      # @X" since that parent isn't on screen here.
+      |> preload([:user, :embeds, parent: :user])
+      |> Repo.one()
+
+    case root do
+      nil -> []
+      post -> build_capped_tree(topic_id, [post], blocked, 0, opts)
+    end
+  end
+
+  @doc "Loads a topic and its metadata preloads, WITHOUT its posts (paginated separately)."
+  def get_topic_meta!(id) do
+    Topic
+    |> preload([:category, :user, :deleted_by, :duplicate_of])
+    |> Repo.get!(id)
+  end
+
+  @doc "Highest post_number in a topic (for the read marker); 0 if none."
+  def max_post_number(topic_id) do
+    Post
+    |> where([p], p.topic_id == ^topic_id and is_nil(p.deleted_at))
+    |> Repo.aggregate(:max, :post_number) || 0
+  end
+
+  @doc """
+  Unread summary for a reader: `{first_unread_id, count}` for posts newer than
+  `last_read` that aren't the reader's own. Cheap flat query (id/post_number only)
+  so it stays correct topic-wide even though the view is paginated.
+  """
+  def unread_since(topic_id, last_read, user_id) do
+    rows =
+      Post
+      |> where(
+        [p],
+        p.topic_id == ^topic_id and is_nil(p.deleted_at) and p.post_number > ^last_read and
+          p.user_id != ^user_id
+      )
+      |> order_by(asc: :post_number)
+      |> select([p], p.id)
+      |> Repo.all()
+
+    {List.first(rows), length(rows)}
+  end
+
+  @doc "Total root (top-level) comments in a topic, for the load-more count."
+  def count_root_posts(topic_id, blocked_ids \\ MapSet.new()) do
+    Post
+    |> where([p], p.topic_id == ^topic_id and is_nil(p.parent_id) and is_nil(p.deleted_at))
+    |> maybe_exclude_blocked(MapSet.to_list(blocked_ids))
+    |> Repo.aggregate(:count, :id)
+  end
+
+  @doc """
+  Topic-wide engagement stats, computed with cheap aggregates rather than from
+  the (now paginated) in-memory post tree: total reactions, distinct participant
+  count, the top-5 participants (most posts first), and an estimated read time.
+  """
+  def topic_stats(topic_id, blocked_ids \\ MapSet.new()) do
+    blocked = MapSet.to_list(blocked_ids)
+
+    base =
+      Post
+      |> where([p], p.topic_id == ^topic_id and is_nil(p.deleted_at))
+      |> maybe_exclude_blocked(blocked)
+
+    likes = Repo.aggregate(base, :sum, :reactions_count) || 0
+
+    # Words estimate: strip HTML tags in SQL, sum length, ~5 chars/word, 200 wpm.
+    chars =
+      base
+      |> select([p], sum(fragment("length(regexp_replace(coalesce(?, ''), '<[^>]+>', ' ', 'g'))", p.body)))
+      |> Repo.one() || 0
+
+    read_minutes = max(div(div(chars, 5), 200) + 1, 1)
+
+    counts =
+      base
+      |> where([p], p.is_system == false and not is_nil(p.user_id))
+      |> group_by([p], p.user_id)
+      |> select([p], {p.user_id, count(p.id)})
+      |> Repo.all()
+
+    top_ids =
+      counts |> Enum.sort_by(fn {_id, c} -> -c end) |> Enum.take(5) |> Enum.map(&elem(&1, 0))
+
+    users = Repo.all(from u in Accounts.User, where: u.id in ^top_ids)
+    users_map = Map.new(users, &{&1.id, &1})
+    top_participants = top_ids |> Enum.map(&Map.get(users_map, &1)) |> Enum.reject(&is_nil/1)
+
+    %{
+      likes: likes,
+      participant_count: length(counts),
+      top_participants: top_participants,
+      read_minutes: read_minutes
+    }
+  end
+
+  defp maybe_exclude_blocked(query, []), do: query
+  defp maybe_exclude_blocked(query, blocked), do: where(query, [p], p.user_id not in ^blocked)
+
+  # Builds the subtree for `posts` (nodes already at `depth`), capping each node's
+  # direct children at `child_cap` and stopping at `max_depth`. One batched query
+  # pair per level; annotates each node with `more_child_count` (unloaded direct
+  # replies) and `thread_truncated` (at the depth cap with children below).
+  defp build_capped_tree(_topic_id, [], _blocked, _depth, _opts), do: []
+
+  defp build_capped_tree(topic_id, posts, blocked, depth, opts) do
+    cap = Keyword.get(opts, :child_cap, @default_child_cap)
+    max_depth = Keyword.get(opts, :max_depth, @default_max_depth)
+    parent_ids = Enum.map(posts, & &1.id)
+
+    if depth >= max_depth do
+      with_children = parents_with_children(topic_id, parent_ids, blocked)
+
+      Enum.map(posts, fn p ->
+        %{p | replies: [], more_child_count: 0, thread_truncated: MapSet.member?(with_children, p.id)}
+      end)
+    else
+      counts = child_counts(topic_id, parent_ids, blocked)
+      by_parent = Enum.group_by(capped_children(topic_id, parent_ids, blocked, cap), & &1.parent_id)
+
+      Enum.map(posts, fn p ->
+        kids = Map.get(by_parent, p.id, [])
+        total = Map.get(counts, p.id, 0)
+
+        %{
+          p
+          | replies: build_capped_tree(topic_id, kids, blocked, depth + 1, opts),
+            more_child_count: max(total - length(kids), 0),
+            thread_truncated: false
+        }
+      end)
+    end
+  end
+
+  # First `cap` direct children per parent, via a window function so the limit is
+  # per-parent (not global). `parent_id in frontier` keeps it one query per level.
+  defp capped_children(topic_id, parent_ids, blocked, cap) do
+    ranked =
+      Post
+      |> where([p], p.topic_id == ^topic_id and p.parent_id in ^parent_ids and is_nil(p.deleted_at))
+      |> maybe_exclude_blocked(blocked)
+      |> select([p], %{
+        id: p.id,
+        rn: over(row_number(), partition_by: p.parent_id, order_by: p.inserted_at)
+      })
+
+    Post
+    |> join(:inner, [p], r in subquery(ranked), on: r.id == p.id)
+    |> where([_p, r], r.rn <= ^cap)
+    |> order_by([p], asc: p.inserted_at)
+    |> preload([:user, :embeds])
+    |> Repo.all()
+  end
+
+  defp child_counts(topic_id, parent_ids, blocked) do
+    Post
+    |> where([p], p.topic_id == ^topic_id and p.parent_id in ^parent_ids and is_nil(p.deleted_at))
+    |> maybe_exclude_blocked(blocked)
+    |> group_by([p], p.parent_id)
+    |> select([p], {p.parent_id, count(p.id)})
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  defp parents_with_children(topic_id, parent_ids, blocked) do
+    Post
+    |> where([p], p.topic_id == ^topic_id and p.parent_id in ^parent_ids and is_nil(p.deleted_at))
+    |> maybe_exclude_blocked(blocked)
+    |> distinct([p], p.parent_id)
+    |> select([p], p.parent_id)
+    |> Repo.all()
+    |> MapSet.new()
   end
 
   # Build a nested reply tree from a flat list of posts (correct at any depth).

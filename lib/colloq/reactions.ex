@@ -145,6 +145,43 @@ defmodule Colloq.Reactions do
       iex> who_reacted(42, "👍")
       [%User{username: "john"}, ...]
   """
+  @doc """
+  Everyone who reacted to a post, with the emoji they used, oldest first — for
+  the "who reacted" list.
+  """
+  def reactors(post_id) do
+    Reaction
+    |> where([r], r.post_id == ^post_id)
+    |> order_by([r], asc: r.inserted_at)
+    |> preload(:user)
+    |> Repo.all()
+    |> Enum.map(&%{user: &1.user, emoji: &1.emoji})
+  end
+
+  @doc """
+  Reactor names per post per emoji, for hover tooltips on the reaction pills:
+  `%{post_id => %{emoji => "Juan, Pedro, María"}}`. One batched query for all the
+  given post ids; names are oldest-reaction first.
+  """
+  def reactor_names_for(post_ids) when is_list(post_ids) do
+    Reaction
+    |> where([r], r.post_id in ^post_ids)
+    |> order_by([r], asc: r.inserted_at)
+    |> preload(:user)
+    |> Repo.all()
+    |> Enum.group_by(& &1.post_id)
+    |> Map.new(fn {post_id, rs} ->
+      by_emoji =
+        rs
+        |> Enum.group_by(& &1.emoji)
+        |> Map.new(fn {emoji, ers} ->
+          {emoji, Enum.map_join(ers, ", ", &(&1.user.display_name || &1.user.username))}
+        end)
+
+      {post_id, by_emoji}
+    end)
+  end
+
   def who_reacted(post_id, emoji) when is_binary(emoji) do
     Reaction
     |> where([r], r.post_id == ^post_id and r.emoji == ^emoji)

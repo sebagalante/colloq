@@ -150,7 +150,7 @@
         <span class="text-muted"><%= gettext("Views") %></span>
         <span class="font-semibold text-heading"><%= @stats[:total_views] || 0 %></span>
       </div>
-      <div class="flex items-center gap-1.5">
+      <div :if={@can_see_trust?} class="flex items-center gap-1.5">
         <span class="text-muted"><%= gettext("Trust Level") %></span>
         <span class="font-semibold text-heading"><%= trust_level_name(@profile_user.trust_level) %></span>
       </div>
@@ -206,7 +206,7 @@
           <div class="text-2xl font-bold text-heading"><%= @stats[:total_views] || 0 %></div>
           <div class="text-xs text-muted mt-0.5"><%= gettext("Views") %></div>
         </div>
-        <div class="rounded-xl border border-border bg-surface p-4">
+        <div :if={@can_see_trust?} class="rounded-xl border border-border bg-surface p-4">
           <div class="text-2xl font-bold text-heading"><%= trust_level_name(@profile_user.trust_level) %></div>
           <div class="text-xs text-muted mt-0.5"><%= gettext("Trust Level") %></div>
         </div>

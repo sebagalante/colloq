@@ -33,6 +33,9 @@ defmodule ColloqWeb.UserLive.Profile do
       |> assign(:page, 1)
       |> assign(:has_more_posts, false)
       |> assign(:blocked_by_me, blocked_by_me)
+      # Trust level is an internal permissions tier — only staff (mods/admins)
+      # may see it; regular users never do, not even on their own profile.
+      |> assign(:can_see_trust?, Colloq.Permissions.staff?(current_user))
       |> assign(:can_message, current_user && user && current_user.id != user.id &&
         Colloq.Messaging.can_message?(current_user, user) == :ok)
       |> assign(:active_tab, "summary")

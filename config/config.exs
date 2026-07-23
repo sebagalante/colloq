@@ -64,6 +64,11 @@ config :colloq, Oban,
        # 03:00, after promotions: sweeps any fixture the full-time hook missed
        # and posts the daily prediction leaderboard.
        {"0 3 * * *", Colloq.Workers.PredictionDigestWorker},
+       # Scores fecha predictions as the current round's matches finish.
+       {"*/5 * * * *", Colloq.Workers.PredictionRoundScorerWorker},
+       # 08:00 Argentina (UTC-3, no DST) = 11:00 UTC: check if Sofascore has
+       # published new fechas and warm the fixture cache.
+       {"0 11 * * *", Colloq.Workers.PredictionFixtureRefreshWorker},
        # Ticks every minute; fans out to enabled recurring automations on their
        # own intervals (e.g. the "Recompute scores" automation every 5 min).
        {"* * * * *", Colloq.Workers.AutomationSchedulerWorker}

@@ -396,6 +396,69 @@ defmodule Colloq.Sofascore do
   def racing_team_id, do: @teams.racing.id
 
   @doc """
+  The league round (fecha) being played *now*, inferred from Racing's most
+  relevant match. Falls back to `1` when nothing can be determined — the same
+  anchor the `/sofascore liga` command uses, so the two agree on "la fecha".
+  """
+  def current_round do
+    case relevant_match(racing_team_id()) do
+      {:ok, event} -> get_in(event, ["roundInfo", "round"]) || 1
+      _ -> 1
+    end
+  end
+
+  @doc """
+  Final result of a round event, read straight from the round payload's score
+  fields. `{:ok, %{home_score, away_score}}` for a finished match, otherwise
+  `{:error, :not_finished}`.
+
+  Takes an event map (as returned by `round_fixtures/1`) so scoring a whole
+  fecha costs a single API call rather than one per match.
+  """
+  def event_result(%{"status" => %{"type" => "finished"}} = event) do
+    {:ok,
+     %{
+       home_score: get_in(event, ["homeScore", "current"]) || 0,
+       away_score: get_in(event, ["awayScore", "current"]) || 0
+     }}
+  end
+
+  def event_result(%{}), do: {:error, :not_finished}
+
+  # A real fecha's matches sit within a few weeks of now; anything older is the
+  # previous tournament's same-numbered round (the Apertura/Clausura collision).
+  # Shared by the Prode page and the daily fixture-refresh worker so both agree
+  # on what "defined" means.
+  @fixture_window_days 45
+
+  @doc "Days either side of now within which a round counts as the current fecha."
+  def fixture_window_days, do: @fixture_window_days
+
+  @doc """
+  Whether a round has fixtures the *current* tournament has actually scheduled —
+  i.e. `current_phase/1` leaves at least one match inside the active window.
+  `false` when the round only carries the previous tournament's stale matches or
+  Sofascore hasn't published it yet.
+  """
+  def round_defined?(round) when is_integer(round) do
+    case round_fixtures(round) do
+      {:ok, events} ->
+        now = System.system_time(:second)
+        window = @fixture_window_days * 86_400
+
+        events
+        |> current_phase()
+        |> Enum.any?(fn e ->
+          ts = e["startTimestamp"]
+          is_integer(ts) and abs(ts - now) <= window
+        end)
+
+      _ ->
+        false
+    end
+  end
+
+  @doc """
   Squad for a team, DB-first: returns the locally stored players, and if none
   exist yet, fetches + seeds them from the API once, then returns them. This is
   what the `/sofascore plantel` command uses so it self-heals on a cold DB.

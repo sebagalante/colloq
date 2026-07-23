@@ -74,15 +74,24 @@
           <div class="absolute top-1/2 -translate-y-1/2 right-2">
             <button
               type="button"
-              phx-click={Phoenix.LiveView.JS.toggle(to: "#conv-menu-#{conv.id}")}
+              phx-click={
+                Phoenix.LiveView.JS.toggle(to: "#conv-menu-#{conv.id}")
+                |> Phoenix.LiveView.JS.toggle_class("z-40", to: "#conv-row-#{conv.id}")
+              }
               title={gettext("More")}
               class="p-1.5 rounded-lg text-muted opacity-0 group-hover:opacity-100 hover:text-heading hover:bg-surface transition-all"
             >
               <.icon name="more-horizontal" class="w-4 h-4" />
             </button>
+            <%!-- The row is lifted (z-40) while the menu is open so the menu isn't
+                  painted under the rows below it; the transform on this wrapper
+                  otherwise traps the menu's own z-index at the row's level. --%>
             <div
               id={"conv-menu-#{conv.id}"}
-              phx-click-away={Phoenix.LiveView.JS.hide()}
+              phx-click-away={
+                Phoenix.LiveView.JS.hide()
+                |> Phoenix.LiveView.JS.remove_class("z-40", to: "#conv-row-#{conv.id}")
+              }
               class="hidden absolute right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg py-1 min-w-[190px] z-30"
             >
               <.link

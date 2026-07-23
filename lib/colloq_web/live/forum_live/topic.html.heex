@@ -310,11 +310,11 @@
           <div class="text-xs text-muted"><%= gettext("views") %></div>
         </div>
         <div class="text-center leading-tight">
-          <div class="text-base font-semibold text-accent"><%= total_likes(@posts) %></div>
+          <div class="text-base font-semibold text-accent"><%= @topic_stats.likes %></div>
           <div class="text-xs text-muted"><%= gettext("likes") %></div>
         </div>
         <div class="text-center leading-tight">
-          <div class="text-base font-semibold text-accent"><%= length(participants(@posts)) %></div>
+          <div class="text-base font-semibold text-accent"><%= @topic_stats.participant_count %></div>
           <div class="text-xs text-muted"><%= gettext("users") %></div>
         </div>
       </div>
@@ -322,7 +322,7 @@
       <%!-- Participant avatars --%>
       <div class="flex items-center -space-x-2">
         <a
-          :for={user <- Enum.take(participants(@posts), 5)}
+          :for={user <- @topic_stats.top_participants}
           href={~p"/u/#{user.username}"}
           title={user.display_name || user.username}
           class="block hover:z-10 relative"
@@ -346,7 +346,7 @@
 
     <div class="flex items-center gap-4">
       <div class="text-right leading-tight">
-        <div class="text-sm font-medium text-body"><%= read_time_minutes(@posts) %> min</div>
+        <div class="text-sm font-medium text-body"><%= @topic_stats.read_minutes %> min</div>
         <div class="text-xs text-muted"><%= gettext("read") %></div>
       </div>
 
@@ -443,11 +443,23 @@
   <%!-- Live score banner: sticky at the top of a match thread. --%>
   <.match_banner :if={@match} match={@match} />
 
+  <%!-- Rooted view (Continuar hilo): banner back to the full topic. --%>
+  <%!-- Return to the topic scrolled to the comment we branched from (the
+       AutoScroll hook honours the #post-<id> fragment), not the top. --%>
+  <a
+    :if={@rooted_at}
+    href={@back_to}
+    class="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:text-accent-hover transition-colors"
+  >
+    ← <%= gettext("Back") %>
+  </a>
+
   <%!-- Post list --%>
   <div id="posts-container" phx-hook="AutoScroll" data-initial={@scroll_to} data-scroll-anchor={@scroll_anchor} class="space-y-0">
     <.post_item
       :for={post <- sorted_posts(@posts, @sort)}
       post={post}
+      parent_author={@rooted_parent}
       topic={@topic}
       first_unread_id={@first_unread_id}
       current_user={@current_user}
@@ -456,6 +468,7 @@
       editing_post={@editing_post}
       editing_body={@editing_body}
       reaction_data={@reaction_data}
+      reactor_names={@reactor_names}
       user_reactions={@user_reactions}
       poll_data={Map.get(@poll_data, post.id)}
       user_votes={Map.get(@user_poll_votes, post.id, [])}
@@ -465,6 +478,18 @@
       user_badges={@user_badges}
       blocked_user_ids={@blocked_user_ids}
     />
+  </div>
+
+  <%!-- Loads the whole thread at once (so the scroll timeline can reach the
+       end). Hidden while sorted by "Top", which already loads everything. --%>
+  <div :if={@has_more_roots} class="mt-4 flex justify-center">
+    <button
+      type="button"
+      phx-click="load-more-comments"
+      class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-accent hover:bg-surface-alt transition-colors"
+    >
+      <%= gettext("Show all %{count} comments", count: @topic.posts_count) %>
+    </button>
   </div>
 
   <%!-- Reply form --%>
@@ -806,5 +831,35 @@
         </button>
       </div>
     </form>
+  </.modal>
+
+  <%!-- "Who reacted": everyone who reacted to a post, with the emoji they used. --%>
+  <.modal
+    id="reactors-modal"
+    show={@reactors_modal != nil}
+    on_cancel={Phoenix.LiveView.JS.push("close-reactors")}
+  >
+    <:title><%= gettext("Reactions") %></:title>
+    <ul :if={@reactors_modal} class="space-y-1 max-h-[60vh] overflow-y-auto -mx-2">
+      <li
+        :for={r <- @reactors_modal.reactors}
+        class="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-surface-alt"
+      >
+        <%= if r.user.avatar_url do %>
+          <img src={r.user.avatar_url} alt="" class="w-8 h-8 rounded-full object-cover flex-shrink-0" loading="lazy" />
+        <% else %>
+          <div class={["w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0", avatar_class(r.user)]}>
+            <%= initials(r.user) %>
+          </div>
+        <% end %>
+        <.link navigate={~p"/u/#{r.user.username}"} class="flex-1 min-w-0 text-sm font-medium text-heading truncate hover:underline">
+          <%= r.user.display_name || r.user.username %>
+        </.link>
+        <span class="text-lg leading-none flex-shrink-0"><%= r.emoji %></span>
+      </li>
+      <li :if={@reactors_modal.reactors == []} class="px-2 py-3 text-sm text-muted text-center">
+        <%= gettext("No reactions yet.") %>
+      </li>
+    </ul>
   </.modal>
 </div>

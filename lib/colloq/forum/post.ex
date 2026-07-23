@@ -48,6 +48,12 @@ defmodule Colloq.Forum.Post do
     belongs_to :parent, Colloq.Forum.Post
     has_many :replies, Colloq.Forum.Post, foreign_key: :parent_id
 
+    # Pagination annotations (virtual, set by the capped tree builder in
+    # Colloq.Forum): direct replies not yet loaded (→ "ver N más"), and whether
+    # this node sits at the depth cap with children below (→ "Continuar hilo").
+    field :more_child_count, :integer, virtual: true, default: 0
+    field :thread_truncated, :boolean, virtual: true, default: false
+
     # Polls
     has_one :poll, Colloq.Forum.Poll
 
