@@ -2,18 +2,16 @@ defmodule Colloq.Workers.PasswordResetWorker do
   @moduledoc """
   Password reset email delivery worker.
 
-  Generates a signed token with 1-hour expiration and sends
-  a password reset email with the reset link.
+  Sends the password reset email. The token is signed by the caller and its
+  1-hour expiry is enforced on verification, in `ColloqWeb.UserLive.ResetPassword`.
   """
   use Oban.Worker, queue: :notifications, max_attempts: 3
 
   alias Colloq.Mailer
   import Swoosh.Email
 
-  @token_max_age :timer.hours(1)
-
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"user_id" => user_id, "email" => email, "token" => token}}) do
+  def perform(%Oban.Job{args: %{"email" => email, "token" => token}}) do
     reset_url = build_reset_url(token)
 
     new()

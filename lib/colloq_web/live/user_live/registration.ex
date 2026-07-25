@@ -80,6 +80,10 @@ defmodule ColloqWeb.UserLive.Registration do
           </.button>
         </.form>
 
+        <%!-- Same /auth/:provider flow as login: find_or_create_from_oauth/1
+              registers the account when it doesn't exist yet. --%>
+        <.oauth_providers label={gettext("or sign up with")} />
+
         <p class="text-sm text-gray-400 text-center mt-4">
           <%= gettext("Already have an account?") %> <.link href="/login" class="text-blue-400 hover:text-blue-300"><%= gettext("Log in") %></.link>
         </p>

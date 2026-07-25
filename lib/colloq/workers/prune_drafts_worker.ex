@@ -1,9 +1,10 @@
 defmodule Colloq.Workers.PruneDraftsWorker do
   @moduledoc """
-  Post draft cleanup worker.
+  Post draft cleanup worker. Runs nightly (see the Oban crontab).
 
-  Deletes drafts older than 7 days
-  via a direct SQL query on the post_drafts table.
+  Deletes drafts untouched for 7 days. Keyed on `updated_at`, not
+  `inserted_at`: a draft someone keeps coming back to and editing is the last
+  one to throw away, and dating it from first save deleted exactly those.
   """
   use Oban.Worker, queue: :default, max_attempts: 1
 
@@ -18,7 +19,7 @@ defmodule Colloq.Workers.PruneDraftsWorker do
       Repo.delete_all(
         Ecto.Query.from(
           d in "post_drafts",
-          where: d.inserted_at < ^cutoff
+          where: d.updated_at < ^cutoff
         )
       )
 

@@ -38,8 +38,9 @@ config :colloq, ColloqWeb.Endpoint,
     formats: [html: ColloqWeb.ErrorHTML, json: ColloqWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: Colloq.PubSub,
-  live_view: [signing_salt: System.get_env("PHX_LIVE_SIGNING_SALT", "todo-change-me")]
+  pubsub_server: Colloq.PubSub
+  # live_view: [signing_salt: …] is set in runtime.exs — reading the env var
+  # here would bake the build machine's value into the release.
 
 # Ueberauth OAuth providers
 config :ueberauth, Ueberauth,
@@ -71,7 +72,10 @@ config :colloq, Oban,
        {"0 11 * * *", Colloq.Workers.PredictionFixtureRefreshWorker},
        # Ticks every minute; fans out to enabled recurring automations on their
        # own intervals (e.g. the "Recompute scores" automation every 5 min).
-       {"* * * * *", Colloq.Workers.AutomationSchedulerWorker}
+       {"* * * * *", Colloq.Workers.AutomationSchedulerWorker},
+       # Composer drafts untouched for a week. The worker existed but was never
+       # scheduled, so nothing ever expired.
+       {"30 3 * * *", Colloq.Workers.PruneDraftsWorker}
      ]}
   ],
   queues: [

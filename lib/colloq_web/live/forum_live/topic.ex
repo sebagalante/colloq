@@ -93,6 +93,9 @@ defmodule ColloqWeb.ForumLive.Topic do
         base <> "#post-#{rooted_at}"
       end
 
+    # An unsent reply this user saved earlier on this topic, if any.
+    draft = current_user && Forum.get_draft(current_user.id, topic.id)
+
     # Set up all assigns with sensible defaults.
     # UI-only state (form visibility, replying_to, poll form) is initialised
     # to empty/false so the template renders cleanly on first paint.
@@ -124,12 +127,18 @@ defmodule ColloqWeb.ForumLive.Topic do
       |> assign(:reactor_names, %{})
       # Current user's reactions per post id, e.g. %{123 => ["👍"]}
       |> assign(:user_reactions, %{})
-      # Open "who reacted" modal: %{post_id, reactors} or nil.
-      |> assign(:reactors_modal, nil)
+      # Open "who reacted" popover: %{post_id, reactors, filter} or nil.
+      # `filter` is :all or the emoji whose tab is selected.
+      |> assign(:reactors_panel, nil)
       # List of {user_id, username} tuples for the typing indicator bar
       |> assign(:typing_users, [])
-      # Top-level reply composer state
+      # Top-level reply composer state. A saved draft is loaded straight into
+      # the hidden input the Tiptap hook initialises from, so restoring needs no
+      # client-side round trip — the editor simply opens with it.
       |> assign(:reply_body, "")
+      |> assign(:draft_body, draft && draft.body)
+      |> assign(:draft_restored?, draft != nil)
+      |> assign(:draft_saved_at, nil)
       |> assign(:replying_to, nil)
       |> assign(:nested_reply_body, "")
       |> assign(:editing_post, nil)
@@ -163,7 +172,6 @@ defmodule ColloqWeb.ForumLive.Topic do
       |> assign(:poll_anonymous, false)
       # "The XI I'd play" composer — loaded lazily when the form is opened
       |> assign(:show_lineup_form, false)
-      |> assign(:lineup_teams, [])
       |> assign(:lineup_team_id, nil)
       |> assign(:lineup_formation, "4-3-1-2")
       |> assign(:lineup_colors, Colloq.Sofascore.team_colors(nil))
@@ -234,6 +242,14 @@ defmodule ColloqWeb.ForumLive.Topic do
   @impl true
   def handle_params(%{"slug" => _slug} = _params, _uri, socket) do
     {:noreply, socket}
+  end
+
+  # Arriving from "My drafts": the composer is at the bottom of a long thread,
+  # so land on it rather than at the top of the topic. The draft body is already
+  # in the editor (restored on mount); this just puts it in front of the user
+  # with the cursor in it.
+  def handle_params(%{"draft" => "1"}, _uri, socket) do
+    {:noreply, push_event(socket, "tiptap:focus", %{target: "reply-editor"})}
   end
 
   def handle_params(_params, _uri, socket) do
@@ -382,7 +398,7 @@ defmodule ColloqWeb.ForumLive.Topic do
     if socket.assigns.current_user do
       {:noreply, assign(socket, replying_to: String.to_integer(post_id), nested_reply_body: "")}
     else
-      {:noreply, push_redirect(socket, to: "/login")}
+      {:noreply, push_navigate(socket, to: "/login")}
     end
   end
 
@@ -402,7 +418,7 @@ defmodule ColloqWeb.ForumLive.Topic do
       {:noreply,
        push_event(socket, "tiptap:quote", %{target: quote_target(socket, post.id), html: html})}
     else
-      {:noreply, push_redirect(socket, to: "/login")}
+      {:noreply, push_navigate(socket, to: "/login")}
     end
   end
 
@@ -433,6 +449,54 @@ defmodule ColloqWeb.ForumLive.Topic do
     end
   end
 
+  # The "Save draft" button submits this same form (a form can't nest), so the
+  # draft branch is picked out by the button's own param before anything is
+  # posted.
+  def handle_event("reply", %{"draft" => _} = params, socket) do
+    user = socket.assigns.current_user
+
+    if user do
+      case Forum.save_draft(user.id, socket.assigns.topic.id, %{body: params["body"]}) do
+        {:ok, nil} ->
+          {:noreply,
+           socket
+           |> assign(:draft_saved_at, nil)
+           |> put_flash(:info, gettext("Draft discarded — nothing to save."))}
+
+        {:ok, _draft} ->
+          {:noreply,
+           socket
+           |> assign(:draft_saved_at, DateTime.utc_now())
+           |> put_flash(:info, gettext("Draft saved. It'll be here when you come back."))}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, gettext("Could not save the draft."))}
+      end
+    else
+      {:noreply, push_navigate(socket, to: "/login")}
+    end
+  end
+
+  # Drops the *saved* copy so it stops coming back, and deliberately leaves the
+  # composer alone. Clearing the editor here threw away whatever the user had
+  # in front of them — a dismiss button that eats your text is a trap. Emptying
+  # the box is one Ctrl+A away; recovering deleted text isn't.
+  def handle_event("discard-draft", _params, socket) do
+    user = socket.assigns.current_user
+
+    if user do
+      Forum.delete_draft(user.id, socket.assigns.topic.id)
+
+      {:noreply,
+       socket
+       |> assign(:draft_restored?, false)
+       |> assign(:draft_saved_at, nil)
+       |> put_flash(:info, gettext("Draft discarded. What's in the editor stays there."))}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("reply", %{"body" => body}, socket) do
     user = socket.assigns.current_user
     topic = socket.assigns.topic
@@ -440,9 +504,16 @@ defmodule ColloqWeb.ForumLive.Topic do
     if user && Forum.can_reply?(topic, user) do
       case Forum.create_post(topic, user, %{"body" => body}) do
         {:ok, _post} ->
+          # The draft has become a post; keeping it would restore it into an
+          # empty composer on the next visit.
+          Forum.delete_draft(user.id, topic.id)
+
           {:noreply,
            socket
            |> assign(:reply_body, "")
+           |> assign(:draft_body, nil)
+           |> assign(:draft_restored?, false)
+           |> assign(:draft_saved_at, nil)
            |> push_event("tiptap:clear", %{})
            |> reload_window()}
 
@@ -732,13 +803,39 @@ defmodule ColloqWeb.ForumLive.Topic do
     end
   end
 
-  def handle_event("show-reactors", %{"post_id" => id}, socket) do
+  # Opened from a pill, so the panel lands on that emoji's tab. Clicking the same
+  # pill again closes it (rather than re-fetching the same list); clicking a
+  # *different* pill of the same post just switches tabs.
+  def handle_event("show-reactors", %{"post_id" => id} = params, socket) do
     pid = String.to_integer(id)
-    {:noreply, assign(socket, :reactors_modal, %{post_id: pid, reactors: Reactions.reactors(pid)})}
+    filter = params["emoji"] || :all
+
+    panel =
+      case socket.assigns.reactors_panel do
+        %{post_id: ^pid, filter: ^filter} -> nil
+        %{post_id: ^pid, reactors: reactors} -> %{post_id: pid, reactors: reactors, filter: filter}
+        _ -> %{post_id: pid, reactors: Reactions.reactors(pid), filter: filter}
+      end
+
+    {:noreply, assign(socket, :reactors_panel, panel)}
+  end
+
+  # Emoji tabs inside the popover ("" is the "All" tab). Filtering is done on the
+  # already-loaded list — no extra query per tab.
+  def handle_event("filter-reactors", %{"emoji" => emoji}, socket) do
+    filter = if emoji == "", do: :all, else: emoji
+
+    panel =
+      case socket.assigns.reactors_panel do
+        nil -> nil
+        panel -> %{panel | filter: filter}
+      end
+
+    {:noreply, assign(socket, :reactors_panel, panel)}
   end
 
   def handle_event("close-reactors", _params, socket) do
-    {:noreply, assign(socket, :reactors_modal, nil)}
+    {:noreply, assign(socket, :reactors_panel, nil)}
   end
 
   def handle_event("reaction", %{"post_id" => post_id_str, "emoji" => emoji}, socket) do
@@ -830,7 +927,7 @@ defmodule ColloqWeb.ForumLive.Topic do
           {:noreply, put_flash(socket, :error, gettext("Could not bookmark the topic."))}
       end
     else
-      {:noreply, push_redirect(socket, to: "/login")}
+      {:noreply, push_navigate(socket, to: "/login")}
     end
   end
 
@@ -861,7 +958,7 @@ defmodule ColloqWeb.ForumLive.Topic do
            |> put_flash(:error, gettext("Could not submit report."))}
       end
     else
-      {:noreply, push_redirect(socket, to: "/login")}
+      {:noreply, push_navigate(socket, to: "/login")}
     end
   end
 
@@ -991,7 +1088,7 @@ defmodule ColloqWeb.ForumLive.Topic do
   def handle_event("show-summary", _params, socket) do
     cond do
       is_nil(socket.assigns.current_user) ->
-        {:noreply, push_redirect(socket, to: "/login")}
+        {:noreply, push_navigate(socket, to: "/login")}
 
       socket.assigns.summary ->
         {:noreply, assign(socket, show_summary: true)}
@@ -1006,7 +1103,7 @@ defmodule ColloqWeb.ForumLive.Topic do
     if socket.assigns.current_user do
       {:noreply, socket |> assign(:show_summary, true) |> request_summary()}
     else
-      {:noreply, push_redirect(socket, to: "/login")}
+      {:noreply, push_navigate(socket, to: "/login")}
     end
   end
 
@@ -1038,24 +1135,18 @@ defmodule ColloqWeb.ForumLive.Topic do
 
   # --- Lineup composer ("the XI I'd play") ---
   # Squads are only queried once the form is actually opened.
+  # Racing only: this is a Racing forum, so the composer builds a Racing XI
+  # rather than offering a team picker.
   def handle_event("toggle-lineup-form", _params, socket) do
     if socket.assigns.show_lineup_form do
       {:noreply, assign(socket, :show_lineup_form, false)}
     else
-      teams = Colloq.Sofascore.teams_with_players() |> Enum.filter(& &1.key)
-      team_id = socket.assigns.lineup_team_id || (List.first(teams) && List.first(teams).id)
-
       {:noreply,
        socket
        |> assign(:show_lineup_form, true)
-       |> assign(:lineup_teams, teams)
-       |> assign(:lineup_team_id, team_id)
+       |> assign(:lineup_team_id, Colloq.Sofascore.racing_team_id())
        |> rebuild_lineup()}
     end
-  end
-
-  def handle_event("select-lineup-team", %{"team_id" => id}, socket) do
-    {:noreply, socket |> assign(:lineup_team_id, String.to_integer(id)) |> rebuild_lineup()}
   end
 
   def handle_event("select-lineup-formation", %{"formation" => formation}, socket) do
@@ -1144,6 +1235,8 @@ defmodule ColloqWeb.ForumLive.Topic do
         "slot" => index,
         "role" => to_string(slot.role),
         "name" => slot.player && slot.player.name,
+        "number" => slot.player && slot.player.jersey_number,
+        "short" => slot.player && (slot.player.short_name || short_label(slot.player.name)),
         "player_id" => slot.player && slot.player.id
       }
     end)
@@ -1258,7 +1351,7 @@ defmodule ColloqWeb.ForumLive.Topic do
           {:noreply, socket}
       end
     else
-      {:noreply, push_redirect(socket, to: "/login")}
+      {:noreply, push_navigate(socket, to: "/login")}
     end
   end
 
@@ -1862,7 +1955,7 @@ defmodule ColloqWeb.ForumLive.Topic do
   # Inside quotes, image URLs must render as actual images: embed cards are
   # suppressed within quotes, so an image link would otherwise show only as
   # text. Converts image-URL anchors (and bare image URLs) into <img>.
-  @image_url ~S/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s"'<>]*)?/
+  @image_url ~S{https?://[^\s"'<>]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s"'<>]*)?}
   # Same classes the composer puts on an uploaded image, so a quoted image is
   # styled like one written directly into a post rather than rendering raw.
   @quote_img_class "rounded-lg max-w-full my-2"
@@ -2508,6 +2601,96 @@ defmodule ColloqWeb.ForumLive.Topic do
   def humanize_flag_reason(_), do: gettext("Other")
 
   # =========================================================================
+  # "Who reacted" popover
+  # =========================================================================
+
+  # Anchored under the reaction summary chip: an "All" tab plus one tab per
+  # emoji (with its count), then the reactors themselves. The list is already
+  # loaded, so switching tabs is pure filtering.
+  attr :panel, :map, required: true
+
+  defp reactors_popover(assigns) do
+    assigns =
+      assigns
+      |> assign(:custom_emojis, Colloq.Emojis.map())
+      |> assign(
+        :tabs,
+        assigns.panel.reactors
+        |> Enum.group_by(& &1.emoji)
+        |> Enum.map(fn {emoji, rs} -> {emoji, length(rs)} end)
+        |> Enum.sort_by(fn {_emoji, count} -> -count end)
+      )
+      |> assign(
+        :visible,
+        case assigns.panel.filter do
+          :all -> assigns.panel.reactors
+          emoji -> Enum.filter(assigns.panel.reactors, &(&1.emoji == emoji))
+        end
+      )
+
+    ~H"""
+    <div
+      id={"reactors-popover-#{@panel.post_id}"}
+      class="absolute z-50 top-full left-0 mt-2 w-64 rounded-xl bg-surface border border-border shadow-2xl overflow-hidden"
+    >
+      <div class="flex items-center gap-1 px-2 py-2 border-b border-border overflow-x-auto">
+        <button
+          type="button"
+          phx-click="filter-reactors"
+          phx-value-emoji=""
+          class={[
+            "flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors",
+            @panel.filter == :all && "bg-accent text-white",
+            @panel.filter != :all && "text-muted hover:bg-surface-alt hover:text-heading"
+          ]}
+        >
+          <%= gettext("All") %>
+        </button>
+        <button
+          :for={{emoji, count} <- @tabs}
+          type="button"
+          phx-click="filter-reactors"
+          phx-value-emoji={emoji}
+          class={[
+            "flex-shrink-0 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors",
+            @panel.filter == emoji && "bg-accent-soft border border-accent text-accent",
+            @panel.filter != emoji && "text-muted hover:bg-surface-alt hover:text-heading"
+          ]}
+        >
+          <span class="leading-none"><%= emoji_display(emoji, @custom_emojis) %></span>
+          <span class="tabular-nums"><%= count %></span>
+        </button>
+      </div>
+
+      <ul class="max-h-60 overflow-y-auto py-1">
+        <li
+          :for={r <- @visible}
+          class="flex items-center gap-2 px-2 py-1.5 hover:bg-surface-alt transition-colors"
+        >
+          <%= if r.user.avatar_url do %>
+            <img src={r.user.avatar_url} alt="" class="w-7 h-7 rounded-full object-cover flex-shrink-0" loading="lazy" />
+          <% else %>
+            <div class={["w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0", avatar_class(r.user)]}>
+              <%= initials(r.user) %>
+            </div>
+          <% end %>
+          <.link
+            navigate={~p"/u/#{r.user.username}"}
+            class="flex-1 min-w-0 text-sm text-body truncate hover:underline"
+          >
+            <%= r.user.display_name || r.user.username %>
+          </.link>
+          <span class="text-sm leading-none flex-shrink-0"><%= emoji_display(r.emoji, @custom_emojis) %></span>
+        </li>
+        <li :if={@visible == []} class="px-3 py-3 text-sm text-muted text-center">
+          <%= gettext("No reactions yet.") %>
+        </li>
+      </ul>
+    </div>
+    """
+  end
+
+  # =========================================================================
   # Recursive post renderer
   # =========================================================================
 
@@ -2520,6 +2703,7 @@ defmodule ColloqWeb.ForumLive.Topic do
   attr :editing_body, :string, default: ""
   attr :reaction_data, :map, default: %{}
   attr :reactor_names, :map, default: %{}
+  attr :reactors_panel, :any, default: nil
   attr :user_reactions, :map, default: %{}
   attr :poll_data, :map, default: nil
   attr :user_votes, :list, default: []
@@ -2709,15 +2893,25 @@ defmodule ColloqWeb.ForumLive.Topic do
             </span>
           </div>
 
+          <%!-- Selecting text here floats a toolbar (see setupQuoteSelection):
+                "Quote" pushes the selection into the composer, "Copy Quote"
+                builds the citation client-side — hence the author and permalink
+                datasets. Copy is offered to logged-out readers too; only
+                quoting needs an account and an open thread. --%>
           <div
             :if={@editing_post != @post.id}
             id={"post-body-#{@post.id}"}
             phx-hook="PostBody"
             data-post-id={@post.id}
             data-quote-label={gettext("Quote")}
+            data-copy-label={gettext("Copy Quote")}
+            data-copied-label={gettext("Copied")}
+            data-quote-author={@post.user && (@post.user.display_name || @post.user.username)}
+            data-quote-url={url(~p"/t/#{@topic.id}?c=#{@post.id}")}
             data-quotable={
               @current_user && !@post.is_system && !@topic.closed && !@topic.archived
             }
+            data-copyable={!@post.is_system}
             class={[
               "prose max-w-none text-sm text-body",
               @post.is_system && "italic text-muted border-l-2 border-border pl-3"
@@ -2750,7 +2944,7 @@ defmodule ColloqWeb.ForumLive.Topic do
           <%!-- Live match events (ResultaBot) render as a highlighted inline
                 card so a goal is unmistakable while scrolling the thread. --%>
           <.match_event_card
-            :if={@post.system_type in ["goal", "card"] && @post.event_data}
+            :if={@post.system_type in ["goal", "card", "sub", "penalty"] && @post.event_data}
             event={@post.event_data}
           />
 
@@ -2781,28 +2975,37 @@ defmodule ColloqWeb.ForumLive.Topic do
           </div>
 
           <div :if={!@post.is_system} class="flex items-center flex-wrap gap-x-4 gap-y-2 mt-3">
-            <.reaction_bar
-              post_id={@post.id}
-              reactions={
-                Map.get(@reaction_data, @post.id, %{})
-                |> Enum.map(fn {emoji, count} ->
-                  %{emoji: emoji, count: count, who: get_in(@reactor_names, [@post.id, emoji])}
-                end)
+            <%!-- The pills are the trigger for the "who reacted" panel, which
+                 hangs off this wrapper (the pills themselves are laid out in a
+                 wrapping flex row, so anchoring to the bar keeps the panel put
+                 no matter which pill opened it). --%>
+            <%!-- Click-away lives here, not on the panel itself: a click on a
+                 pill is a click *outside* the panel, and the resulting close
+                 would race the pill's own open. Only armed while open. --%>
+            <div
+              class="relative"
+              phx-click-away={
+                @reactors_panel && @reactors_panel.post_id == @post.id &&
+                  Phoenix.LiveView.JS.push("close-reactors")
               }
-              user_reactions={Map.get(@user_reactions, @post.id)}
-              can_react={@current_user && @current_user.id != @post.user_id}
-            />
-            <%!-- See everyone who reacted to this post. --%>
-            <button
-              :if={Map.get(@reaction_data, @post.id, %{}) != %{}}
-              type="button"
-              phx-click="show-reactors"
-              phx-value-post_id={@post.id}
-              title={gettext("See who reacted")}
-              class="inline-flex items-center text-muted hover:text-heading transition-colors"
             >
-              <.icon name="users" class="w-4 h-4" />
-            </button>
+              <.reaction_bar
+                post_id={@post.id}
+                reactions={
+                  Map.get(@reaction_data, @post.id, %{})
+                  |> Enum.map(fn {emoji, count} ->
+                    %{emoji: emoji, count: count, who: get_in(@reactor_names, [@post.id, emoji])}
+                  end)
+                }
+                user_reactions={Map.get(@user_reactions, @post.id)}
+                can_react={@current_user && @current_user.id != @post.user_id}
+              />
+
+              <.reactors_popover
+                :if={@reactors_panel && @reactors_panel.post_id == @post.id}
+                panel={@reactors_panel}
+              />
+            </div>
 
             <div :if={@current_user && !@topic.closed && !@topic.archived} class="flex items-center gap-3">
               <button
@@ -3071,6 +3274,7 @@ defmodule ColloqWeb.ForumLive.Topic do
                   editing_body={@editing_body}
                   reaction_data={@reaction_data}
                   reactor_names={@reactor_names}
+                  reactors_panel={@reactors_panel}
                   user_reactions={@user_reactions}
                   poll_data={@poll_data}
                   user_votes={@user_votes}
@@ -3126,42 +3330,65 @@ defmodule ColloqWeb.ForumLive.Topic do
 
     ~H"""
     <div class="mt-4 rounded-xl border border-border bg-surface overflow-hidden max-w-sm">
-      <div class="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span class="text-sm font-semibold text-heading"><%= @team_name %></span>
-        <span class="rounded-md bg-accent px-2 py-0.5 text-[10px] font-semibold text-white">
-          <%= @lineup.formation %>
-        </span>
+      <%!-- Club header: name centred, formation as a chip beneath it. --%>
+      <div class="px-4 py-3 text-center border-b border-border bg-surface-alt">
+        <div class="text-lg font-extrabold tracking-tight text-heading uppercase"><%= @team_name %></div>
+        <div class="mt-0.5 flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+          <%= gettext("Formation") %>
+          <span class="rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold text-white tracking-normal">
+            <%= @lineup.formation %>
+          </span>
+        </div>
       </div>
 
       <div
         class="relative"
-        style="aspect-ratio: 3 / 4; background: repeating-linear-gradient(0deg, #2d8a4e 0px, #2d8a4e 32px, #2a814a 32px, #2a814a 64px);"
+        style="aspect-ratio: 3 / 4; background: repeating-linear-gradient(0deg, #2f9152 0px, #2f9152 34px, #2a844a 34px, #2a844a 68px);"
       >
-        <div class="absolute inset-2 border-2 border-white/20 rounded-sm"></div>
-        <div class="absolute left-2 right-2 top-1/2 h-0.5 -translate-y-px bg-white/20"></div>
-        <div class="absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/20"></div>
-        <div class="absolute left-1/2 top-2 h-12 w-32 -translate-x-1/2 border-2 border-t-0 border-white/20"></div>
-        <div class="absolute left-1/2 bottom-2 h-12 w-32 -translate-x-1/2 border-2 border-b-0 border-white/20"></div>
+        <%!-- Pitch markings --%>
+        <div class="absolute inset-2 border-2 border-white/25 rounded-sm"></div>
+        <div class="absolute left-2 right-2 top-1/2 h-0.5 -translate-y-px bg-white/25"></div>
+        <div class="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/25"></div>
+        <div class="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/40"></div>
+        <div class="absolute left-1/2 top-2 h-14 w-36 -translate-x-1/2 border-2 border-t-0 border-white/25"></div>
+        <div class="absolute left-1/2 top-2 h-7 w-20 -translate-x-1/2 border-2 border-t-0 border-white/25"></div>
+        <div class="absolute left-1/2 bottom-2 h-14 w-36 -translate-x-1/2 border-2 border-b-0 border-white/25"></div>
+        <div class="absolute left-1/2 bottom-2 h-7 w-20 -translate-x-1/2 border-2 border-b-0 border-white/25"></div>
 
+        <%!-- Players. `title` gives the full name + position on hover. --%>
         <div
           :for={{slot, player} <- @pairs}
-          class="absolute flex w-16 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5"
+          class="absolute flex w-20 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1"
           style={"left: #{slot.x}%; top: #{slot.y}%;"}
+          title={"#{player["name"] || ""} · #{position_label(slot.role)}"}
         >
           <.jersey
             primary={@colors.primary}
             secondary={@colors.secondary}
+            stripe={@colors[:stripe]}
             gk={slot.role == :gk}
-            class="w-7 h-6 drop-shadow"
+            number={player["number"]}
+            class="w-9 h-8 drop-shadow-md"
           />
-          <span class="text-[9px] font-bold leading-tight text-white text-center drop-shadow whitespace-nowrap">
-            <%= short_label(player["name"]) %>
+          <span class="rounded bg-black/35 px-1 text-[10px] font-bold leading-tight text-white text-center whitespace-nowrap">
+            <%= player_label(player) %>
           </span>
         </div>
+      </div>
+
+      <div class="px-4 py-2 border-t border-border text-[11px] text-muted text-center">
+        <%= gettext("The XI I'd play") %>
       </div>
     </div>
     """
   end
+
+  # Short human label for a lineup role, shown on hover.
+  defp position_label(:gk), do: gettext("Goalkeeper")
+  defp position_label(:def), do: gettext("Defender")
+  defp position_label(:mid), do: gettext("Midfielder")
+  defp position_label(:fwd), do: gettext("Forward")
+  defp position_label(_), do: ""
 
   defp team_name(team_id) do
     case Colloq.Sofascore.team_key_by_id(team_id) do
@@ -3175,6 +3402,12 @@ defmodule ColloqWeb.ForumLive.Topic do
   end
 
   defp short_label(_), do: "—"
+
+  # Frozen snapshots may predate the "short" field, so fall back to the surname.
+  defp player_label(%{"short" => short}) when is_binary(short) and short != "",
+    do: String.upcase(short)
+
+  defp player_label(player), do: short_label(player["name"])
 
   attr :poll_data, :map, required: true
   attr :user_votes, :list, default: []

@@ -42,9 +42,14 @@
     />
     <.sofascore_action
       title={gettext("Refresh Racing squad")}
-      desc={gettext("Re-fetch just Racing Club's roster (team %{id}) and update the local DB. Adds new signings; existing players are updated.", id: Colloq.Sofascore.racing_team_id())}
+      desc={gettext("Re-fetch Racing Club's roster from Sofascore, then reconcile to the official list. Names and numbers follow the official page; Sofascore only supplies photos and stats.")}
       event="refresh-racing-squad"
       last={last_run(@last_runs, "racing_squad")}
+    />
+    <.sofascore_action
+      title={gettext("Apply official roster")}
+      desc={gettext("Reconcile the stored Racing squad to the official list (names, numbers, positions) without hitting Sofascore.")}
+      event="apply-racing-roster"
     />
     <.sofascore_action
       title={gettext("Refresh squads")}

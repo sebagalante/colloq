@@ -11,13 +11,15 @@ defmodule Colloq.SofascoreTest do
       assert Map.has_key?(teams, :river)
       assert Map.has_key?(teams, :boca)
 
-      assert %{id: 174, name: "Racing Club"} = teams[:racing]
+      # Sofascore's own team ids (Colloq.Sofascore is the Sofascore client) —
+      # not the API-Football ids this assertion used to carry.
+      assert %{id: 3215, name: "Racing Club", short: "RAC"} = teams[:racing]
     end
   end
 
   describe "team_info/1" do
     test "returns team info by key" do
-      assert %{id: 174, name: "Racing Club"} = Sofascore.team_info(:racing)
+      assert %{id: 3215, name: "Racing Club", short: "RAC"} = Sofascore.team_info(:racing)
     end
 
     test "returns nil for unknown key" do
@@ -27,7 +29,7 @@ defmodule Colloq.SofascoreTest do
 
   describe "team_key_by_id/1" do
     test "returns the key for a known team_id" do
-      assert Sofascore.team_key_by_id(174) == :racing
+      assert Sofascore.team_key_by_id(3215) == :racing
     end
 
     test "returns nil for unknown team_id" do
@@ -113,7 +115,7 @@ defmodule Colloq.SofascoreTest do
     end
 
     test "lists players by team id" do
-      players = Sofascore.list_by_team(174)
+      players = Sofascore.list_by_team(3215)
       assert length(players) == 3
     end
 

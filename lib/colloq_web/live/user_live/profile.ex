@@ -113,7 +113,7 @@ defmodule ColloqWeb.UserLive.Profile do
 
     cond do
       is_nil(actor) ->
-        {:noreply, push_redirect(socket, to: "/login")}
+        {:noreply, push_navigate(socket, to: "/login")}
 
       to_string(actor.id) == to_string(user_id) ->
         {:noreply, socket}

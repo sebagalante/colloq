@@ -58,7 +58,7 @@
                     />
 
                   <% setting.type in ["json", "text"] -> %>
-                    <.textarea name="value" value={setting.value} label={nil} />
+                    <.textarea name="value" value={setting.value} />
 
                   <% setting.type == "secret" -> %>
                     <input

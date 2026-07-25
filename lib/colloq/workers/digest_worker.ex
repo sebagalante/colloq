@@ -6,28 +6,48 @@ defmodule Colloq.Workers.DigestWorker do
   use Oban.Worker, queue: :default, max_attempts: 3
   alias Colloq.Repo
   alias Colloq.Accounts.User
-  alias Colloq.Forum
+  alias Colloq.Forum.Topic
   alias Colloq.Mailer
   import Ecto.Query
   import Swoosh.Email, except: [from: 2]
 
   @impl Oban.Worker
   def perform(_job) do
-    users = Repo.all(from(u in User, where: u.notifications_enabled == true))
     stats = load_digest_stats()
 
-    Enum.each(users, fn user ->
-      send_digest(user, stats)
-    end)
+    # A day with no activity gets no mail at all, rather than one repeating
+    # yesterday's list.
+    if stats.topics == [] do
+      {:ok, 0}
+    else
+      users = Repo.all(from(u in User, where: u.notifications_enabled == true))
 
-    {:ok, length(users)}
+      Enum.each(users, fn user ->
+        send_digest(user, stats)
+      end)
+
+      {:ok, length(users)}
+    end
   end
 
+  # The busiest threads of the last 24h — the digest says "esto es lo que pasó
+  # el <date>", so an all-time listing (what this used to send) is the wrong
+  # answer no matter how popular those threads are. Staff-only categories are
+  # excluded: the digest goes to every subscriber.
   defp load_digest_stats do
-    yesterday = DateTime.utc_now() |> DateTime.add(-24, :hour)
+    since = DateTime.utc_now() |> DateTime.add(-24, :hour)
+
+    topics =
+      Topic
+      |> join(:left, [t], c in assoc(t, :category))
+      |> where([t], is_nil(t.deleted_at) and t.bumped_at >= ^since)
+      |> where([t, c], is_nil(c.id) or c.read_restricted == false)
+      |> order_by([t], desc: t.posts_count, desc: t.bumped_at)
+      |> limit(10)
+      |> Repo.all()
 
     %{
-      topics: Forum.list_topics(per_page: 10).entries,
+      topics: topics,
       date: Date.utc_today() |> Date.add(-1)
     }
   end

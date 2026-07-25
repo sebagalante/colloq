@@ -66,3 +66,4 @@ spam_classifier/models/
 # E2E trace artifacts
 test/e2e/traces/
 test/e2e/screenshots/
+*.mmdb

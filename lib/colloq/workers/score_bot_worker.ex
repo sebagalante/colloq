@@ -6,10 +6,13 @@ defmodule Colloq.Workers.ScoreBotWorker do
 
   Cron: 9:00 AM daily → fixture preview post.
   During a match: polls **Sofascore** every 75s (`:scorebot_poll_seconds`) for
-  goals and cards. The loop is self-scheduling and is started by
-  `start_polling/2` — the cron does not start it. `fixture_id` in the job args
-  is a Sofascore *event* id.
-  On FT: posts match summary, triggers PredictionScorerWorker and PushNotificationWorker.
+  goals, cards, substitutions and in-play penalties. The loop is self-scheduling
+  and is started by `start_polling/2` — the cron does not start it. `fixture_id`
+  in the job args is a Sofascore *event* id.
+  On FT (the match leaves "inprogress" for a finished status): the loop stops on
+  its own and `finalize_match/3` posts the final result and the updated
+  standings, posts a "coverage ended" note, and flips the thread to fulltime.
+  Prediction scoring is left to the nightly PredictionDigestWorker sweep.
   Broadcasts {:match_mode_changed, topic_id, mode} and {:match_event, topic_id, data} via PubSub.
   """
   use Oban.Worker, queue: :scorebot, max_attempts: 5
@@ -46,7 +49,10 @@ defmodule Colloq.Workers.ScoreBotWorker do
 
   @impl Oban.Worker
   def perform(%{args: %{"action" => "poll", "fixture_id" => fixture_id, "topic_id" => topic_id}}) do
-    topic = Forum.get_topic!(String.to_integer(topic_id))
+    # topic_id comes back from Oban's JSON args as an integer (start_polling/2
+    # passes topic.id), so String.to_integer/1 raised on every poll. to_int/1
+    # accepts either shape.
+    topic = Forum.get_topic!(to_int(topic_id))
 
     case fetch_live_events(fixture_id, topic.id) do
       {:ok, events} ->
@@ -70,9 +76,14 @@ defmodule Colloq.Workers.ScoreBotWorker do
 
         {:ok, length(new_events)}
 
-      {:error, :not_live} ->
-        transition_to_fulltime(topic)
-        {:ok, :transitioned_to_ft}
+      {:finished, event} ->
+        finalize_match(topic, fixture_id, event)
+        {:ok, :finished}
+
+      {:pending, _event} ->
+        # Match not live yet — keep polling until it kicks off.
+        maybe_schedule_next_poll(fixture_id, topic_id)
+        {:ok, :pending}
 
       {:error, _reason} ->
         {:snooze, 30}
@@ -115,10 +126,18 @@ defmodule Colloq.Workers.ScoreBotWorker do
         # the last in-play score.
         broadcast_score(topic_id, event)
 
-        if Sofascore.live?(event) do
-          {:ok, event_id |> Sofascore.incidents() |> parse_events(event)}
-        else
-          {:error, :not_live}
+        cond do
+          Sofascore.live?(event) ->
+            {:ok, event_id |> Sofascore.incidents() |> parse_events(event)}
+
+          match_finished?(event) ->
+            {:finished, event}
+
+          # Not "inprogress" and not finished: the match hasn't kicked off yet
+          # (coverage armed before kickoff) or a transient status. Keep the loop
+          # alive rather than declaring full time on a match that never started.
+          true ->
+            {:pending, event}
         end
 
       {:error, reason} ->
@@ -132,6 +151,11 @@ defmodule Colloq.Workers.ScoreBotWorker do
       match: Sofascore.match_summary(event)
     })
   end
+
+  # A match is over (not merely "not live") only for these terminal statuses;
+  # "notstarted" must not count, or arming coverage early would end it at once.
+  @finished_statuses ~w(finished canceled cancelled postponed)
+  defp match_finished?(event), do: get_in(event, ["status", "type"]) in @finished_statuses
 
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_binary(value), do: String.to_integer(value)
@@ -164,10 +188,14 @@ defmodule Colloq.Workers.ScoreBotWorker do
     |> new(
       schedule_in: poll_interval_seconds(),
       # Two overlapping loops for one fixture would double every alert; the
-      # unique guard keeps a single chain alive per fixture.
+      # unique guard keeps a single chain alive per fixture. :executing is
+      # deliberately excluded: the job doing the rescheduling is itself
+      # executing, so counting that state made every poll dedup against itself
+      # and the loop died after a single tick. Guarding on the pending states
+      # (:available/:scheduled) still collapses two parallel chains into one.
       unique: [
         period: poll_interval_seconds() * 2,
-        states: [:available, :scheduled, :executing],
+        states: [:available, :scheduled],
         keys: [:action, :fixture_id]
       ]
     )
@@ -212,10 +240,11 @@ defmodule Colloq.Workers.ScoreBotWorker do
 
   # --- Event parsing ---
 
-  # Only goals and cards are posted live. Substitutions were half the timeline
-  # in a real match (9 of 18 events, arriving in pairs), which buried the goals
-  # people actually come for — they belong in the full-time summary instead.
-  @posted_incident_types ~w(goal card)
+  # Posted live: goals, cards, substitutions and in-play penalties (misses and
+  # saves — a *scored* penalty already arrives as a goal with incidentClass
+  # "penalty", so it isn't duplicated here). Period markers, VAR reviews and
+  # injury-time notices stay out; they belong in the full-time summary.
+  @posted_incident_types ~w(goal card substitution inGamePenalty)
 
   @doc false
   def parse_events(incidents, event) do
@@ -252,6 +281,32 @@ defmodule Colloq.Workers.ScoreBotWorker do
       team: side(i, home, away),
       player: player_name(i["player"]),
       detail: i["incidentClass"] || "yellow"
+    }
+  end
+
+  defp parse_incident(%{"incidentType" => "substitution"} = i, home, away) do
+    %{
+      id: i["id"],
+      type: "sub",
+      minute: i["time"],
+      team: side(i, home, away),
+      player_in: player_name(i["playerIn"]),
+      player_out: player_name(i["playerOut"]),
+      injury: i["injury"] == true
+    }
+  end
+
+  # In-play penalty event — in practice a miss or a save (a converted one comes
+  # through as a goal). incidentClass tells missed/scored; reason says why.
+  defp parse_incident(%{"incidentType" => "inGamePenalty"} = i, home, away) do
+    %{
+      id: i["id"],
+      type: "penalty",
+      minute: i["time"],
+      team: side(i, home, away),
+      player: player_name(i["player"]),
+      detail: i["incidentClass"] || "missed",
+      reason: i["reason"]
     }
   end
 
@@ -319,9 +374,29 @@ defmodule Colloq.Workers.ScoreBotWorker do
     {"card", "#{icon} #{label} — #{e.player} (#{e.team}) #{e.minute}'"}
   end
 
+  def render_event(%{type: "sub"} = e) do
+    tag = if e[:injury], do: " (lesión)", else: ""
+    {"sub", "🔄 Cambio en #{e.team}: entra #{e.player_in}, sale #{e.player_out} #{e.minute}'#{tag}"}
+  end
+
+  def render_event(%{type: "penalty"} = e) do
+    {icon, label} =
+      case e.detail do
+        "scored" -> {"⚽", "Penal convertido"}
+        _ -> {"❌", "Penal errado"}
+      end
+
+    {"penalty", "#{icon} #{label} — #{e.player} (#{e.team}) #{e.minute}'#{penalty_reason(e[:reason])}"}
+  end
+
   def render_event(e) do
     {"event", "#{e.type} — #{e[:player]} #{e[:minute]}'"}
   end
+
+  defp penalty_reason("goalkeeperSave"), do: " (atajado)"
+  defp penalty_reason("post"), do: " (al palo)"
+  defp penalty_reason("miss"), do: " (afuera)"
+  defp penalty_reason(_), do: ""
 
   defp build_ft_summary(_fixture_id) do
     # TODO: fetch actual fixture data to build summary
@@ -343,6 +418,85 @@ defmodule Colloq.Workers.ScoreBotWorker do
   defp transition_to_fulltime(topic) do
     Forum.set_match_mode(topic, "fulltime")
     ColloqWeb.Endpoint.broadcast("forum:topic:#{topic.id}", "match_mode_changed", %{mode: "fulltime"})
+  end
+
+  # Automatic full time: the match left "inprogress" for a finished status. Post
+  # the final result and the updated standings, tell readers coverage is over,
+  # then flip the thread to fulltime — which also stops the loop, since
+  # maybe_schedule_next_poll won't reschedule once the mode isn't live.
+  # Prediction scoring is intentionally left to the nightly PredictionDigestWorker
+  # sweep rather than fired here.
+  defp finalize_match(topic, _fixture_id, event) do
+    # Re-read of the mode fetched at poll start: skip the posts if a prior tick
+    # already finalized, but always (idempotently) assert fulltime.
+    if topic.match_mode != "fulltime" do
+      post_final_result(topic, event)
+      post_standings(topic, event)
+      post_coverage_ended(topic)
+    end
+
+    transition_to_fulltime(topic)
+  end
+
+  defp post_final_result(topic, event) do
+    s = Sofascore.match_summary(event)
+
+    Forum.create_post(topic, get_or_create_scorebot_user(), %{
+      "body" => "🏁 <strong>Final</strong> — #{s.home} #{s.home_score} - #{s.away_score} #{s.away}",
+      "is_system" => true,
+      "system_type" => "summary"
+    })
+  end
+
+  defp post_standings(topic, event) do
+    season_id = get_in(event, ["season", "id"]) || Sofascore.current_season_id()
+
+    with true <- is_integer(season_id),
+         {:ok, data} <- Sofascore.standings(season_id),
+         rows when rows != [] <- standings_rows(data) do
+      svg = Colloq.Sofascore.StandingsSvg.render(rows)
+
+      Forum.create_post(topic, get_or_create_scorebot_user(), %{
+        "body" => "📊 Tabla de Posiciones — Liga Profesional",
+        "is_system" => true,
+        "system_type" => "standings",
+        "event_data" => %{"season_id" => season_id, "svg" => svg}
+      })
+    else
+      _ -> :ok
+    end
+  end
+
+  # The /standings/total payload carries every zone (Clausura/Apertura Group A
+  # and B) plus the aggregate Anual and Promedios tables — six in all. Flattening
+  # them produced a 120-row wall; we only want Racing's own group. Pick the first
+  # table that actually contains Racing, falling back to the flattened rows if
+  # none does (e.g. a single-table competition).
+  defp standings_rows(%{"standings" => tables}) when is_list(tables) do
+    racing = Sofascore.racing_team_id()
+
+    case Enum.find(tables, &group_has_team?(&1, racing)) do
+      %{"rows" => rows} when is_list(rows) -> rows
+      _ -> Enum.flat_map(tables, &Map.get(&1, "rows", []))
+    end
+  end
+
+  defp standings_rows(%{"rows" => rows}) when is_list(rows), do: rows
+  defp standings_rows(_), do: []
+
+  defp group_has_team?(table, team_id) do
+    table
+    |> Map.get("rows", [])
+    |> Enum.any?(&(get_in(&1, ["team", "id"]) == team_id))
+  end
+
+  defp post_coverage_ended(topic) do
+    Forum.create_post(topic, get_or_create_scorebot_user(), %{
+      "body" =>
+        "🛑 <strong>ResultaBot</strong> — fin de la cobertura. ¡Gracias por seguir el partido!",
+      "is_system" => true,
+      "system_type" => "bot_status"
+    })
   end
 
   # --- System user ---

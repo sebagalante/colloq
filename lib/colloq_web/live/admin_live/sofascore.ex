@@ -54,6 +54,18 @@ defmodule ColloqWeb.AdminLive.Sofascore do
     {:noreply, ran(socket, "racing_squad")}
   end
 
+  # Reconcile-only: no network, just re-apply RacingRoster over what's stored.
+  def handle_event("apply-racing-roster", _params, socket) do
+    %{updated: u, inserted: i, removed: r} = Sofascore.apply_racing_roster()
+
+    {:noreply,
+     put_flash(
+       socket,
+       :info,
+       gettext("Official roster applied: %{u} updated, %{i} added, %{r} removed.", u: u, i: i, r: r)
+     )}
+  end
+
   def handle_event("refresh-squads", _params, socket) do
     Sofascore.refresh_squads()
     {:noreply, ran(socket, "squads")}

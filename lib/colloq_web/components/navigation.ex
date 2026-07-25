@@ -113,6 +113,7 @@ defmodule ColloqWeb.Components.Navigation do
                 <.menu_link navigate={~p"/u/#{@current_user.username}"} icon="user" label={gettext("Profile")} />
                 <.menu_link navigate={~p"/messages"} icon="mail" label={gettext("Messages")} />
                 <.menu_link navigate={~p"/bookmarks"} icon="bookmark" label={gettext("Bookmarks")} />
+                <.menu_link navigate={~p"/drafts"} icon="edit" label={gettext("My drafts")} />
                 <.menu_link navigate={~p"/settings"} icon="settings" label={gettext("Settings")} />
                 <.menu_link
                   :if={Permissions.can_any?(@current_user, [:view_dashboard, :view_users])}
@@ -166,6 +167,7 @@ defmodule ColloqWeb.Components.Navigation do
           <.nav_link navigate={~p"/"} icon="home" label={gettext("Forum")} />
           <.nav_link navigate={~p"/predicciones"} icon="trending-up" label={pgettext("prode", "Predictions")} />
           <.nav_link :if={@current_user} navigate={~p"/bookmarks"} icon="bookmark" label={gettext("Bookmarks")} />
+          <.nav_link :if={@current_user} navigate={~p"/drafts"} icon="edit" label={gettext("My drafts")} />
 
           <%!-- More (expandable) --%>
           <div>

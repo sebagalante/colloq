@@ -105,7 +105,7 @@ defmodule ColloqWeb.ForumLive.Index do
         if socket.assigns.current_user do
           {:noreply, assign(socket, :show_modal, true)}
         else
-          {:noreply, push_redirect(socket, to: "/login")}
+          {:noreply, push_navigate(socket, to: "/login")}
         end
 
       _ ->
@@ -118,7 +118,7 @@ defmodule ColloqWeb.ForumLive.Index do
     if socket.assigns.current_user do
       {:noreply, assign(socket, :show_modal, true)}
     else
-      {:noreply, push_redirect(socket, to: "/login")}
+      {:noreply, push_navigate(socket, to: "/login")}
     end
   end
 

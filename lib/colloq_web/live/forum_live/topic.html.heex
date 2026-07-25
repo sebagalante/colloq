@@ -83,17 +83,6 @@
     </.flash>
   </div>
 
-  <%!-- Match score pin --%>
-  <div :if={@topic.is_match_thread && @match_mode} class="mb-6">
-    <.match_score_pin
-      home_team={@topic.home_team || gettext("Home")}
-      away_team={@topic.away_team || gettext("Away")}
-      home_score={assigns[:home_score] || 0}
-      away_score={assigns[:away_score] || 0}
-      minute={assigns[:match_minute] || 0}
-    />
-  </div>
-
   <%!-- Topic header --%>
   <div class="mb-6">
     <div class="flex items-center gap-2 mb-2 flex-wrap">
@@ -469,6 +458,7 @@
       editing_body={@editing_body}
       reaction_data={@reaction_data}
       reactor_names={@reactor_names}
+      reactors_panel={@reactors_panel}
       user_reactions={@user_reactions}
       poll_data={Map.get(@poll_data, post.id)}
       user_votes={Map.get(@user_poll_votes, post.id, [])}
@@ -488,7 +478,7 @@
       phx-click="load-more-comments"
       class="px-4 py-2 text-sm font-medium rounded-lg border border-border text-accent hover:bg-surface-alt transition-colors"
     >
-      <%= gettext("Show all %{count} comments", count: @topic.posts_count) %>
+      <%= gettext("Show all %{count} comments", count: @root_count) %>
     </button>
   </div>
 
@@ -501,23 +491,18 @@
     <div :if={@show_lineup_form} class="mb-6 p-4 rounded-lg bg-surface-alt border border-border">
       <h4 class="text-sm font-semibold text-heading mb-3"><%= gettext("Your starting XI") %></h4>
 
-      <p :if={@lineup_teams == []} class="text-sm text-muted">
-        <%= gettext("No squads loaded yet.") %>
+      <p :if={@lineup_squad == []} class="text-sm text-muted">
+        <%= gettext("No squad loaded yet. An admin can refresh it from the Sofascore panel.") %>
       </p>
 
-      <div :if={@lineup_teams != []}>
-        <div class="flex flex-wrap gap-3 mb-3">
-          <form phx-change="select-lineup-team">
-            <label class="block text-xs font-medium text-muted mb-1"><%= gettext("Team") %></label>
-            <select
-              name="team_id"
-              class="rounded-lg border border-border bg-bg text-heading px-3 py-2 text-sm focus:outline-none focus:border-accent"
-            >
-              <option :for={t <- @lineup_teams} value={t.id} selected={t.id == @lineup_team_id}>
-                <%= t.name %>
-              </option>
-            </select>
-          </form>
+      <div :if={@lineup_squad != []}>
+        <div class="flex flex-wrap items-end gap-3 mb-3">
+          <div>
+            <span class="block text-xs font-medium text-muted mb-1"><%= gettext("Team") %></span>
+            <span class="inline-flex items-center rounded-lg border border-border bg-bg px-3 py-2 text-sm font-semibold text-heading">
+              Racing Club
+            </span>
+          </div>
 
           <form phx-change="select-lineup-formation">
             <label class="block text-xs font-medium text-muted mb-1"><%= gettext("Formation") %></label>
@@ -547,11 +532,13 @@
             <.jersey
               primary={@lineup_colors.primary}
               secondary={@lineup_colors.secondary}
+              stripe={@lineup_colors[:stripe]}
               gk={slot.role == :gk}
-              class="mx-auto w-5 h-4 drop-shadow"
+              number={slot.player && slot.player.jersey_number}
+              class="mx-auto w-6 h-5 drop-shadow"
             />
             <span class="block text-[8px] font-bold leading-tight text-white drop-shadow whitespace-nowrap">
-              <%= (slot.player && slot.player.name |> String.split() |> List.last() |> String.upcase()) || "—" %>
+              <%= (slot.player && String.upcase(slot.player.short_name || (slot.player.name |> String.split() |> List.last()))) || "—" %>
             </span>
           </div>
         </div>
@@ -658,6 +645,25 @@
       </div>
     </form>
 
+    <%!-- A draft saved earlier is already in the composer (the editor boots
+         from the hidden input below), so this says what happened rather than
+         offering a "restore" nobody asked for. --%>
+    <div
+      :if={@draft_restored?}
+      class="mb-3 flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-alt px-3 py-2"
+    >
+      <span class="text-sm text-muted">
+        <.icon name="edit" class="w-4 h-4 inline-block mr-1 -mt-0.5" /><%= gettext("We restored your saved draft.") %>
+      </span>
+      <button
+        type="button"
+        phx-click="discard-draft"
+        class="text-sm font-medium text-muted hover:text-danger transition-colors"
+      >
+        <%= gettext("Discard") %>
+      </button>
+    </div>
+
     <form :if={!@show_poll_form && !@show_lineup_form} phx-submit="reply">
       <div id="reply-composer" phx-update="ignore">
         <div
@@ -668,12 +674,22 @@
           class="rounded-lg border border-border bg-surface focus-within:border-accent focus-within:ring-2 focus-within:ring-accent"
         >
         </div>
-        <input type="hidden" name="body" id="reply-body-input" />
+        <input type="hidden" name="body" id="reply-body-input" value={@draft_body} />
       </div>
       <div class="flex items-center gap-3 mt-2">
         <.button type="submit" class="w-full sm:w-auto">
           <%= gettext("Post reply") %>
         </.button>
+        <%!-- Submits this same form, flagged by its own param: a form can't
+             nest, and the hidden input already carries the current body. --%>
+        <button
+          type="submit"
+          name="draft"
+          value="1"
+          class="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-muted hover:text-heading transition-colors"
+        >
+          <.icon name="bookmark" class="w-4 h-4" /><%= gettext("Save draft") %>
+        </button>
         <button
           type="button"
           phx-click="toggle-poll-form"
@@ -833,33 +849,4 @@
     </form>
   </.modal>
 
-  <%!-- "Who reacted": everyone who reacted to a post, with the emoji they used. --%>
-  <.modal
-    id="reactors-modal"
-    show={@reactors_modal != nil}
-    on_cancel={Phoenix.LiveView.JS.push("close-reactors")}
-  >
-    <:title><%= gettext("Reactions") %></:title>
-    <ul :if={@reactors_modal} class="space-y-1 max-h-[60vh] overflow-y-auto -mx-2">
-      <li
-        :for={r <- @reactors_modal.reactors}
-        class="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-surface-alt"
-      >
-        <%= if r.user.avatar_url do %>
-          <img src={r.user.avatar_url} alt="" class="w-8 h-8 rounded-full object-cover flex-shrink-0" loading="lazy" />
-        <% else %>
-          <div class={["w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0", avatar_class(r.user)]}>
-            <%= initials(r.user) %>
-          </div>
-        <% end %>
-        <.link navigate={~p"/u/#{r.user.username}"} class="flex-1 min-w-0 text-sm font-medium text-heading truncate hover:underline">
-          <%= r.user.display_name || r.user.username %>
-        </.link>
-        <span class="text-lg leading-none flex-shrink-0"><%= r.emoji %></span>
-      </li>
-      <li :if={@reactors_modal.reactors == []} class="px-2 py-3 text-sm text-muted text-center">
-        <%= gettext("No reactions yet.") %>
-      </li>
-    </ul>
-  </.modal>
 </div>

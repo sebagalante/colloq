@@ -192,6 +192,51 @@ defmodule ColloqWeb.CoreComponents do
     """
   end
 
+  # ============= OAUTH PROVIDERS =============
+
+  # The five providers wired in AuthController. `/auth/:provider` both signs in
+  # and registers (Accounts.find_or_create_from_oauth/1), so this belongs on the
+  # login *and* the register page — only the label above it changes.
+  attr :label, :string, required: true, doc: "divider text, e.g. \"o continuá con\""
+
+  def oauth_providers(assigns) do
+    ~H"""
+    <div class="mt-6">
+      <div class="relative">
+        <div class="absolute inset-0 flex items-center">
+          <div class="w-full border-t border-border"></div>
+        </div>
+        <div class="relative flex justify-center text-xs">
+          <span class="bg-surface px-2 text-muted"><%= @label %></span>
+        </div>
+      </div>
+
+      <div class="mt-4 grid grid-cols-2 gap-2">
+        <a href="/auth/google" class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-bg border border-border text-sm text-body hover:border-gray-500 hover:text-heading transition-colors">
+          <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Google
+        </a>
+        <a href="/auth/microsoft" class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-bg border border-border text-sm text-body hover:border-gray-500 hover:text-heading transition-colors">
+          <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#F25022" d="M1 1h10v10H1z"/><path fill="#00A4EF" d="M1 13h10v10H1z"/><path fill="#7FBA00" d="M13 1h10v10H13z"/><path fill="#FFB900" d="M13 13h10v10H13z"/></svg>
+          Microsoft
+        </a>
+        <a href="/auth/facebook" class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-bg border border-border text-sm text-body hover:border-gray-500 hover:text-heading transition-colors">
+          <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#1877F2" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+          Facebook
+        </a>
+        <a href="/auth/twitter" class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-bg border border-border text-sm text-body hover:border-gray-500 hover:text-heading transition-colors">
+          <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+          X
+        </a>
+        <a href="/auth/discord" class="col-span-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-bg border border-border text-sm text-body hover:border-gray-500 hover:text-heading transition-colors">
+          <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#5865F2" d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>
+          Discord
+        </a>
+      </div>
+    </div>
+    """
+  end
+
   # ============= IMAGE DROP ZONE =============
 
   attr :upload, :any, required: true, doc: "the @uploads.<name> struct"
@@ -499,11 +544,12 @@ defmodule ColloqWeb.CoreComponents do
     ~H"""
     <div class="flex items-center flex-wrap gap-1.5">
       <%!-- Existing reactions (only those with at least one) --%>
-      <%!-- On your own posts the pills are inert: you can see who reacted, but
-            clicking would be rejected server-side anyway. --%>
-      <%!-- Wrapper carries the hover group so the tooltip fires even on disabled
-            pills (your own posts) — a disabled <button> doesn't reliably get
-            :hover, so the trigger must live on the always-enabled wrapper. --%>
+      <%!-- Clicking a pill reacts; on your own posts (where reacting would be
+            rejected server-side anyway) it opens the "who reacted" panel
+            instead. Everywhere else that panel is one hover away, via the ▾
+            handle on the pill's corner. --%>
+      <%!-- Wrapper carries the hover group so the tooltip and the ▾ handle fire
+            over the whole pill, not just the parts the cursor lands on. --%>
       <div
         :for={%{emoji: emoji, count: count} = reaction <- Enum.filter(@reactions, &(&1.count > 0))}
         class="group/react relative"
@@ -515,8 +561,7 @@ defmodule ColloqWeb.CoreComponents do
           data-count={count}
           data-post-id={@post_id}
           data-emoji-key={emoji}
-          disabled={!@can_react}
-          phx-click={@can_react && "reaction"}
+          phx-click={(@can_react && "reaction") || "show-reactors"}
           phx-value-post_id={@post_id}
           phx-value-emoji={emoji}
           class={[
@@ -532,6 +577,19 @@ defmodule ColloqWeb.CoreComponents do
         >
           <span data-emoji><%= emoji_display(emoji, @custom_emojis) %></span>
           <span data-count-text class="tabular-nums"><%= count %></span>
+        </button>
+        <%!-- Opens the reactors panel on this emoji's tab. Only on hover, so the
+              pills stay as clean as they were when you're just reading. --%>
+        <button
+          :if={@can_react}
+          type="button"
+          phx-click="show-reactors"
+          phx-value-post_id={@post_id}
+          phx-value-emoji={emoji}
+          title={gettext("See who reacted")}
+          class="hidden group-hover/react:flex absolute -top-1 -right-1 w-4 h-4 items-center justify-center rounded-full bg-surface border border-border text-[9px] leading-none text-muted hover:text-heading shadow z-10"
+        >
+          ▾
         </button>
         <%!-- Who reacted with this emoji, on hover. --%>
         <span
@@ -591,35 +649,15 @@ defmodule ColloqWeb.CoreComponents do
     """
   end
 
-  # Render a reaction "emoji" value: a custom-emoji image for a known
-  # ":name:" shortcode, otherwise the raw unicode emoji.
-  defp emoji_display(emoji, custom_emojis) do
+  @doc """
+  Renders a reaction "emoji" value: a custom-emoji image for a known ":name:"
+  shortcode, otherwise the raw unicode emoji.
+  """
+  def emoji_display(emoji, custom_emojis) do
     case Colloq.Emojis.shortcode_img(emoji, custom_emojis) do
       nil -> emoji
       html -> Phoenix.HTML.raw(html)
     end
-  end
-
-  # ============= MATCH SCORE PIN (placeholder for match day) =============
-  attr :home_team, :string, required: true
-  attr :away_team, :string, required: true
-  attr :home_score, :integer, default: 0
-  attr :away_score, :integer, default: 0
-  attr :minute, :integer, default: 0
-
-  def match_score_pin(assigns) do
-    ~H"""
-    <div class="sticky top-0 z-40 bg-surface border-b border-border px-4 py-3 flex items-center justify-between">
-      <div class="flex items-center gap-4">
-        <span class="text-sm font-bold text-heading"><%= @home_team %></span>
-        <span class="text-2xl font-bold text-heading tabular-nums">
-          <%= @home_score %> - <%= @away_score %>
-        </span>
-        <span class="text-sm font-bold text-heading"><%= @away_team %></span>
-      </div>
-      <span class="text-sm font-mono text-success"><%= @minute %>'</span>
-    </div>
-    """
   end
 
   # ============= GOAL ALERT =============
@@ -734,6 +772,8 @@ defmodule ColloqWeb.CoreComponents do
         :goal -> "match-event-goal bg-emerald-500/10 border-l-emerald-500 border border-emerald-500/30"
         :red -> "bg-red-500/10 border-l-red-500 border border-red-500/30"
         :second_yellow -> "bg-red-500/10 border-l-red-500 border border-red-500/30"
+        :penalty -> "bg-red-500/10 border-l-red-500 border border-red-500/30"
+        :sub -> "bg-sky-500/10 border-l-sky-500 border border-sky-500/30"
         _ -> "bg-amber-400/10 border-l-amber-400 border border-amber-400/30"
       end
     ]}>
@@ -784,6 +824,8 @@ defmodule ColloqWeb.CoreComponents do
     variant =
       cond do
         type == "goal" -> :goal
+        type == "sub" -> :sub
+        type == "penalty" -> :penalty
         detail == "yellowRed" -> :second_yellow
         detail in ["red", "redCard"] -> :red
         true -> :yellow
@@ -791,22 +833,36 @@ defmodule ColloqWeb.CoreComponents do
 
     %{
       variant: variant,
-      icon: event_icon(variant),
+      icon: event_icon(variant, detail),
       headline: event_headline(variant, detail),
-      player: get.(:player) || gettext("Unknown player"),
+      player: event_player(variant, get),
       team: get.(:team),
       minute: get.(:minute) || 0,
-      score: if(home && away, do: "#{home}-#{away}")
+      # Only goals carry a running score; subs/penalties/cards never do.
+      score: if(variant == :goal and home && away, do: "#{home}-#{away}")
     }
   end
 
-  defp event_icon(:goal), do: "⚽"
-  defp event_icon(:yellow), do: "🟨"
-  defp event_icon(_), do: "🟥"
+  # Substitutions have two players (in/out) rather than one; everything else
+  # reads the single `player` field.
+  defp event_player(:sub, get),
+    do: "▶ #{get.(:player_in) || "?"}  ◀ #{get.(:player_out) || "?"}"
+
+  defp event_player(_variant, get), do: get.(:player) || gettext("Unknown player")
+
+  defp event_icon(:goal, _), do: "⚽"
+  defp event_icon(:sub, _), do: "🔄"
+  defp event_icon(:penalty, "scored"), do: "⚽"
+  defp event_icon(:penalty, _), do: "❌"
+  defp event_icon(:yellow, _), do: "🟨"
+  defp event_icon(_, _), do: "🟥"
 
   defp event_headline(:goal, "penalty"), do: gettext("GOAL! (penalty)")
   defp event_headline(:goal, "ownGoal"), do: gettext("Own goal")
   defp event_headline(:goal, _), do: gettext("GOAL!")
+  defp event_headline(:sub, _), do: gettext("Substitution")
+  defp event_headline(:penalty, "scored"), do: gettext("Penalty scored")
+  defp event_headline(:penalty, _), do: gettext("Penalty missed")
   defp event_headline(:second_yellow, _), do: gettext("Second yellow")
   defp event_headline(:red, _), do: gettext("Red card")
   defp event_headline(_, _), do: gettext("Yellow card")
@@ -815,20 +871,66 @@ defmodule ColloqWeb.CoreComponents do
   # A little football shirt drawn in the team's kit colors, used for both the
   # lineup composer preview and the posted lineup board. GK gets a fixed
   # contrasting yellow so the keeper stands out from the outfield players.
+  @jersey_path "M18 4 L24 8 Q30 12 36 8 L42 4 L54 12 L48 22 L44 20 L44 52 L16 52 L16 20 L12 22 L6 12 Z"
+
   attr :primary, :string, default: "#e8eef7"
   attr :secondary, :string, default: "#9db4d0"
+  attr :stripe, :string,
+    default: nil,
+    doc: "vertical stripe color painted over the primary kit (e.g. Racing's celeste + white); ignored for the GK"
+
   attr :gk, :boolean, default: false
+  attr :number, :any, default: nil, doc: "shirt number, drawn on the jersey when present"
   attr :class, :any, default: "w-7 h-6"
 
   def jersey(assigns) do
+    # A dark stroke reads over any kit; the outfield stroke is too light for a
+    # number to be legible against a pale shirt.
+    assigns =
+      assigns
+      |> assign(:num_color, if(assigns.gk, do: "#a16207", else: "#0b1f3a"))
+      |> assign(:shirt_path, @jersey_path)
+      |> assign(:striped?, assigns.stripe not in [nil, ""] and not assigns.gk)
+      # Each jersey carries its own clipPath id: several are drawn per board and
+      # duplicate ids would make every striped shirt clip to the first one's
+      # shape (and, worse, a striped away kit could borrow the home clip).
+      |> assign(:clip_id, "jersey-clip-#{System.unique_integer([:positive])}")
+
     ~H"""
     <svg viewBox="0 0 60 56" class={@class} aria-hidden="true">
+      <defs :if={@striped?}>
+        <clipPath id={@clip_id}>
+          <path d={@shirt_path} />
+        </clipPath>
+      </defs>
       <path
-        d="M18 4 L24 8 Q30 12 36 8 L42 4 L54 12 L48 22 L44 20 L44 52 L16 52 L16 20 L12 22 L6 12 Z"
+        d={@shirt_path}
         fill={if @gk, do: "#facc15", else: @primary}
         stroke={if @gk, do: "#a16207", else: @secondary}
         stroke-width="1.6"
       />
+      <%!-- Equal-width bands over the celeste base, clipped to the shirt, then
+           the outline redrawn on top so the stripes don't bleed past the edge. --%>
+      <g :if={@striped?} clip-path={"url(##{@clip_id})"}>
+        <rect :for={x <- [6, 18, 30, 42]} x={x} y="0" width="6" height="56" fill={@stripe} />
+      </g>
+      <path
+        :if={@striped?}
+        d={@shirt_path}
+        fill="none"
+        stroke={@secondary}
+        stroke-width="1.6"
+      />
+      <text
+        :if={@number}
+        x="30"
+        y="40"
+        text-anchor="middle"
+        font-size="20"
+        font-weight="700"
+        fill={@num_color}
+        style="font-family: ui-sans-serif, system-ui, sans-serif;"
+      ><%= @number %></text>
     </svg>
     """
   end

@@ -1914,4 +1914,123 @@ defmodule Colloq.Forum do
   def can_join_voice_room?(%VoiceRoom{} = room, user) do
     user.trust_level >= room.trust_level_required
   end
+
+  # ===========================================================================
+  # Composer drafts
+  # ===========================================================================
+
+  alias Colloq.Forum.PostDraft
+
+  @doc """
+  Saves (or replaces) a user's draft for a topic.
+
+  One draft per user per topic, so saving twice overwrites rather than piling
+  up. `topic_id` nil is the new-topic draft. An empty body deletes the draft
+  instead of storing a blank one — "save" on an empty composer means "I have
+  nothing pending", not "keep an empty note".
+  """
+  def save_draft(user_id, topic_id, attrs) do
+    body = attrs |> Map.get(:body) |> to_string() |> String.trim()
+
+    if blank_body?(body) do
+      delete_draft(user_id, topic_id)
+      {:ok, nil}
+    else
+      attrs =
+        attrs
+        |> Map.put(:body, body)
+        |> Map.put(:user_id, user_id)
+        |> Map.put(:topic_id, topic_id)
+
+      upsert_draft(user_id, topic_id, attrs)
+    end
+  end
+
+  # Read-then-write, guarded by the partial unique indexes on (user_id,
+  # topic_id). Two tabs saving at once means one of them loses the race and
+  # trips the constraint; that one re-reads the row the winner just wrote and
+  # updates it, so the later save still wins and no duplicate survives.
+  defp upsert_draft(user_id, topic_id, attrs, retry? \\ true) do
+    result =
+      case get_draft(user_id, topic_id) do
+        nil -> %PostDraft{}
+        draft -> draft
+      end
+      |> PostDraft.changeset(attrs)
+      |> Repo.insert_or_update()
+
+    case result do
+      {:error, %Ecto.Changeset{errors: errors}} when retry? ->
+        if Keyword.has_key?(errors, :user_id) or Keyword.has_key?(errors, :topic_id) do
+          upsert_draft(user_id, topic_id, attrs, false)
+        else
+          result
+        end
+
+      _ ->
+        result
+    end
+  end
+
+  @doc "A user's draft for a topic (nil topic_id = new-topic draft), or nil."
+  def get_draft(user_id, topic_id) do
+    PostDraft
+    |> where([d], d.user_id == ^user_id)
+    |> then(fn q ->
+      if topic_id, do: where(q, [d], d.topic_id == ^topic_id), else: where(q, [d], is_nil(d.topic_id))
+    end)
+    # Newest wins: there's no unique constraint on (user_id, topic_id), so two
+    # racing saves can leave duplicates. Reading the latest keeps that
+    # invisible, and delete_draft/2 clears the whole set.
+    |> order_by([d], desc: d.updated_at)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  @doc """
+  A user's drafts, most recently edited first, with the topic (and its
+  category) preloaded for the listing. New-topic drafts have no topic.
+  """
+  def list_drafts(user_id) do
+    PostDraft
+    |> where([d], d.user_id == ^user_id)
+    |> order_by([d], desc: d.updated_at)
+    |> preload(topic: :category)
+    |> preload(:category)
+    |> Repo.all()
+  end
+
+  @doc "How many drafts a user is holding — for the nav badge."
+  def count_drafts(user_id) do
+    PostDraft
+    |> where([d], d.user_id == ^user_id)
+    |> Repo.aggregate(:count, :id)
+  end
+
+  @doc "Deletes one draft by id, scoped to its owner so ids can't be guessed."
+  def delete_draft_by_id(user_id, draft_id) do
+    PostDraft
+    |> where([d], d.user_id == ^user_id and d.id == ^draft_id)
+    |> Repo.delete_all()
+    |> elem(0)
+  end
+
+  @doc "Drops a user's draft for a topic. Returns the number deleted."
+  def delete_draft(user_id, topic_id) do
+    PostDraft
+    |> where([d], d.user_id == ^user_id)
+    |> then(fn q ->
+      if topic_id, do: where(q, [d], d.topic_id == ^topic_id), else: where(q, [d], is_nil(d.topic_id))
+    end)
+    |> Repo.delete_all()
+    |> elem(0)
+  end
+
+  # The composer stores HTML, so "empty" is an empty paragraph as much as "".
+  defp blank_body?(body) do
+    body
+    |> String.replace(~r/<[^>]*>/, "")
+    |> String.replace(~r/(&nbsp;|\s)+/u, "")
+    |> Kernel.==("")
+  end
 end

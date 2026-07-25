@@ -25,7 +25,9 @@ defmodule ColloqWeb.Components.Lucide do
     - `size` — Icon size in pixels (default: 24, overridden by class)
   """
   attr :name, :any, required: true
-  attr :class, :string, default: "w-4 h-4"
+  # :any, not :string — callers pass conditional class lists (["w-4", cond && "x"]),
+  # which HEEx renders natively on the class attribute.
+  attr :class, :any, default: "w-4 h-4"
   attr :rest, :global
 
   def icon(assigns) do

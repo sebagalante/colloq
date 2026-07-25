@@ -24,8 +24,15 @@ defmodule Colloq.Automations do
   fires on an interval (see Colloq.Workers.AutomationSchedulerWorker).
   """
   def list_enabled_recurring do
+    list_enabled_by_trigger("recurring")
+  end
+
+  @doc """
+  Enabled automations with the given trigger.
+  """
+  def list_enabled_by_trigger(trigger) when is_binary(trigger) do
     Automation
-    |> where(enabled: true, trigger: "recurring")
+    |> where(enabled: true, trigger: ^trigger)
     |> Repo.all()
   end
 

@@ -144,6 +144,8 @@ defmodule ColloqWeb.UserLive.Login do
           </.button>
         </.form>
 
+        <.oauth_providers label={gettext("or continue with")} />
+
         <p class="text-sm text-gray-400 text-center mt-4">
           ¿No tenés cuenta? <.link href="/register" class="text-blue-400 hover:text-blue-300">Registrate</.link>
         </p>

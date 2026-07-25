@@ -14,6 +14,8 @@ defmodule Colloq.Sofascore.SofascorePlayer do
     field :slug, :string
     field :team_id, :integer
     field :position, :string
+    field :jersey_number, :integer
+    field :short_name, :string
     field :photo_url, :string
     field :transfermarkt_id, :string
 
@@ -24,7 +26,7 @@ defmodule Colloq.Sofascore.SofascorePlayer do
     player
     |> cast(attrs, [
       :sofascore_id, :name, :slug, :team_id, :position,
-      :photo_url, :transfermarkt_id
+      :jersey_number, :short_name, :photo_url, :transfermarkt_id
     ])
     |> validate_required([:sofascore_id, :name])
     |> unique_constraint(:sofascore_id, name: :sofascore_players_sofascore_id_index)

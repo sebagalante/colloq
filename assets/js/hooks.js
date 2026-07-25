@@ -10,6 +10,11 @@ const QUOTE_ICON =
   '<path d="M3 21c3 0 7-1 7-8V5c0-1.25-.75-2-2-2H4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2h1c0 1-1 2-2 2z"/>' +
   '<path d="M15 21c3 0 7-1 7-8V5c0-1.25-.75-2-2-2h-4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2h1c0 1-1 2-2 2z"/>';
 
+// "Copy Quote" in the same selection toolbar.
+const COPY_ICON =
+  '<rect x="9" y="9" width="13" height="13" rx="2"/>' +
+  '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
+
 // =========================================================================
 // RowNav — makes a whole topic row clickable without wrapping it in an <a>
 // (so tag/category links inside can be their own anchors). A click anywhere
@@ -283,21 +288,41 @@ Hooks.ECharts = {
     // Bars carry their own label; for a dense line (30 days) thin to ~6.
     const every = type === "bar" ? 1 : Math.max(1, Math.ceil(n / 6));
     const isDate = (s) => /^\d{4}-\d{2}-\d{2}/.test(s);
+    // Roughly the width of an "MM-DD" label; two labels closer than this would
+    // overlap, which is what happened when the forced last tick landed next to
+    // the previous thinned one (e.g. a 14-day span: ticks at 12 and 13).
+    const MIN_GAP = 34;
+
+    const xOf = (i) =>
+      type === "bar"
+        ? pad.l + (iw / n) * i + iw / n / 2
+        : n > 1
+          ? pad.l + (iw / (n - 1)) * i
+          : pad.l + iw / 2;
+
+    // Candidate ticks: every Nth, plus the last so the chart ends on the newest
+    // date. Deduped by minimum spacing — the last tick wins a collision, so the
+    // newest date is always the one kept.
+    const wanted = [];
+    for (let i = 0; i < n; i += every) wanted.push(i);
+    if (wanted[wanted.length - 1] !== n - 1) wanted.push(n - 1);
+
+    let lastX = -Infinity;
     let out = "";
-    data.forEach((d, i) => {
-      if (i % every !== 0 && i !== n - 1) return;
-      // Align under the bar centre for bars; along the polyline for lines.
-      const x =
-        type === "bar"
-          ? pad.l + (iw / n) * i + iw / n / 2
-          : n > 1
-            ? pad.l + (iw / (n - 1)) * i
-            : pad.l + iw / 2;
-      // Dates → drop the year (MM-DD); other labels → truncate if long.
-      let label = d.label;
+    wanted.forEach((i, idx) => {
+      const x = xOf(i);
+      const isLast = idx === wanted.length - 1;
+      // Drop a tick that would crowd the previous one — unless it's the last,
+      // in which case drop the previous label instead (handled by re-checking).
+      if (!isLast && x - lastX < MIN_GAP) return;
+      if (isLast && x - lastX < MIN_GAP && out) {
+        out = out.replace(/<text[^>]*>(?:(?!<\/text>).)*<\/text>$/, "");
+      }
+      let label = data[i].label;
       if (isDate(label)) label = label.slice(5);
       else if (label.length > 9) label = label.slice(0, 8) + "…";
-      out += `<text x="${x.toFixed(1)}" y="${pad.t + ih + 15}" font-size="10" fill="${muted}" text-anchor="middle"><title>${d.label}</title>${label}</text>`;
+      out += `<text x="${x.toFixed(1)}" y="${pad.t + ih + 15}" font-size="10" fill="${muted}" text-anchor="middle"><title>${data[i].label}</title>${label}</text>`;
+      lastX = x;
     });
     return out;
   }
@@ -1578,6 +1603,26 @@ Hooks.TiptapEditor = {
     this.handleEvent("tiptap:clear", () => {
       if (this.editor) this.editor.commands.clearContent(true);
     });
+    // Opening a draft from "My drafts": scroll the composer into view and put
+    // the cursor at the end of the restored text, so the thread doesn't just
+    // load at the top with the draft buried below the fold.
+    this.handleEvent("tiptap:focus", ({ target }) => {
+      if (target !== this.el.id) return;
+
+      // Deferred, and only the cursor: the page is put on the composer by the
+      // #reply-composer fragment (AutoScroll honours it). Scrolling from here
+      // as well raced that, and the editor may still be loading its extensions
+      // when this event lands, so retry briefly before giving up.
+      let tries = 0;
+      const focus = () => {
+        if (this.editor) {
+          this.editor.commands.focus("end");
+        } else if (tries++ < 20) {
+          window.setTimeout(focus, 50);
+        }
+      };
+      window.requestAnimationFrame(focus);
+    });
     // Quote-a-comment: insert a blockquote into the targeted composer.
     this.handleEvent("tiptap:quote", ({ target, html }) => {
       if (target !== this.el.id || !this.editor) return;
@@ -2102,10 +2147,15 @@ Hooks.TiptapEditor = {
       { insert: "/sofascore partido ", label: "/sofascore partido", desc: "Racing: en vivo o próximo partido", key: "/sofascore partido" },
       { insert: "/sofascore partido anterior ", label: "/sofascore partido anterior", desc: "Último resultado de Racing", key: "/sofascore partido anterior" },
       { insert: "/sofascore liga ", label: "/sofascore liga [fecha]", desc: "Fixture de una fecha de la liga", key: "/sofascore liga" },
-      { insert: "/sofascore tabla ", label: "/sofascore tabla", desc: "Tabla de posiciones del torneo", key: "/sofascore tabla" },
+      { insert: "/sofascore tabla ", label: "/sofascore tabla", desc: "Tabla de posiciones (los dos grupos)", key: "/sofascore tabla" },
+      { insert: "/sofascore tabla a ", label: "/sofascore tabla a", desc: "Tabla del Grupo A", key: "/sofascore tabla a" },
+      { insert: "/sofascore tabla b ", label: "/sofascore tabla b", desc: "Tabla del Grupo B", key: "/sofascore tabla b" },
       { insert: "/sofascore tabla anual ", label: "/sofascore tabla anual", desc: "Tabla anual (acumulada del año)", key: "/sofascore tabla anual" },
       { insert: "/sofascore plantel ", label: "/sofascore plantel", desc: "Plantel de Racing", key: "/sofascore plantel" },
       { insert: "/sofascore ", label: "/sofascore <jugador>", desc: "Estadísticas de un jugador", key: "/sofascore" },
+      { insert: "/ca ", label: "/ca", desc: "Copa Argentina: fixture y resultados", key: "/ca" },
+      { insert: "/f1 ", label: "/f1", desc: "Fórmula 1: carreras y campeonato", key: "/f1" },
+      { insert: "/clima ", label: "/clima", desc: "El clima", key: "/clima" },
       { insert: "/dolar ", label: "/dolar", desc: "Cotización del dólar", key: "/dolar" },
     ];
 
@@ -2170,10 +2220,12 @@ Hooks.TiptapEditor = {
       // "/" then word chars / spaces (commands can have a subcommand word).
       if (!isFirstBlock || !/^\/[\w\s]*$/.test(textBefore)) { hideSlash(); return; }
       const typed = textBefore.toLowerCase();
-      slashItems = SLASH_COMMANDS.filter((c) => {
-        const k = c.key.toLowerCase();
-        return k.startsWith(typed) || typed.startsWith(k + " ") || typed === k;
-      });
+      // Prefix matches ONLY — the suggestion has to complete what's typed.
+      // Matching the other way round (typed extending past a command, e.g.
+      // "/sofascore tabla b") kept the menu open over the user's own argument,
+      // and Enter then replaced it with the bare command, silently eating the
+      // "b". Once you're typing arguments there's nothing left to suggest.
+      slashItems = SLASH_COMMANDS.filter((c) => c.key.toLowerCase().startsWith(typed));
       slashIndex = 0;
       slashRange = { from: sel.from - $from.parentOffset, to: sel.from };
       renderSlash();
@@ -2480,7 +2532,18 @@ Hooks.PostBody = {
   // the containment check below, so there's nothing to catch out there.
   setupQuoteSelection() {
     const postId = this.el.dataset.postId;
-    if (!postId || !this.el.dataset.quotable) return;
+
+    // PRESENCE, not truthiness. HEEx renders `data-quotable={true}` as a bare
+    // `data-quotable` attribute, so dataset.quotable is "" — falsy — and a
+    // truthiness check disables the toolbar for exactly the users who should
+    // get it. When the value is false HEEx omits the attribute entirely, which
+    // is what `undefined` catches here.
+    this._canQuote = this.el.dataset.quotable !== undefined;
+    this._canCopy = this.el.dataset.copyable !== undefined;
+
+    // Either action alone is enough to earn the toolbar: quoting needs an
+    // account and an open thread, copying doesn't.
+    if (!postId || (!this._canQuote && !this._canCopy)) return;
 
     this._quotePill = null;
 
@@ -2526,29 +2589,97 @@ Hooks.PostBody = {
   _showQuotePill(rect, postId, text) {
     this._hideQuotePill();
 
-    const pill = document.createElement("button");
-    pill.type = "button";
-    pill.className = "quote-pill";
-    pill.innerHTML =
-      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ` +
-      `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${QUOTE_ICON}</svg>`;
-    pill.appendChild(document.createTextNode(this.el.dataset.quoteLabel || "Quote"));
+    const bar = document.createElement("div");
+    bar.className = "quote-pill quote-pill--bar";
+    // Keep the selection alive through the click: mousedown anywhere on the
+    // toolbar must not collapse it, or "quote what I highlighted" has nothing
+    // left to quote by the time the click lands.
+    bar.addEventListener("mousedown", (e) => e.preventDefault());
 
-    // Fixed positioning: the rect is already viewport-relative, and the pill
+    const button = (label, icon, onClick) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "quote-pill__action";
+      b.innerHTML =
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ` +
+        `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg>`;
+      b.appendChild(document.createTextNode(label));
+      b.addEventListener("click", onClick);
+      bar.appendChild(b);
+      return b;
+    };
+
+    if (this._canQuote) {
+      button(this.el.dataset.quoteLabel || "Quote", QUOTE_ICON, () => {
+        this.pushEvent("quote-post", { post_id: postId, text });
+        window.getSelection()?.removeAllRanges();
+        this._hideQuotePill();
+      });
+    }
+
+    if (this._canCopy) {
+      const copyBtn = button(this.el.dataset.copyLabel || "Copy Quote", COPY_ICON, async () => {
+        const ok = await this._copyQuote(text);
+        if (!ok) return;
+        // Confirm in place rather than closing instantly — a toolbar that just
+        // vanishes leaves you wondering whether the copy happened.
+        copyBtn.lastChild.textContent = this.el.dataset.copiedLabel || "Copied";
+        copyBtn.classList.add("is-done");
+        window.setTimeout(() => this._hideQuotePill(), 900);
+      });
+    }
+
+    // Fixed positioning: the rect is already viewport-relative, and the bar
     // sits above the selection unless that would clip off the top.
-    pill.style.top = `${Math.max(8, rect.top - 40)}px`;
-    pill.style.left = `${rect.left + rect.width / 2}px`;
+    bar.style.top = `${Math.max(8, rect.top - 40)}px`;
+    bar.style.left = `${rect.left + rect.width / 2}px`;
 
-    // Keep the selection alive through the click.
-    pill.addEventListener("mousedown", (e) => e.preventDefault());
-    pill.addEventListener("click", () => {
-      this.pushEvent("quote-post", { post_id: postId, text });
-      window.getSelection()?.removeAllRanges();
-      this._hideQuotePill();
-    });
+    document.body.appendChild(bar);
+    this._quotePill = bar;
 
-    document.body.appendChild(pill);
-    this._quotePill = pill;
+    // Nudge back inside the viewport when the selection sits near an edge.
+    const box = bar.getBoundingClientRect();
+    if (box.left < 8) bar.style.left = `${8 + box.width / 2}px`;
+    else if (box.right > window.innerWidth - 8)
+      bar.style.left = `${window.innerWidth - 8 - box.width / 2}px`;
+  },
+
+  // Markdown-style citation, so pasting into another post (or anywhere else)
+  // keeps the attribution and a link back to the source comment.
+  async _copyQuote(text) {
+    const author = this.el.dataset.quoteAuthor;
+    const url = this.el.dataset.quoteUrl;
+
+    const body = text
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n");
+
+    const attribution = [author && `— ${author}`, url].filter(Boolean).join(" · ");
+    const payload = attribution ? `${body}\n${attribution}` : body;
+
+    try {
+      await navigator.clipboard.writeText(payload);
+      return true;
+    } catch (_e) {
+      // Clipboard API needs a secure context; fall back to execCommand so this
+      // still works over plain http (e.g. a LAN dev server).
+      const ta = document.createElement("textarea");
+      ta.value = payload;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (_err) {
+        ok = false;
+      }
+      ta.remove();
+      return ok;
+    }
   },
 
   teardownQuoteSelection() {

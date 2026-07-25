@@ -116,6 +116,7 @@ defmodule ColloqWeb.Router do
     live "/settings", UserLive.Settings, :edit
     live "/settings/:tab", UserLive.Settings, :edit
     live "/bookmarks", UserLive.Bookmarks, :index
+    live "/drafts", UserLive.Drafts, :index
 
     live "/comparar", PlayerComparisonLive, :show
     live "/jugador", PlayerCardLive, :index

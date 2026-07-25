@@ -15,6 +15,7 @@ defmodule Colloq.Sofascore do
   import Ecto.Query, warn: false
   alias Colloq.Repo
   alias Colloq.Sofascore.SofascorePlayer
+  alias Colloq.Sofascore.RacingRoster
 
   @user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
@@ -37,7 +38,7 @@ defmodule Colloq.Sofascore do
   # `colors` are the club's kit colors (primary body, secondary trim/stroke),
   # used to paint the lineup jerseys.
   @teams %{
-    racing: %{id: 3215, name: "Racing Club", short: "RAC", colors: %{primary: "#8FC7E8", secondary: "#2E6E9E"}},
+    racing: %{id: 3215, name: "Racing Club", short: "RAC", colors: %{primary: "#8FC7E8", secondary: "#2E6E9E", stripe: "#FFFFFF"}},
     river: %{id: 3211, name: "River Plate", short: "RIV", colors: %{primary: "#FFFFFF", secondary: "#D3111F"}},
     boca: %{id: 3202, name: "Boca Juniors", short: "BOC", colors: %{primary: "#0A2E6E", secondary: "#F2C300"}},
     independiente: %{id: 3209, name: "Independiente", short: "IND", colors: %{primary: "#D8161B", secondary: "#7A0C10"}},
@@ -210,7 +211,12 @@ defmodule Colloq.Sofascore do
   def fetch_and_seed_squad(team_id) when is_integer(team_id) do
     case fetch_team_players(team_id) do
       {:ok, players} ->
-        seed_squad(team_id, players)
+        result = seed_squad(team_id, players)
+        # Racing's official roster is the authority; reconcile onto the fresh
+        # Sofascore data so a refresh keeps photos/stats but can't reintroduce
+        # stale names or numbers.
+        if team_id == racing_team_id(), do: apply_racing_roster()
+        result
 
       {:error, :not_found} ->
         Logger.warning("[Sofascore] Team #{team_id} not found in API")
@@ -286,11 +292,25 @@ defmodule Colloq.Sofascore do
       sofascore_id: to_string(player_data["id"]),
       name: player_data["name"],
       position: translate_position(player_data["position"]),
+      jersey_number: parse_jersey(player_data["jerseyNumber"]),
       photo_url: player_data["photoUrl"]
     }
   end
 
   defp parse_api_player(_), do: nil
+
+  # Sofascore serves the shirt number as a string ("14"); a loan/reserve without
+  # a squad number simply has none.
+  defp parse_jersey(n) when is_integer(n), do: n
+
+  defp parse_jersey(n) when is_binary(n) do
+    case Integer.parse(n) do
+      {parsed, _} -> parsed
+      :error -> nil
+    end
+  end
+
+  defp parse_jersey(_), do: nil
 
   defp translate_position(code) when is_binary(code), do: Map.get(@position_map, code, code)
   defp translate_position(_), do: nil
@@ -322,6 +342,7 @@ defmodule Colloq.Sofascore do
             set: [
               name: attrs[:name] || attrs["name"],
               position: attrs[:position] || attrs["position"],
+              jersey_number: attrs[:jersey_number] || attrs["jersey_number"],
               photo_url: attrs[:photo_url] || attrs["photo_url"],
               team_id: team_id
             ]
@@ -396,14 +417,147 @@ defmodule Colloq.Sofascore do
   def racing_team_id, do: @teams.racing.id
 
   @doc """
+  Reconciles the stored Racing squad to the official roster
+  (`Colloq.Sofascore.RacingRoster`).
+
+  The official list wins on names and numbers, since Sofascore's feed lags.
+  Existing rows are matched by name so their `sofascore_id` (and the photos and
+  stats it unlocks) survive a rename or a number change; genuinely new players
+  are inserted with a synthetic id; players no longer in the squad are removed.
+
+  Returns `%{updated: n, inserted: n, removed: n}`.
+  """
+  def apply_racing_roster do
+    team_id = racing_team_id()
+    existing = list_by_team(team_id)
+
+    # Greedy best-match: each official player claims the closest unclaimed row.
+    {ops, leftover} =
+      Enum.map_reduce(RacingRoster.players(), existing, fn official, pool ->
+        case best_match(official, pool) do
+          nil -> {{:insert, official}, pool}
+          row -> {{:update, row, official}, List.delete(pool, row)}
+        end
+      end)
+
+    updated =
+      for {:update, row, official} <- ops, reduce: 0 do
+        acc ->
+          row
+          |> SofascorePlayer.changeset(%{
+            name: official.name,
+            jersey_number: official.number,
+            position: official.position,
+            short_name: roster_short(official)
+          })
+          |> Repo.update!()
+
+          acc + 1
+      end
+
+    inserted =
+      for {:insert, official} <- ops, reduce: 0 do
+        acc ->
+          %SofascorePlayer{}
+          |> SofascorePlayer.changeset(%{
+            sofascore_id: "racing-official-#{official.number}",
+            name: official.name,
+            jersey_number: official.number,
+            position: official.position,
+            short_name: roster_short(official),
+            team_id: team_id
+          })
+          |> Repo.insert!()
+
+          acc + 1
+      end
+
+    removed =
+      Enum.reduce(leftover, 0, fn row, acc ->
+        Repo.delete!(row)
+        acc + 1
+      end)
+
+    %{updated: updated, inserted: inserted, removed: removed}
+  end
+
+  # Pitch label: an explicit override, else the (possibly compound) surname —
+  # so "Marco Genaro Di Cesare" shows "Di Cesare", not "Cesare".
+  defp roster_short(official), do: official[:short] || official.surname
+
+  # A stored row matches an official player when their surnames agree; ties
+  # (two Rodríguez) break on the first given name. The full surname is tried
+  # first, then its last token, so a compound "Luis Rodríguez" still finds a
+  # row Sofascore stored as plain "Rodríguez".
+  defp best_match(official, pool) do
+    surname = normalize(official.surname)
+    last = surname |> String.split() |> List.last()
+    first = official.name |> String.split() |> List.first() |> normalize()
+
+    candidates =
+      case Enum.filter(pool, &String.contains?(normalize(&1.name), surname)) do
+        [] -> Enum.filter(pool, &String.contains?(normalize(&1.name), last))
+        found -> found
+      end
+
+    case candidates do
+      [] -> nil
+      [only] -> only
+      many -> Enum.find(many, &String.contains?(normalize(&1.name), first)) || List.first(many)
+    end
+  end
+
+  # Lowercase, accent-stripped, for tolerant name comparison.
+  defp normalize(str) do
+    str
+    |> to_string()
+    |> String.downcase()
+    |> :unicode.characters_to_nfd_binary()
+    |> String.replace(~r/[\x{0300}-\x{036f}]/u, "")
+    |> String.trim()
+  end
+
+  @doc """
   The league round (fecha) being played *now*, inferred from Racing's most
   relevant match. Falls back to `1` when nothing can be determined — the same
   anchor the `/sofascore liga` command uses, so the two agree on "la fecha".
+
+  `relevant_match/1` switches to Racing's *next* fixture the instant the current
+  one ends. Taken at face value that bounced the Prode page to the next fecha
+  (and pointed the round scorer at an unplayed round) the moment a match went
+  final. So when the relevant match is a not-yet-started fixture, we only advance
+  to it once it's within `@advance_lead_seconds` of kickoff; until then we stay
+  on Racing's most-recent-finished round so a finishing match no longer redirects
+  the user.
   """
+  @advance_lead_seconds 3 * 86_400
+
   def current_round do
     case relevant_match(racing_team_id()) do
-      {:ok, event} -> get_in(event, ["roundInfo", "round"]) || 1
-      _ -> 1
+      {:ok, event} ->
+        round = get_in(event, ["roundInfo", "round"]) || 1
+
+        if get_in(event, ["status", "type"]) == "notstarted" and
+             not within_lead_time?(event["startTimestamp"]) do
+          last_finished_round(racing_team_id()) || round
+        else
+          round
+        end
+
+      _ ->
+        1
+    end
+  end
+
+  defp within_lead_time?(ts) when is_integer(ts),
+    do: ts - System.system_time(:second) <= @advance_lead_seconds
+
+  defp within_lead_time?(_), do: true
+
+  defp last_finished_round(team_id) do
+    case last_finished_match(team_id) do
+      {:ok, event} -> get_in(event, ["roundInfo", "round"])
+      _ -> nil
     end
   end
 

@@ -177,8 +177,12 @@ defmodule ColloqWeb.AdminLive.Users do
       if search != "" do
         term = "%#{search}%"
 
+        # last_ip is searchable so the dashboard's "N accounts" badge can link
+        # here with an address and land on exactly those accounts.
         from(u in Accounts.User,
-          where: ilike(u.username, ^term) or ilike(u.email, ^term) or ilike(u.display_name, ^term),
+          where:
+            ilike(u.username, ^term) or ilike(u.email, ^term) or ilike(u.display_name, ^term) or
+              u.last_ip == ^search,
           order_by: [desc: u.inserted_at]
         )
       else

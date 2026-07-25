@@ -104,6 +104,12 @@ defmodule Colloq.MixProject do
       # Internationalization
       {:gettext, "~> 0.25.0"},
 
+      # Real client IP behind Caddy: without this conn.remote_ip is the proxy's
+      # loopback address, so every login looks like it came from 127.0.0.1.
+      {:remote_ip, "~> 1.2"},
+      # GeoLite2 lookups for those IPs. Pure Elixir MMDB reader — no NIFs.
+      {:locus, "~> 2.3"},
+
       # Env loading (dev only)
       {:dotenv, "~> 3.1", only: [:dev, :test]},
 

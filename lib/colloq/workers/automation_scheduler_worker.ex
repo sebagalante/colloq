@@ -1,6 +1,6 @@
 defmodule Colloq.Workers.AutomationSchedulerWorker do
   @moduledoc """
-  Fires recurring automations on their configured interval.
+  Fires recurring and "point in time" automations.
 
   Runs once a minute (Oban cron). For every enabled `recurring` automation it
   enqueues an `AutomationWorker` job, using Oban uniqueness keyed on the
@@ -32,6 +32,22 @@ defmodule Colloq.Workers.AutomationSchedulerWorker do
       |> AutomationWorker.new(
         unique: [
           period: period,
+          keys: [:automation_id],
+          states: [:available, :scheduled, :executing, :retryable, :completed]
+        ]
+      )
+      |> Oban.insert()
+    end
+
+    # "Point in time" automations had no scheduler at all — an admin could
+    # create one and it would never run. They're enqueued every tick and the
+    # worker drops the ones whose cron doesn't match this minute; uniqueness is
+    # per-minute so a tick that overlaps the previous one can't double-fire.
+    for automation <- Automations.list_enabled_by_trigger("point_in_time") do
+      %{automation_id: automation.id, trigger: "point_in_time"}
+      |> AutomationWorker.new(
+        unique: [
+          period: 60,
           keys: [:automation_id],
           states: [:available, :scheduled, :executing, :retryable, :completed]
         ]

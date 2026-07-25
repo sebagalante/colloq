@@ -50,6 +50,14 @@
           <span class="inline-flex items-center gap-1">
             <.icon name="globe" class="w-3 h-3" />
             <span class="font-mono"><%= user.last_ip %></span>
+            <%!-- Resolved at render time from GeoLite2, never stored: the
+                  answer changes as MaxMind updates, and keeping members'
+                  locations in our own tables is a commitment we don't need to
+                  make for an admin hint. Absent when no database is
+                  configured. --%>
+            <span :if={geo = Colloq.GeoIP.describe(user.last_ip)} class="opacity-70">
+              (<%= geo %>)
+            </span>
           </span>
           <span :if={user.last_login_at} class="opacity-70">
             <%= gettext("last login") %> <%= Calendar.strftime(user.last_login_at, "%d/%m/%Y %H:%M") %>

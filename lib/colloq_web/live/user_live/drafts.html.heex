@@ -1,0 +1,62 @@
+<div class="max-w-3xl mx-auto px-4 py-6">
+  <h1 class="text-2xl font-bold text-heading mb-6">
+    <%= gettext("My drafts") %>
+    <span :if={@drafts != []} class="text-base font-medium text-muted">(<%= length(@drafts) %>)</span>
+  </h1>
+
+  <div :if={@drafts == []} class="text-center py-12">
+    <p class="text-muted mb-2"><%= gettext("No drafts yet.") %></p>
+    <p class="text-sm text-gray-600">
+      <%= gettext("Anything you save from a composer shows up here for 7 days.") %>
+    </p>
+  </div>
+
+  <div class="space-y-3">
+    <div
+      :for={draft <- @drafts}
+      class="p-4 rounded-lg bg-surface border border-border hover:border-border-hover transition-colors"
+    >
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex-1 min-w-0">
+          <.link
+            navigate={draft_path(draft)}
+            class="text-sm font-semibold text-heading hover:text-accent transition-colors"
+          >
+            <%= draft_title(draft) %>
+          </.link>
+
+          <p class="text-xs text-muted mt-1 line-clamp-2"><%= draft_excerpt(draft.body) %></p>
+
+          <div class="flex items-center gap-2 mt-2 text-xs text-muted">
+            <span :if={draft.topic && draft.topic.category}><%= draft.topic.category.name %></span>
+            <span :if={draft.topic && draft.topic.category}>·</span>
+            <%!-- A draft with no topic is a new thread that was never posted. --%>
+            <span :if={is_nil(draft.topic_id)} class="text-accent"><%= gettext("New topic") %></span>
+            <span :if={is_nil(draft.topic_id)}>·</span>
+            <span><%= Calendar.strftime(draft.updated_at, "%d/%m/%Y %H:%M") %></span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-1 flex-shrink-0">
+          <.link
+            navigate={draft_path(draft)}
+            title={gettext("Continue writing")}
+            class="inline-flex items-center justify-center w-8 h-8 rounded-full text-muted hover:text-accent hover:bg-surface-alt transition-colors"
+          >
+            <.icon name="edit" class="w-4 h-4" />
+          </.link>
+          <button
+            type="button"
+            phx-click="delete-draft"
+            phx-value-draft_id={draft.id}
+            data-confirm={gettext("Delete this draft? This can't be undone.")}
+            title={gettext("Delete draft")}
+            class="inline-flex items-center justify-center w-8 h-8 rounded-full text-muted hover:text-danger hover:bg-surface-alt transition-colors"
+          >
+            <.icon name="trash-2" class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

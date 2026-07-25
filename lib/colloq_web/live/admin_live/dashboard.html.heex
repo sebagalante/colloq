@@ -111,6 +111,70 @@
       </div>
     </.card>
 
+    <%!-- Recent logins. Same idea as Discourse's admin IP panel: the address on
+         its own says little, so it's shown with the location it resolves to and
+         with how many accounts share it — one IP behind several accounts is the
+         shape sockpuppets make (and the shape a household or an office NAT makes
+         too, which is why this reports rather than acts). --%>
+    <.card class="col-span-2">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold text-heading"><%= gettext("Recent logins") %></h3>
+        <.link navigate={~p"/admin/users"} class="text-sm text-accent hover:text-accent-hover">
+          <%= gettext("All users") %>
+        </.link>
+      </div>
+
+      <p :if={@recent_logins == []} class="text-sm text-muted"><%= gettext("No logins recorded yet.") %></p>
+
+      <div :if={@recent_logins != []} class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-xs uppercase tracking-wider text-muted border-b border-border">
+              <th class="py-2 pr-3 font-medium"><%= gettext("Member") %></th>
+              <th class="py-2 pr-3 font-medium"><%= gettext("IP") %></th>
+              <th class="py-2 pr-3 font-medium"><%= gettext("Location") %></th>
+              <th class="py-2 pr-3 font-medium"><%= gettext("When") %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={login <- @recent_logins} class="border-b border-border last:border-0">
+              <td class="py-2 pr-3">
+                <.link
+                  navigate={~p"/u/#{login.username}"}
+                  class="font-medium text-heading hover:text-accent transition-colors"
+                >
+                  <%= login.display_name || login.username %>
+                </.link>
+              </td>
+              <td class="py-2 pr-3 whitespace-nowrap">
+                <span class="font-mono text-xs text-body"><%= login.last_ip || "—" %></span>
+                <%!-- Links into the user list filtered by this exact address. --%>
+                <.link
+                  :if={login.shared_ip_count > 1 && login.last_ip}
+                  navigate={~p"/admin/users?query=#{login.last_ip}"}
+                  title={gettext("Accounts sharing this IP")}
+                  class="ml-1.5 inline-flex items-center gap-1 rounded-full bg-warning-soft border border-warning/40 px-1.5 py-0.5 text-[11px] font-semibold text-warning hover:bg-warning hover:text-white transition-colors"
+                >
+                  <.icon name="users" class="w-3 h-3" /><%= login.shared_ip_count %>
+                </.link>
+              </td>
+              <td class="py-2 pr-3 text-muted">
+                <%= Colloq.GeoIP.describe(login.last_ip) || "—" %>
+              </td>
+              <td class="py-2 pr-3 text-muted whitespace-nowrap">
+                <%= Calendar.strftime(login.last_login_at, "%d/%m %H:%M") %>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <%!-- Says plainly why the Location column is empty, instead of looking broken. --%>
+      <p :if={!Colloq.GeoIP.configured?()} class="mt-3 text-xs text-muted">
+        <%= gettext("Set MAXMIND_LICENSE_KEY or GEOLITE2_CITY_PATH to resolve locations.") %>
+      </p>
+    </.card>
+
     <.card class="col-span-2">
       <div class="flex items-center justify-between mb-3">
         <h3 class="text-lg font-semibold text-heading">

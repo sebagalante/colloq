@@ -22,8 +22,11 @@ defmodule Colloq.Application do
       Supervisor.child_spec({Cachex, name: :auth_cache}, id: :auth_cache),
       ColloqWeb.Telemetry,
       ColloqWeb.Endpoint,
-      {Oban, Application.fetch_env!(:colloq, Oban)}
+      {Oban, Application.fetch_env!(:colloq, Oban)},
+      # nil when no GeoLite2 database is configured — see Colloq.GeoIP.
+      Colloq.GeoIP.child_spec_or_nil()
     ]
+    |> Enum.reject(&is_nil/1)
 
     opts = [strategy: :one_for_one, name: Colloq.Supervisor]
     Supervisor.start_link(children, opts)

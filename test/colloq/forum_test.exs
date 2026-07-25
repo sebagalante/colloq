@@ -61,9 +61,11 @@ defmodule Colloq.ForumTest do
       category = insert(:category)
       {:ok, topic} = Forum.create_topic(user, %{"title" => "Test topic", "category_id" => category.id, "body" => "First"})
 
-      # Simulate being at 49,999 posts
-      topic
-      |> Ecto.Changeset.change(posts_count: 49_999)
+      # The cap is driven by post_number (derived from max(post_number)), not
+      # posts_count — that counter is recounted and can drift, so create_post/3
+      # deliberately ignores it here. Push the existing post's number instead.
+      Repo.get_by!(Post, topic_id: topic.id, post_number: 1)
+      |> Ecto.Changeset.change(post_number: 49_999)
       |> Repo.update!()
 
       {:ok, _post} = Forum.create_post(topic, user, %{"body" => "Post 50k"})

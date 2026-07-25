@@ -4,7 +4,9 @@ defmodule ColloqWeb.UserLive.ResetPassword do
   alias Colloq.Accounts
   alias Colloq.Repo
 
-  @token_max_age :timer.hours(1)
+  # Phoenix.Token.verify/4 takes `max_age` in SECONDS. `:timer.hours(1)` is
+  # milliseconds — passing it made reset links live ~41 days instead of 1 hour.
+  @token_max_age 3600
 
   def mount(params, _session, socket) do
     token = params["token"]

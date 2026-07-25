@@ -102,7 +102,7 @@ defmodule Colloq.Workers.FixtureDigestWorker do
     end)
   end
 
-  defp date_from_sofascore(nil), do: nil
+  # Callers guard on the timestamp being present (`event_date && …`).
   defp date_from_sofascore(timestamp) do
     timestamp
     |> DateTime.from_unix!(:second)
@@ -246,12 +246,12 @@ defmodule Colloq.Workers.FixtureDigestWorker do
     |> Calendar.strftime("%H:%M")
   end
 
+  # Only called once the list is known non-empty (`all_finished? and fixtures != []`).
   defp get_season_id_from_fixtures([first | _]) do
     first["season"]["id"]
   rescue
     _ -> nil
   end
-  defp get_season_id_from_fixtures([]), do: nil
 
   defp reschedule_self(args, minutes_after) do
     scheduled_at = DateTime.utc_now() |> DateTime.add(minutes_after, :minute)

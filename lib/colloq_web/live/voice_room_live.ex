@@ -70,7 +70,7 @@ defmodule ColloqWeb.VoiceRoomLive do
 
       {:noreply, assign(socket, :joined, true)}
     else
-      {:noreply, push_redirect(socket, to: "/login")}
+      {:noreply, push_navigate(socket, to: "/login")}
     end
   end
 

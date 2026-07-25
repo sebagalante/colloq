@@ -76,7 +76,7 @@ defmodule Colloq.Workers.SofascoreCommandWorker do
         annual_standings_reply()
 
       String.contains?(norm, ["tabla", "posicion", "posiciones", "puesto"]) ->
-        standings_reply()
+        standings_reply(parse_group(norm))
 
       # Before the "resultado"/"anterior" branch: "resultados de la fecha" is a
       # request for the round, not for Racing's last match, and "resultado" used
@@ -312,16 +312,59 @@ defmodule Colloq.Workers.SofascoreCommandWorker do
 
   # --- Standings -------------------------------------------------------------
 
-  defp standings_reply do
-    case Sofascore.current_season_id() do
-      nil ->
-        "<p>La tabla no está configurada todavía (falta el id de temporada). Pediselo a un admin.</p>"
+  # `/sofascore tabla` → both zones, stacked. `tabla a` / `tabla zona b` → one.
+  #
+  # Sofascore is the source of truth; FotMob answers when it can't — whether
+  # that's a dead endpoint, a bad payload, or no season id configured. The
+  # fallback says so in the caption, so a table that disagrees with the primary
+  # is explainable rather than mysterious.
+  defp standings_reply(group) do
+    title =
+      case group do
+        nil -> "Tabla — Liga Profesional"
+        letter -> "Tabla — Liga Profesional · Grupo #{String.upcase(letter)}"
+      end
 
-      season_id ->
-        case Sofascore.standings(season_id) do
-          {:ok, data} -> format_standings(data, "Tabla — Liga Profesional", :torneo)
-          _ -> "<p>No pude obtener la tabla ahora mismo. Probá de nuevo en un rato.</p>"
+    with season_id when is_integer(season_id) <- Sofascore.current_season_id(),
+         {:ok, data} <- Sofascore.standings(season_id),
+         {:standings, _, _} = reply <- format_standings(data, title, {:torneo, group}) do
+      reply
+    else
+      _ -> fotmob_standings(title, group)
+    end
+  end
+
+  defp fotmob_standings(title, group) do
+    case Colloq.FotMob.liga_standings() do
+      {:ok, groups} ->
+        case filter_group(groups, group) do
+          [] ->
+            "<p>No pude obtener la tabla ahora mismo. Probá de nuevo en un rato.</p>"
+
+          picked ->
+            {:standings, "#{title} · vía FotMob", picked}
         end
+
+      {:error, _} ->
+        "<p>No pude obtener la tabla ahora mismo. Probá de nuevo en un rato.</p>"
+    end
+  end
+
+  defp filter_group(groups, nil), do: groups
+
+  defp filter_group(groups, letter) do
+    Enum.filter(groups, fn {label, _rows} ->
+      String.match?(label, ~r/grupo\s+#{letter}\b/i)
+    end)
+  end
+
+  # A trailing "a"/"b" (optionally after "zona"/"grupo") picks a single zone.
+  # Matched as a whole word so "tabla anual" and "tabla apertura" don't read as
+  # group A.
+  defp parse_group(norm) do
+    case Regex.run(~r/\b(?:zona|grupo|group)?\s*([ab])\b\s*$/, norm) do
+      [_, letter] -> letter
+      _ -> nil
     end
   end
 
@@ -341,38 +384,76 @@ defmodule Colloq.Workers.SofascoreCommandWorker do
   defp format_standings(data, title, which) do
     tables = data |> Map.get("standings", []) |> List.wrap()
 
-    case pick_rows(tables, which) do
+    case pick_tables(tables, which) do
       {:ok, []} ->
         "<p>No hay datos de tabla disponibles.</p>"
 
       # Tagged so post_reply/2 renders it as an SVG system post instead of an
       # HTML table (see standings_svg + the standings_table component).
-      {:ok, rows} ->
-        {:standings, title, rows}
+      {:ok, groups} ->
+        {:standings, title, groups}
 
-      # Couldn't find an annual-labelled table — surface which ones exist so we
-      # can see exactly how Sofascore names it and match on that.
+      # Couldn't find the table asked for — surface which ones exist so we can
+      # see exactly how Sofascore names them and match on that.
       {:not_found, tables} ->
         names = tables |> Enum.map_join(", ", &esc(&1["name"] || "?"))
-        "<p>No encontré una tabla anual en la respuesta. Tablas disponibles: <em>#{names}</em>.</p>"
+        "<p>No encontré esa tabla en la respuesta. Tablas disponibles: <em>#{names}</em>.</p>"
     end
   end
 
-  # Annual → the table whose name looks annual/cumulative; anything else → all
-  # rows (single-table torneo behaviour, unchanged).
-  defp pick_rows(tables, :annual) do
+  # Returns `{:ok, [{label, rows}]}` — one entry per table to draw, stacked in
+  # that order. A `nil` label means "single table, no heading".
+  #
+  # The season carries several tables at once (e.g. "Apertura, Group A",
+  # "Apertura, Group B", "Anual 2026", "Promedios 2026"). This used to
+  # flat_map *all* of them into one list, which produced a 90-row table with
+  # four teams sharing position 1.
+  defp pick_tables(tables, :annual) do
     case Enum.find(tables, &annual_table?/1) do
       nil -> {:not_found, tables}
-      table -> {:ok, Map.get(table, "rows", [])}
+      table -> {:ok, [{nil, Map.get(table, "rows", [])}]}
     end
   end
 
-  defp pick_rows(tables, _), do: {:ok, Enum.flat_map(tables, &Map.get(&1, "rows", []))}
+  defp pick_tables(tables, {:torneo, nil}) do
+    case Enum.filter(tables, &group_table?/1) do
+      [] -> {:ok, [{nil, tables |> List.first(%{}) |> Map.get("rows", [])}]}
+      groups -> {:ok, Enum.map(groups, &{group_label(&1), Map.get(&1, "rows", [])})}
+    end
+  end
+
+  defp pick_tables(tables, {:torneo, letter}) do
+    case Enum.find(tables, &(group_table?(&1) and group_letter(&1) == letter)) do
+      nil -> {:not_found, tables}
+      table -> {:ok, [{group_label(table), Map.get(table, "rows", [])}]}
+    end
+  end
 
   defp annual_table?(table) do
     (table["name"] || "")
     |> String.downcase()
     |> String.contains?(["anual", "annual", "acumulad", "general"])
+  end
+
+  defp group_table?(table) do
+    (table["name"] || "")
+    |> String.downcase()
+    |> String.contains?(["group", "grupo", "zona"])
+  end
+
+  # "Apertura, Group A" → "a"
+  defp group_letter(table) do
+    case Regex.run(~r/(?:group|grupo|zona)\s+([ab])/i, table["name"] || "") do
+      [_, letter] -> String.downcase(letter)
+      _ -> nil
+    end
+  end
+
+  # "Apertura, Group A" → "Apertura · Grupo A"
+  defp group_label(table) do
+    (table["name"] || "")
+    |> String.replace(~r/\bgroup\b/i, "Grupo")
+    |> String.replace(", ", " · ")
   end
 
   # --- Squad -----------------------------------------------------------------
@@ -531,8 +612,8 @@ defmodule Colloq.Workers.SofascoreCommandWorker do
 
   # Standings render as an SVG system post: the table lives in event_data (the
   # body is only a caption), and the standings_table component draws it.
-  defp post_reply(post, {:standings, title, rows}) do
-    svg = Colloq.Sofascore.StandingsSvg.render(rows)
+  defp post_reply(post, {:standings, title, groups}) do
+    svg = Colloq.Sofascore.StandingsSvg.render_groups(groups)
 
     post_reply_attrs(post, %{
       "body" => "📊 #{title}",
@@ -639,7 +720,8 @@ defmodule Colloq.Workers.SofascoreCommandWorker do
     <li><code>/sofascore partido</code> (en vivo o próximo)</li>
     <li><code>/sofascore partido anterior</code> (último resultado)</li>
     <li><code>/sofascore liga [fecha]</code> (fixture de una fecha)</li>
-    <li><code>/sofascore tabla</code></li>
+    <li><code>/sofascore tabla</code> (los dos grupos)</li>
+    <li><code>/sofascore tabla a</code> — o <code>tabla b</code> (un grupo)</li>
     <li><code>/sofascore tabla anual</code></li>
     <li><code>/sofascore plantel</code></li>
     <li><code>/sofascore comparar &lt;jugador&gt; vs &lt;jugador&gt;</code></li>

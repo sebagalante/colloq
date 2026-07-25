@@ -5,27 +5,8 @@ defmodule ColloqWeb.AdminLive.Automations do
   alias Colloq.Automations.Automation
   alias Phoenix.LiveView.JS
 
-  @trigger_options [
-    {"Recurring", "recurring"},
-    {"User Registered", "user_registered"},
-    {"User Promoted", "user_promoted"},
-    {"Post Created", "post_created"},
-    {"Stalled Topic", "stalled_topic"},
-    {"Point in Time", "point_in_time"},
-    {"API Call", "api_call"}
-  ]
-
-  @script_options [
-    {"Send PM", "send_pm"},
-    {"Create Post", "create_post"},
-    {"LLM Respond", "llm_respond"},
-    {"Close Topic", "close_topic"},
-    {"Pin Topic", "pin_topic"},
-    {"Flag Post", "flag_post"},
-    {"Auto Tag", "auto_tag"},
-    {"Recompute Scores", "recompute_scores"}
-  ]
-
+  # Trigger/script option lists live in the template (labels are gettext'd
+  # there) and are validated against Automation's @valid_triggers/@valid_scripts.
   @impl true
   def mount(_params, _session, socket) do
     socket =

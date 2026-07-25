@@ -3,8 +3,16 @@ import Config
 # Test-specific: tiny shell. Database is managed by Ecto.Adapters.SQL.Sandbox.
 # Mix test suffixes DB name with MIX_TEST_PARTITION for parallel runs.
 
+# runtime.exs deliberately skips the repo in :test unless DATABASE_URL is set,
+# so the connection details have to live here or `mix test` dies in ecto.create
+# with "key :database not found".
 config :colloq, Colloq.Repo,
-  pool: Ecto.Adapters.SQL.Sandbox
+  username: System.get_env("TEST_DB_USER", "colloq"),
+  password: System.get_env("TEST_DB_PASS", "colloq"),
+  hostname: System.get_env("TEST_DB_HOST", "localhost"),
+  database: "colloq_test#{System.get_env("MIX_TEST_PARTITION")}",
+  pool: Ecto.Adapters.SQL.Sandbox,
+  pool_size: 10
 
 config :colloq, ColloqWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],

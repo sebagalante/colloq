@@ -40,6 +40,44 @@ defmodule Colloq.Accounts do
   defp format_ip(_), do: nil
 
   @doc """
+  Most recent logins, for the admin dashboard.
+
+  Each entry carries `:shared_ip_count` — how many accounts share that IP.
+  That count is the moderation signal Discourse surfaces when you click an IP:
+  one address behind several accounts is the shape sockpuppets make (and also
+  the shape a household or a NAT'd office makes, which is why it's shown rather
+  than acted on).
+
+  Two queries, not one per row.
+  """
+  def recent_logins(limit \\ 8) do
+    shared_counts =
+      from(u in User,
+        where: not is_nil(u.last_ip),
+        group_by: u.last_ip,
+        select: {u.last_ip, count(u.id)}
+      )
+      |> Repo.all()
+      |> Map.new()
+
+    from(u in User,
+      where: not is_nil(u.last_login_at),
+      order_by: [desc: u.last_login_at],
+      limit: ^limit,
+      select: %{
+        id: u.id,
+        username: u.username,
+        display_name: u.display_name,
+        avatar_url: u.avatar_url,
+        last_ip: u.last_ip,
+        last_login_at: u.last_login_at
+      }
+    )
+    |> Repo.all()
+    |> Enum.map(&Map.put(&1, :shared_ip_count, Map.get(shared_counts, &1.last_ip, 1)))
+  end
+
+  @doc """
   Get a user by username.
   """
   def get_user_by_username(username) do

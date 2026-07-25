@@ -34,7 +34,7 @@ defmodule ColloqWeb.UserLive.Messages do
 
       {:ok, socket}
     else
-      {:ok, push_redirect(socket, to: "/login")}
+      {:ok, push_navigate(socket, to: "/login")}
     end
   end
 
