@@ -75,7 +75,11 @@ config :colloq, Oban,
        {"* * * * *", Colloq.Workers.AutomationSchedulerWorker},
        # Composer drafts untouched for a week. The worker existed but was never
        # scheduled, so nothing ever expired.
-       {"30 3 * * *", Colloq.Workers.PruneDraftsWorker}
+       {"30 3 * * *", Colloq.Workers.PruneDraftsWorker},
+       # Soft-deleted posts: 30 days for moderation hides, 7 for author
+       # self-deletions. Nothing purged them before, so every post ever hidden
+       # was kept forever.
+       {"45 3 * * *", Colloq.Workers.PrunePostsWorker}
      ]}
   ],
   queues: [

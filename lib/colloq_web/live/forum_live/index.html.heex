@@ -75,17 +75,12 @@
   </div>
 
   <%!-- New / updated topics banner --%>
-  <div :if={@new_count > 0} class="flex justify-center my-2">
+  <div :if={@new_count + @updated_count > 0} class="flex justify-center my-2">
     <button
       phx-click="show-new-topics"
       class="rounded-full bg-accent text-white text-sm font-medium px-4 py-1.5 shadow-md hover:bg-accent-hover transition-colors"
     >
-      <%= ngettext(
-        "See %{count} new or updated topic",
-        "See %{count} new or updated topics",
-        @new_count,
-        count: @new_count
-      ) %>
+      <%= banner_label(@new_count, @updated_count) %>
     </button>
   </div>
 

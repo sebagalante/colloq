@@ -70,6 +70,11 @@ defmodule Colloq.Accounts.User do
     field :last_warning_reason, :string
     field :last_ip, :string
     field :last_login_at, :utc_datetime_usec
+
+    # The address the account was created from, written once at signup.
+    # `last_ip` is overwritten on every login, so it can't answer "where did
+    # this come from?". Country/network are resolved from it at render time.
+    field :signup_ip, :string
     field :silenced_until, :utc_datetime_usec
     field :silenced_at, :utc_datetime_usec
     field :silence_reason, :string

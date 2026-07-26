@@ -530,7 +530,12 @@ defmodule Colloq.Sofascore do
   on Racing's most-recent-finished round so a finishing match no longer redirects
   the user.
   """
-  @advance_lead_seconds 3 * 86_400
+  # One day. At three days this was wider than the gap between fixtures in a
+  # normal week, so the page sat on the *upcoming* fecha almost permanently and
+  # the round just played — the one with results to look at — was never the
+  # default. A day still leaves a full day to enter predictions, and the
+  # Prev/Next buttons reach any other fecha.
+  @advance_lead_seconds 86_400
 
   def current_round do
     case relevant_match(racing_team_id()) do

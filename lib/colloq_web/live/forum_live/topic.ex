@@ -3425,7 +3425,7 @@ defmodule ColloqWeb.ForumLive.Topic do
     ~H"""
     <div class="mt-4 p-4 rounded-lg bg-surface-alt border border-border">
       <div class="flex items-center gap-2 mb-3">
-        <span class="text-accent">📊</span>
+        <.icon name="bar-chart-3" class="w-4 h-4 text-accent shrink-0" />
         <h4 class="text-sm font-semibold text-heading"><%= @poll.question %></h4>
         <span :if={@poll.anonymous} class="text-xs text-muted ml-auto inline-flex items-center gap-1">
           <.icon name="eye-off" class="w-3 h-3" /><%= gettext("Anonymous") %>
@@ -3446,7 +3446,13 @@ defmodule ColloqWeb.ForumLive.Topic do
             class="inline-flex items-center gap-1 text-xs text-muted hover:text-heading transition-colors"
             title={gettext("Switch between votes and percentage")}
           >
-            <.icon name="refresh-cw" class="w-3 h-3" /> #/%
+            <.icon name="refresh-cw" class="w-3 h-3" />
+            <%!-- The label names what you'd switch *to*, and rides the same
+                  poll-pct/poll-count classes the button toggles — so it flips
+                  with the numbers without any extra JS. "#/%" left the reader
+                  guessing what the button even did. --%>
+            <span class="poll-pct"><%= gettext("See votes") %></span>
+            <span class="poll-count hidden"><%= gettext("See %") %></span>
           </button>
         </div>
         <%= for option <- @poll_data.options do %>

@@ -4,11 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
-    <.live_title suffix=" · Colloq">
-      <%= assigns[:page_title] || "Colloq" %>
+    <%!-- Title, favicon and OG tags come from the site_settings branding keys
+          (site_title / site_description / site_favicon), so renaming the forum
+          in the admin panel is enough — nothing here is hardcoded. --%>
+    <.live_title suffix={" · " <> branding(assigns).title}>
+      <%= assigns[:page_title] || branding(assigns).title %>
     </.live_title>
 
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta :if={branding(assigns).description} name="description" content={branding(assigns).description} />
+
+    <link rel="icon" href={branding(assigns).favicon || "/favicon.svg"} />
 
     <link phx-track-static rel="stylesheet" href={~p"/assets/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/app.js"}>
@@ -17,10 +22,11 @@
     <!-- PWA -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content={theme_color(@theme || "dark")} />
-    <link rel="apple-touch-icon" href="/icons/icon.svg" />
+    <link rel="apple-touch-icon" href={branding(assigns).favicon || "/icons/icon.svg"} />
 
     <!-- Open Graph defaults -->
-    <meta property="og:site_name" content="Colloq" />
+    <meta property="og:site_name" content={branding(assigns).title} />
+    <meta :if={branding(assigns).description} property="og:description" content={branding(assigns).description} />
     <meta property="og:locale" content={if @locale == "en", do: "en_US", else: "es_AR"} />
   </head>
   <body class="bg-bg text-body antialiased">

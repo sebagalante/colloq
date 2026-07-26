@@ -63,6 +63,32 @@
             <%= gettext("last login") %> <%= Calendar.strftime(user.last_login_at, "%d/%m/%Y %H:%M") %>
           </span>
         </p>
+
+        <%!-- Where the account was *created* from, which last_ip overwrites on
+              the first login. The network matters more than the country: a fan
+              in Singapore and a bot in ap-southeast-1 share a country but never
+              an ASN, so "AMAZON-02" is the line worth a second look. Advisory
+              only — nothing acts on it. --%>
+        <p
+          :if={Permissions.can?(@current_user, :edit_user_profile) && user.signup_ip}
+          class="text-xs text-muted mt-1 inline-flex items-center gap-2"
+        >
+          <span class="inline-flex items-center gap-1">
+            <.icon name="log-in" class="w-3 h-3" />
+            <%= gettext("signed up from") %>
+            <span class="font-mono"><%= user.signup_ip %></span>
+            <span :if={geo = Colloq.GeoIP.describe(user.signup_ip)} class="opacity-70">
+              (<%= geo %>)
+            </span>
+          </span>
+          <span
+            :if={org = signup_network(user.signup_ip)}
+            class="px-1.5 rounded bg-surface-alt opacity-80"
+            title={gettext("Network the address belongs to")}
+          >
+            <%= org %>
+          </span>
+        </p>
         <div class="flex items-center gap-3 mt-1 text-xs text-muted">
           <span><%= user.posts_count %> <%= gettext("posts") %></span>
           <span :if={user.warnings_count > 0}>⚠️ <%= user.warnings_count %></span>

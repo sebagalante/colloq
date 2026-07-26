@@ -196,6 +196,10 @@ defmodule ColloqWeb.UserAuth do
   def fetch_current_user(conn, _opts) do
     user_id = get_session(conn, :user_id)
 
+    # Site title/logo/favicon come from site_settings and are rendered by the
+    # root layout on every page; cached, so this is not a per-request query.
+    conn = Plug.Conn.assign(conn, :branding, Colloq.SiteSettings.branding())
+
     if user_id do
       user = Accounts.get_user(user_id)
       theme = if user, do: user.theme || "dark", else: "dark"

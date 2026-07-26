@@ -24,6 +24,14 @@ defmodule ColloqWeb.Components.Navigation do
   attr :unread_messages, :integer, default: 0
   attr :search_query, :string, default: ""
 
+  attr :topic, :any,
+    default: nil,
+    doc: "current topic, when the page has one — enables the \"in this topic\" scope"
+
+  attr :branding, :map,
+    default: %{title: "Colloq", description: nil, logo: nil, favicon: nil},
+    doc: "site_settings branding; the default keeps the header rendering standalone"
+
   @doc "Top header bar: logo, search, notifications, and the user / auth menu."
   def app_header(assigns) do
     ~H"""
@@ -38,11 +46,42 @@ defmodule ColloqWeb.Components.Navigation do
           <.icon name="menu" class="w-6 h-6" />
         </button>
 
+        <%!-- Name and logo both come from site_settings. The logo replaces the ◆
+              mark, not the name — the site title always shows. --%>
         <.link navigate={~p"/"} class="flex items-center gap-2 font-bold text-heading text-lg">
-          <span class="text-accent">◆</span> Colloq
+          <img
+            :if={@branding.logo}
+            src={@branding.logo}
+            alt=""
+            class="h-7 w-7 object-contain shrink-0"
+          />
+          <span :if={!@branding.logo} class="text-accent">◆</span>
+          <span class="truncate"><%= @branding.title %></span>
         </.link>
 
-        <form action={~p"/search"} method="get" class="hidden sm:flex flex-1 max-w-md">
+        <%!-- Typeahead. Still a real GET form, so Enter on an empty selection
+              (and any browser without the hook running) falls back to /search. --%>
+        <form
+          id="header-search"
+          phx-hook="SearchTypeahead"
+          phx-update="ignore"
+          action={~p"/search"}
+          method="get"
+          data-results-url={~p"/api/search"}
+          data-all-label={gettext("See all results")}
+          data-topics-label={gettext("Topics")}
+          data-posts-label={gettext("Comments")}
+          data-empty-label={gettext("Nothing found")}
+          data-recent-label={gettext("Recent")}
+          data-clear-label={gettext("Clear history")}
+          data-remove-label={gettext("Remove")}
+          data-scope-label={gettext("in this topic")}
+          data-scope-clear-label={gettext("Search everything")}
+          data-topic-id={@topic && @topic.id}
+          data-advanced-url={~p"/search"}
+          data-advanced-label={gettext("Advanced search")}
+          class="hidden sm:flex flex-1 max-w-md relative"
+        >
           <div class="flex items-center gap-2 w-full rounded-lg bg-surface-alt border border-border px-3 py-1.5 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent transition-colors">
             <.icon name="search" class="w-4 h-4 text-muted flex-shrink-0" />
             <input
@@ -50,9 +89,23 @@ defmodule ColloqWeb.Components.Navigation do
               name="q"
               value={@search_query}
               autocomplete="off"
+              role="combobox"
+              aria-expanded="false"
+              aria-autocomplete="list"
+              aria-controls="header-search-results"
               placeholder={gettext("Search…")}
               class="flex-1 bg-transparent text-sm text-heading placeholder:text-muted focus:outline-none"
+              data-input
             />
+          </div>
+
+          <div
+            id="header-search-results"
+            role="listbox"
+            data-panel
+            hidden
+            class="absolute top-full left-0 right-0 mt-2 z-50 rounded-xl border border-border bg-surface shadow-xl overflow-hidden max-h-[70vh] overflow-y-auto"
+          >
           </div>
         </form>
 
@@ -355,6 +408,18 @@ defmodule ColloqWeb.Components.Navigation do
               navigate={~p"/admin/automations"}
               icon="refresh-cw"
               label={gettext("Automations")}
+            />
+            <.nav_link
+              :if={Permissions.can?(@current_user, :view_dashboard)}
+              navigate={~p"/admin/invites"}
+              icon="mail"
+              label={gettext("Invitations")}
+            />
+            <.nav_link
+              :if={Permissions.can?(@current_user, :view_dashboard)}
+              navigate={~p"/admin/spam"}
+              icon="shield"
+              label={gettext("Spam classifier")}
             />
             <.nav_link
               :if={Permissions.can?(@current_user, :view_settings)}

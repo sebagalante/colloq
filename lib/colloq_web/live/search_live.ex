@@ -110,10 +110,14 @@ defmodule ColloqWeb.SearchLive do
             <li :for={post <- @posts}>
               <%!-- Anchor to the matched post, not just its topic: a search hit
                     that drops you at the top of a 200-reply thread hasn't
-                    answered the search. ~p can't take a fragment straight after
-                    an interpolation, hence the concatenation. --%>
+                    answered the search. The fragment alone didn't achieve that
+                    — the topic page renders only the first page of comments, so
+                    there was nothing for it to scroll to. `?c=` roots the view
+                    at the comment, the way quote permalinks do. ~p can't take a
+                    fragment straight after an interpolation, hence the
+                    concatenation. --%>
               <.link
-                navigate={"#{~p"/t/#{post.topic.id}/#{post.topic.slug}"}#post-#{post.id}"}
+                navigate={"#{~p"/t/#{post.topic.id}/#{post.topic.slug}?c=#{post.id}"}#post-#{post.id}"}
                 class="block rounded-lg px-3 py-2 hover:bg-surface-alt transition-colors"
               >
                 <div class="text-sm text-body line-clamp-2"><%= snippet(post.body) %></div>

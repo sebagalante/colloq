@@ -57,6 +57,32 @@ defmodule Colloq.SpamClassifier do
   @doc "Whether a sidecar URL is configured at all."
   def configured?, do: not is_nil(base_url())
 
+  @doc """
+  Sidecar reachability, for the admin dashboard.
+
+  Returns `:ok`, `{:error, :not_configured}`, or `{:error, reason}`. Everything
+  else here fails open silently by design, which is right for posting and wrong
+  for a status panel — an admin needs to see that the classifier is down.
+  """
+  def health do
+    case base_url() do
+      nil ->
+        {:error, :not_configured}
+
+      url ->
+        case Req.get("#{url}/health", receive_timeout: @timeout, retry: false) do
+          {:ok, %{status: 200}} -> :ok
+          {:ok, %{status: status}} -> {:error, {:http_status, status}}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  rescue
+    e -> {:error, e}
+  end
+
+  @doc "The configured sidecar URL, for display."
+  def url, do: base_url()
+
   defp base_url do
     case Colloq.SiteSettings.get("spam_ml_url") do
       url when is_binary(url) and url != "" -> String.trim_trailing(url, "/")

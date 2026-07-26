@@ -23,8 +23,10 @@ defmodule Colloq.Application do
       ColloqWeb.Telemetry,
       ColloqWeb.Endpoint,
       {Oban, Application.fetch_env!(:colloq, Oban)},
-      # nil when no GeoLite2 database is configured — see Colloq.GeoIP.
-      Colloq.GeoIP.child_spec_or_nil()
+      # Both nil when the matching GeoLite2 database isn't configured — see
+      # Colloq.GeoIP. Either can be present without the other.
+      Colloq.GeoIP.child_spec_or_nil(),
+      Colloq.GeoIP.asn_child_spec_or_nil()
     ]
     |> Enum.reject(&is_nil/1)
 

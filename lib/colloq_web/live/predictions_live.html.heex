@@ -3,6 +3,8 @@
     <h1 class="text-2xl font-bold text-heading"><%= pgettext("prode", "Predictions") %></h1>
   </div>
 
+  <.scoring_rules />
+
   <%= if is_nil(@season_id) do %>
     <.card>
       <p class="text-sm text-muted">
@@ -98,7 +100,16 @@
                 />
                 <span class="text-left text-sm font-medium text-heading truncate"><%= m.away %></span>
                 <%= cond do %>
+                  <%!-- Once scored, the points alone don't say what you guessed —
+                        keep the prediction next to them so the final score above
+                        can be compared against it. --%>
                   <% pred && pred.scored_at -> %>
+                    <span
+                      class="text-[11px] text-muted whitespace-nowrap"
+                      title={gettext("Your prediction")}
+                    >
+                      (<%= pred.home_score %>-<%= pred.away_score %>)
+                    </span>
                     <.badge color={if pred.points > 0, do: "green", else: "gray"}>
                       +<%= pred.points %>
                     </.badge>
@@ -131,43 +142,19 @@
       <% end %>
     </.card>
 
-    <.card>
-      <h2 class="text-lg font-semibold text-heading mb-3"><%= gettext("Leaderboard") %></h2>
-
-      <%= if @leaderboard == [] do %>
-        <p class="text-sm text-muted"><%= gettext("No scored predictions this season yet.") %></p>
-      <% else %>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-border">
-                <th class="text-left py-2 px-3 text-muted font-medium w-10">#</th>
-                <th class="text-left py-2 px-3 text-muted font-medium"><%= gettext("User") %></th>
-                <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Points") %></th>
-                <th class="text-center py-2 px-3 text-muted font-medium"><%= gettext("Predictions") %></th>
-              </tr>
-            </thead>
-            <tbody>
-              <%= for {entry, rank} <- Enum.with_index(@leaderboard, 1) do %>
-                <tr class="border-b border-border/50">
-                  <td class="py-2 px-3 text-muted">
-                    <%= if rank <= 3 do %>
-                      <.badge color="amber"><%= rank %></.badge>
-                    <% else %>
-                      <span class="text-muted"><%= rank %></span>
-                    <% end %>
-                  </td>
-                  <td class="py-2 px-3 text-heading font-medium">
-                    <%= if entry.user, do: entry.user.username, else: gettext("User #%{id}", id: entry.user_id) %>
-                  </td>
-                  <td class="py-2 px-3 text-center text-heading font-bold tabular-nums"><%= entry.total_points %></td>
-                  <td class="py-2 px-3 text-center text-muted tabular-nums"><%= entry.predictions_count %></td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
-      <% end %>
-    </.card>
+    <%!-- The standings live on their own page now, so navigating rounds no
+          longer re-runs the leaderboard aggregate on every click. --%>
+    <.link
+      navigate={~p"/predicciones/tabla"}
+      class="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-alt px-4 py-3 hover:border-accent transition-colors"
+    >
+      <span class="flex items-center gap-2 text-sm font-medium text-heading">
+        <.icon name="award" class="w-4 h-4 text-accent" />
+        <%= pgettext("prode", "Prode standings") %>
+      </span>
+      <span class="text-sm text-accent whitespace-nowrap">
+        <%= gettext("See full table") %> →
+      </span>
+    </.link>
   <% end %>
 </section>

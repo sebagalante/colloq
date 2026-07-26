@@ -121,6 +121,7 @@ defmodule ColloqWeb.Router do
     live "/comparar", PlayerComparisonLive, :show
     live "/jugador", PlayerCardLive, :index
     live "/predicciones", PredictionsLive, :index
+    live "/predicciones/tabla", PredictionsLeaderboardLive, :index
   end
 
   # --- USER CARD (JSON, session-aware) ---
@@ -128,6 +129,10 @@ defmodule ColloqWeb.Router do
     pipe_through :browser_api
 
     get "/u/:username/card", UserCardController, :show
+
+    # Header typeahead. Session-aware so hidden categories stay hidden, and
+    # public so logged-out readers get suggestions too.
+    get "/api/search", SearchController, :search
 
     # Public: profiles and topics are readable logged-out, and their text can
     # contain :shortcodes:. Behind auth the map never loaded for anonymous
@@ -172,6 +177,8 @@ defmodule ColloqWeb.Router do
     live "/bots", AdminLive.Bots, :index
     live "/bots/new", AdminLive.Bots, :new
     live "/bots/:id/edit", AdminLive.Bots, :edit
+    live "/invites", AdminLive.Invites, :index
+    live "/spam", AdminLive.Spam, :index
     live "/badges", AdminLive.Badges, :index
     live "/badges/new", AdminLive.Badges, :new
     live "/badges/:id/edit", AdminLive.Badges, :edit

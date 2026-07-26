@@ -35,25 +35,26 @@ defmodule ColloqWeb.AuthController do
       "avatar_url" => avatar
     }
 
-    case Accounts.find_or_create_from_oauth(attrs) do
-      {:ok, user} ->
-        if Accounts.requires_2fa?(user) do
-          conn
-          |> put_session(:pending_2fa_user_id, user.id)
-          |> redirect(to: "/2fa")
-        else
-          Accounts.record_login(user.id, conn.remote_ip)
+    # `/auth/:provider` both signs in and registers, so it has to honour
+    # `registration_mode` the same way the signup form does — otherwise "closed"
+    # and "invite" are trivially bypassed by clicking a provider button. A
+    # returning user always gets in; only account *creation* is gated, and in
+    # invite mode a pending invite for the provider's email unlocks it.
+    existing = Accounts.get_by_oauth(provider, uid)
 
-          conn
-          |> put_session(:user_id, user.id)
-          |> put_flash(:info, gettext("Welcome!"))
-          |> redirect(to: "/")
-        end
-
-      {:error, _changeset} ->
+    case existing || oauth_signup(attrs, email, conn.remote_ip) do
+      {:error, :registration_closed} ->
         conn
-        |> put_flash(:error, gettext("Could not create account. Please try again."))
+        |> put_flash(:error, gettext("Registration is closed right now."))
         |> redirect(to: "/login")
+
+      {:error, :invite_required} ->
+        conn
+        |> put_flash(:error, gettext("You need a valid invitation to create an account."))
+        |> redirect(to: "/login")
+
+      other ->
+        handle_authenticated(conn, if(existing, do: {:ok, existing}, else: other))
     end
   end
 
@@ -85,6 +86,55 @@ defmodule ColloqWeb.AuthController do
     conn
     |> put_flash(:error, gettext("Authentication failed."))
     |> redirect(to: "/login")
+  end
+
+  # Creates the OAuth account when the current registration mode allows it.
+  # `ip` is stamped on the new account as signup provenance (see
+  # Accounts.signup_provenance/1); here it comes straight off the conn, already
+  # resolved through the forwarded chain by the RemoteIp plug.
+  defp oauth_signup(attrs, email, ip) do
+    case Colloq.Invites.registration_mode() do
+      :open ->
+        Accounts.find_or_create_from_oauth(attrs, ip)
+
+      :closed ->
+        {:error, :registration_closed}
+
+      :invite ->
+        case email && Colloq.Invites.pending_for(email) do
+          nil ->
+            {:error, :invite_required}
+
+          invite ->
+            with {:ok, user} <- Accounts.find_or_create_from_oauth(attrs, ip) do
+              Colloq.Invites.accept(invite, user)
+              {:ok, user}
+            end
+        end
+    end
+  end
+
+  defp handle_authenticated(conn, result) do
+    case result do
+      {:ok, user} ->
+        if Accounts.requires_2fa?(user) do
+          conn
+          |> put_session(:pending_2fa_user_id, user.id)
+          |> redirect(to: "/2fa")
+        else
+          Accounts.record_login(user.id, conn.remote_ip)
+
+          conn
+          |> put_session(:user_id, user.id)
+          |> put_flash(:info, gettext("Welcome!"))
+          |> redirect(to: "/")
+        end
+
+      {:error, _changeset} ->
+        conn
+        |> put_flash(:error, gettext("Could not create account. Please try again."))
+        |> redirect(to: "/login")
+    end
   end
 
   defp generate_username(email, nickname, provider) do

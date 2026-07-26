@@ -1,6 +1,8 @@
 defmodule ColloqWeb.PredictionsLive do
   use ColloqWeb, :live_view
 
+  import ColloqWeb.Components.Prode, only: [scoring_rules: 1]
+
   alias Colloq.{Predictions, Sofascore}
 
   # Point values live in Colloq.Predictions.Scorer (`weights/0`).
@@ -18,7 +20,7 @@ defmodule ColloqWeb.PredictionsLive do
       if season_id do
         load_round(socket, Sofascore.current_round())
       else
-        assign(socket, round: nil, matches: [], predictions: %{}, leaderboard: [], next_available?: false)
+        assign(socket, round: nil, matches: [], predictions: %{}, next_available?: false)
       end
 
     {:ok, socket}
@@ -85,7 +87,6 @@ defmodule ColloqWeb.PredictionsLive do
     |> assign(:matches, matches)
     |> assign(:next_available?, next_available?)
     |> assign(:predictions, predictions)
-    |> assign(:leaderboard, Predictions.leaderboard(season: socket.assigns.season_id, limit: 20))
   end
 
   # Fetches the fecha and normalises each event into the view shape. Trims the

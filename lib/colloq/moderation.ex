@@ -8,6 +8,7 @@ defmodule Colloq.Moderation do
   import Ecto.Query, warn: false
   alias Colloq.Repo
   alias Colloq.Moderation.Flag
+  alias Colloq.Moderation.SpamClassification
   alias Colloq.Forum.Post
 
   @doc """
@@ -79,6 +80,62 @@ defmodule Colloq.Moderation do
     # Forum.delete_post/2, so it has to resync the counters itself — otherwise
     # a hidden post keeps being counted in the topic and on the author.
     |> tap_resync()
+    |> tap_hide_topic(actor)
+  end
+
+  # Hiding a topic's *opening* post takes the topic down with it.
+  #
+  # Without this a spam topic stayed on the front page and in search with its
+  # title intact — which for title-spam ("COMPRA VIAGRA BARATO") is the entire
+  # payload — while the body it no longer had was the only thing hidden. A reply
+  # being hidden leaves the topic alone.
+  defp tap_hide_topic({:ok, %Post{} = post} = result, actor) do
+    if opening_post?(post) do
+      case Repo.get(Colloq.Forum.Topic, post.topic_id) do
+        %{deleted_at: nil} = topic ->
+          topic
+          |> Ecto.Changeset.change(
+            deleted_at: DateTime.utc_now(),
+            deleted_by_id: actor && actor.id
+          )
+          |> Repo.update()
+
+        _ ->
+          :ok
+      end
+    end
+
+    result
+  end
+
+  defp tap_hide_topic(other, _actor), do: other
+
+  # Restoring the opening post brings its topic back, so hide/restore is
+  # symmetric — otherwise a moderator could un-hide a post into a topic nobody
+  # can reach.
+  defp tap_restore_topic({:ok, %Post{} = post} = result) do
+    if opening_post?(post) do
+      case Repo.get(Colloq.Forum.Topic, post.topic_id) do
+        %{deleted_at: nil} -> :ok
+        nil -> :ok
+        topic -> Colloq.Forum.restore_topic(topic)
+      end
+    end
+
+    result
+  end
+
+  defp tap_restore_topic(other), do: other
+
+  defp opening_post?(%Post{post_number: 1}), do: true
+
+  defp opening_post?(%Post{id: id, topic_id: topic_id}) do
+    # post_number is the usual signal; first_post_id covers a topic whose
+    # opening post was renumbered.
+    case Repo.get(Colloq.Forum.Topic, topic_id) do
+      %{first_post_id: ^id} -> true
+      _ -> false
+    end
   end
 
   @doc """
@@ -92,6 +149,7 @@ defmodule Colloq.Moderation do
     |> Ecto.Changeset.change(deleted_at: nil, hidden: false, deleted_by_id: nil)
     |> Repo.update()
     |> tap_resync()
+    |> tap_restore_topic()
   end
 
   # Recompute the topic and author post counts from what's actually visible.
@@ -131,7 +189,7 @@ defmodule Colloq.Moderation do
   Returns `:ok`, `{:blocked, :profanity}`, or `{:blocked, :spam}`.
   """
   def auto_moderate(%Post{} = post) do
-    blocked_words = load_blocked_words()
+    blocked_words = blocked_words()
 
     cond do
       contains_blocked_word?(post.body, blocked_words) ->
@@ -148,15 +206,130 @@ defmodule Colloq.Moderation do
     end
   end
 
-  defp load_blocked_words do
+  @doc """
+  The blocked-word list, from the `blocked_words` site setting.
+
+  Stored as one comma-separated string (unchanged, so nothing else has to move).
+  Blank entries are dropped here rather than trusted: `"viagra, , casino"` parses
+  to `["viagra", "", "casino"]`, and `String.contains?(any_body, "")` is true —
+  so a single stray comma in the settings field would hide *every post in the
+  forum*. Deduplicated case-insensitively while we're at it.
+  """
+  def blocked_words do
     case Colloq.SiteSettings.get("blocked_words") do
       nil -> []
-      words when is_binary(words) -> String.split(words, ",", trim: true) |> Enum.map(&String.trim/1)
-      words when is_list(words) -> words
+      words when is_binary(words) -> parse_blocked_words(words)
+      words when is_list(words) -> sanitize_blocked_words(words)
+    end
+  end
+
+  defp parse_blocked_words(raw) do
+    raw |> String.split(",") |> sanitize_blocked_words()
+  end
+
+  defp sanitize_blocked_words(words) do
+    words
+    |> Enum.map(&(&1 |> to_string() |> String.trim()))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq_by(&String.downcase/1)
+  end
+
+  @doc """
+  The first blocked word `body` contains, or nil.
+
+  Returns the word rather than a boolean so the admin screen can say *which*
+  one matched — "blocked" without the reason is a support ticket. The word comes
+  back exactly as the admin typed it, not in its normalised form.
+
+  Matching is case-, accent- and leetspeak-insensitive: see `normalize_for_match/1`.
+  """
+  def blocked_word_hit(body) when is_binary(body) do
+    haystack = normalize_for_match(body)
+
+    Enum.find(blocked_words(), fn word ->
+      case normalize_for_match(word) do
+        # A word that normalises to nothing would match every post — the same
+        # empty-needle trap a stray comma used to spring.
+        "" -> false
+        needle -> String.contains?(haystack, needle)
+      end
+    end)
+  end
+
+  def blocked_word_hit(_), do: nil
+
+  # Digits that stand in for letters in the obvious substitutions. Deliberately
+  # short: 6/9/2 have no unambiguous letter, and guessing invites false
+  # positives on ordinary text containing numbers.
+  @leet_digits %{"0" => "o", "1" => "i", "3" => "e", "4" => "a", "5" => "s", "7" => "t"}
+
+  @doc """
+  Folds text to the form blocked words are compared in.
+
+  Case, accents and digit-substitutions are all normalised away, so `VIAGRA`,
+  `víagra` and `vi4gra` all reduce to `viagra`. Applied to both sides, so an
+  admin can type the word however they like.
+
+  Not handled, on purpose: spaced-out text (`v i a g r a`) would need whitespace
+  stripped before comparison, which starts matching across word boundaries and
+  misfires on ordinary Spanish; and Unicode homoglyphs (`vıagra`) are an endless
+  list. The ML classifier is the answer to obfuscation — this rule is for exact
+  known-bad strings.
+  """
+  def normalize_for_match(text) when is_binary(text) do
+    text
+    |> String.downcase()
+    |> :unicode.characters_to_nfd_binary()
+    # Strip the combining marks NFD just split off: "í" → "i" + U+0301 → "i".
+    |> String.replace(~r/[\x{0300}-\x{036F}]/u, "")
+    |> String.replace(~r/[013457]/, fn d -> Map.get(@leet_digits, d, d) end)
+  end
+
+  def normalize_for_match(_), do: ""
+
+  @doc "Adds a word. `{:error, :blank}` or `{:error, :duplicate}` if it can't."
+  def add_blocked_word(word) when is_binary(word) do
+    trimmed = String.trim(word)
+    current = blocked_words()
+
+    cond do
+      trimmed == "" ->
+        {:error, :blank}
+
+      Enum.any?(current, &(String.downcase(&1) == String.downcase(trimmed))) ->
+        {:error, :duplicate}
+
+      true ->
+        put_blocked_words(current ++ [trimmed])
+    end
+  end
+
+  @doc "Removes a word (case-insensitive)."
+  def remove_blocked_word(word) when is_binary(word) do
+    blocked_words()
+    |> Enum.reject(&(String.downcase(&1) == String.downcase(word)))
+    |> put_blocked_words()
+  end
+
+  defp put_blocked_words(words) do
+    case words |> sanitize_blocked_words() |> Enum.join(", ") do
+      # An empty setting can't be stored — Setting.changeset requires a value
+      # for non-image types — so removing the last word deletes the row. Writing
+      # "" instead failed validation silently and the word never disappeared.
+      "" ->
+        Colloq.SiteSettings.delete("blocked_words")
+        {:ok, []}
+
+      value ->
+        case Colloq.SiteSettings.put("blocked_words", value, type: "string", group: "forum") do
+          {:ok, _} -> {:ok, blocked_words()}
+          error -> error
+        end
     end
   end
 
   defp contains_blocked_word?(nil, _), do: false
+
   defp contains_blocked_word?(body, words) do
     body_downcase = String.downcase(body)
     Enum.any?(words, fn w -> String.contains?(body_downcase, String.downcase(w)) end)
@@ -480,4 +653,96 @@ defmodule Colloq.Moderation do
   defp parse_duration("30_days"), do: DateTime.add(DateTime.utc_now(), 30, :day)
   defp parse_duration("90_days"), do: DateTime.add(DateTime.utc_now(), 90, :day)
   defp parse_duration(_), do: DateTime.add(DateTime.utc_now(), 1, :day)
+
+  # =========================================================================
+  # Spam classifier insights
+  # =========================================================================
+
+  @doc "Records one ML screening. Best-effort: never fails the caller."
+  def record_spam_classification(attrs) do
+    attrs
+    |> SpamClassification.changeset()
+    |> Repo.insert()
+  rescue
+    _ -> {:error, :not_recorded}
+  end
+
+  @doc """
+  Headline numbers over the last `days`.
+
+  `would_flag_count` is the one that matters in shadow mode: how many posts the
+  model called spam while nothing was done about it.
+  """
+  def spam_stats(days \\ 7) do
+    since = DateTime.add(DateTime.utc_now(), -days, :day)
+
+    from(c in SpamClassification,
+      where: c.inserted_at >= ^since,
+      select: %{
+        total: count(c.id),
+        would_flag: sum(fragment("CASE WHEN ? THEN 1 ELSE 0 END", c.would_flag)),
+        acted: sum(fragment("CASE WHEN ? THEN 1 ELSE 0 END", c.acted)),
+        avg_score: avg(c.score),
+        max_score: max(c.score)
+      }
+    )
+    |> Repo.one()
+    |> then(fn stats ->
+      %{
+        total: stats.total || 0,
+        would_flag: stats.would_flag || 0,
+        acted: stats.acted || 0,
+        avg_score: stats.avg_score && Decimal.to_float(Decimal.new(to_string(stats.avg_score))),
+        max_score: stats.max_score
+      }
+    end)
+  end
+
+  @doc """
+  Score distribution in ten 0.1-wide buckets, oldest bound first.
+
+  This is the picture shadow mode exists to produce: if real posts cluster below
+  0.1 and spam sits above 0.9, the threshold is obvious and safe. If they smear
+  across the middle, it isn't, and enforcing would cost you real posts.
+  """
+  def spam_score_histogram(days \\ 7) do
+    since = DateTime.add(DateTime.utc_now(), -days, :day)
+
+    counts =
+      from(c in SpamClassification,
+        where: c.inserted_at >= ^since,
+        group_by: fragment("bucket"),
+        select: {fragment("LEAST(FLOOR(? * 10), 9) AS bucket", c.score), count(c.id)}
+      )
+      |> Repo.all()
+      |> Map.new(fn {bucket, n} -> {trunc(bucket), n} end)
+
+    Enum.map(0..9, fn b -> %{from: b / 10, to: (b + 1) / 10, count: Map.get(counts, b, 0)} end)
+  end
+
+  @doc """
+  How many of the last `days` of screenings a given threshold would flag.
+
+  Lets an admin try 0.85 against real history before committing to it, rather
+  than discovering the answer in production.
+  """
+  def spam_would_flag_at(threshold, days \\ 7) when is_float(threshold) do
+    since = DateTime.add(DateTime.utc_now(), -days, :day)
+
+    from(c in SpamClassification,
+      where: c.inserted_at >= ^since and c.score >= ^threshold,
+      select: count(c.id)
+    )
+    |> Repo.one()
+  end
+
+  @doc "Most recent screenings, with post and author preloaded."
+  def recent_spam_classifications(limit \\ 25) do
+    from(c in SpamClassification,
+      order_by: [desc: c.inserted_at],
+      limit: ^limit,
+      preload: [:user, post: :topic]
+    )
+    |> Repo.all()
+  end
 end

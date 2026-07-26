@@ -1,0 +1,47 @@
+# Spam-classifier sidecar (see ../spam_classifier/).
+#
+# A podman Quadlet file, NOT a plain systemd unit: drop it in
+# ~/.config/containers/systemd/ and `systemctl --user daemon-reload` generates
+# the service from it. There is no `systemctl enable` step — the [Install]
+# section below is copied into the generated unit.
+#
+# Rootless and user-level, unlike the other units here: the sidecar needs no
+# root, and rootless podman images belong to the user that built them. Run
+# `loginctl enable-linger <user>` or it stops when the session ends.
+#
+# Requires podman >= 4.4. On older versions use:
+#   podman generate systemd --new --name colloq-spam-classifier
+
+[Unit]
+Description=Colloq spam-classifier sidecar (ONNX)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=localhost/colloq-spam-classifier:latest
+ContainerName=colloq-spam-classifier
+
+# Bound to loopback on purpose: only the Phoenix app on this host calls it, and
+# the service has no authentication of its own. Publishing on 0.0.0.0 would put
+# an unauthenticated inference endpoint on the network.
+PublishPort=127.0.0.1:8000:8000
+
+# Matches the Dockerfile default; keeps a burst of posts from hogging cores.
+Environment=ORT_THREADS=1
+
+# The model is baked into the image, so the container is fully read-only apart
+# from the tmpfs it needs for scratch space.
+ReadOnly=true
+Tmpfs=/tmp
+
+HealthCmd=python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+
+[Service]
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

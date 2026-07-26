@@ -36,6 +36,17 @@ defmodule ColloqWeb.AdminLive.Settings do
          |> load_group(group)
          |> put_flash(:info, gettext("Setting '%{key}' saved.", key: key))}
 
+      {:error, {:invalid_value, _key, allowed}} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext("'%{key}' must be one of: %{allowed}.",
+             key: key,
+             allowed: Enum.join(allowed, ", ")
+           )
+         )}
+
       {:error, _} ->
         {:noreply, put_flash(socket, :error, gettext("Could not save '%{key}'.", key: key))}
     end

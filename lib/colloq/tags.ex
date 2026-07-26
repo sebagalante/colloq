@@ -261,7 +261,7 @@ defmodule Colloq.Tags do
   defp take_limit(names, _), do: names
 
   @default_create_min_trust 1
-  @default_max_tags_per_topic 5
+  @default_max_tags_per_topic 3
 
   @doc """
   Minimum trust level required to create brand-new tags. Configurable via the

@@ -51,7 +51,7 @@ defmodule Colloq.Workers.SpamDetectorWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"post_id" => post_id}}) do
-    post = Repo.get!(Post, post_id) |> Repo.preload(:user)
+    post = Repo.get!(Post, post_id) |> Repo.preload([:user, :topic])
 
     user = post.user
 
@@ -77,22 +77,45 @@ defmodule Colloq.Workers.SpamDetectorWorker do
   end
 
   defp classify(post) do
+    text = screening_text(post)
+
     cond do
-      contains_blocked_words?(post.body) ->
+      contains_blocked_words?(text) ->
         {:spam, "palabras_bloqueadas"}
 
       # Cheap heuristics passed — fall back to the ML classifier if enabled.
       true ->
-        ml_classify(post)
+        ml_classify(post, text)
     end
   end
 
+  # What actually gets screened.
+  #
+  # For an opening post the topic title is prepended, because a spam topic puts
+  # its payload in the *title* — "COMPRA VIAGRA BARATO" with a body of "hola"
+  # scored 0.02 on the body alone and matched no blocked word, while the title
+  # scored 0.9994. Screening the body only left the obvious case wide open.
+  #
+  # Tags are stripped first: matching against raw HTML means a blocked word like
+  # "href" or "strong" hits the markup of every post.
+  defp screening_text(post) do
+    body = post.body |> to_string() |> HtmlSanitizeEx.strip_tags() |> String.trim()
+
+    case opening_post_title(post) do
+      nil -> body
+      title -> String.trim("#{title}\n\n#{body}")
+    end
+  end
+
+  defp opening_post_title(%Post{post_number: 1, topic: %{title: title}}) when is_binary(title),
+    do: title
+
+  defp opening_post_title(_), do: nil
+
   # --- ML classifier step ----------------------------------------------------
 
-  defp ml_classify(post) do
+  defp ml_classify(post, text) do
     if ml_enabled?() do
-      text = post.body |> to_string() |> HtmlSanitizeEx.strip_tags() |> String.trim()
-
       case SpamClassifier.classify(text) do
         {:ok, %{score: score}} ->
           decide(post, score)
@@ -116,6 +139,19 @@ defmodule Colloq.Workers.SpamDetectorWorker do
       "[SpamDetector] ml post=#{post.id} score=#{Float.round(score, 4)} " <>
         "threshold=#{threshold} would_flag=#{would_flag} mode=#{mode}"
     )
+
+    # Also stored, not just logged: the admin dashboard reads the score
+    # distribution from these rows, which is what makes "pick a threshold from
+    # real data" a query instead of a week of grepping journald.
+    Moderation.record_spam_classification(%{
+      post_id: post.id,
+      user_id: post.user_id,
+      score: score,
+      threshold: threshold,
+      would_flag: would_flag,
+      mode: mode,
+      acted: would_flag and mode == "enforce"
+    })
 
     if would_flag and mode == "enforce" do
       {:spam, "ml_classifier:#{Float.round(score, 3)}"}
@@ -150,23 +186,15 @@ defmodule Colloq.Workers.SpamDetectorWorker do
     end
   end
 
-  defp contains_blocked_words?(body) when is_nil(body), do: false
-  defp contains_blocked_words?(body) do
-    words = load_blocked_words()
-    body_downcase = String.downcase(body)
+  # Delegates to Moderation so both blocked-word paths share one parser. The
+  # local copy skipped blank entries only via `trim: true`, which doesn't catch
+  # a whitespace-only entry — and an empty needle matches every post.
+  defp contains_blocked_words?(text) when is_nil(text), do: false
 
-    Enum.any?(words, fn w ->
-      String.contains?(body_downcase, String.downcase(w))
-    end)
+  defp contains_blocked_words?(text) do
+    Moderation.blocked_word_hit(text) != nil
   end
 
-  defp load_blocked_words do
-    case SiteSettings.get("blocked_words") do
-      nil -> []
-      words when is_binary(words) -> String.split(words, ",", trim: true) |> Enum.map(&String.trim/1)
-      words when is_list(words) -> words
-    end
-  end
 
   defp handle_spam(post, reason) do
     Logger.info("[SpamDetector] Spam detectado en post ##{post.id}: #{reason}")

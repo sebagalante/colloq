@@ -1326,6 +1326,315 @@ Hooks.AutoScroll = {
 // Nothing scrolls on load; the reader chooses when to jump. The pill only
 // shows while the divider is below the fold, and hides once it's reached.
 // =========================================================================
+// =========================================================================
+// SearchTypeahead — header search with a live results dropdown.
+// The header sits in the root layout, outside any LiveView, so results come
+// from /api/search (like the composer's @mention autocomplete) rather than
+// through a LiveComponent. The surrounding <form> still GETs /search, so
+// pressing Enter without a highlighted row behaves exactly as it did before
+// and the feature degrades to the old behaviour if this hook never runs.
+// =========================================================================
+Hooks.SearchTypeahead = {
+  mounted() {
+    this.input = this.el.querySelector("[data-input]");
+    this.panel = this.el.querySelector("[data-panel]");
+    this.minChars = 2;
+    this.debounceMs = 180;
+    this.items = [];
+    this.cursor = -1;
+    this.seq = 0;
+
+    // Recent searches live only in this browser. Queries are personal — people
+    // search member names and old arguments — so they are deliberately never
+    // sent to or stored on the server.
+    this.historyKey = "colloq:search-history";
+    this.historyMax = 8;
+    // Set only on a topic page (the layout passes the current topic through).
+    this.topicId = this.el.dataset.topicId || null;
+    this.scoped = false;
+
+    this.onInput = () => this.schedule();
+    this.onKeyDown = (e) => this.handleKey(e);
+    this.onFocus = () => this.onFocusOpen();
+    this.onDocClick = (e) => { if (!this.el.contains(e.target)) this.close(); };
+    this.onPanelClick = (e) => this.handlePanelClick(e);
+    // A submitted query is one worth remembering, and Enter bypasses the rows.
+    this.onSubmit = () => this.remember(this.input.value);
+
+    this.input.addEventListener("input", this.onInput);
+    this.input.addEventListener("keydown", this.onKeyDown);
+    this.input.addEventListener("focus", this.onFocus);
+    this.el.addEventListener("submit", this.onSubmit);
+    this.panel.addEventListener("click", this.onPanelClick);
+    document.addEventListener("click", this.onDocClick);
+  },
+
+  // --- history (localStorage) --------------------------------------------
+
+  history() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(this.historyKey));
+      return Array.isArray(raw) ? raw.filter((q) => typeof q === "string") : [];
+    } catch (_err) {
+      // Private browsing, disabled storage, or corrupted JSON: no history
+      // rather than a broken search box.
+      return [];
+    }
+  },
+
+  writeHistory(list) {
+    try {
+      localStorage.setItem(this.historyKey, JSON.stringify(list.slice(0, this.historyMax)));
+    } catch (_err) {
+      /* storage unavailable or full — history is a nicety, never block search */
+    }
+  },
+
+  remember(query) {
+    const q = (query || "").trim();
+    if (q.length < this.minChars) return;
+
+    // Case-insensitive de-dupe, most recent first.
+    const rest = this.history().filter((item) => item.toLowerCase() !== q.toLowerCase());
+    this.writeHistory([q, ...rest]);
+  },
+
+  forget(query) {
+    this.writeHistory(this.history().filter((item) => item !== query));
+  },
+
+  renderHistory() {
+    const entries = this.history();
+    if (!entries.length) return false;
+
+    const d = this.el.dataset;
+
+    this.panel.innerHTML =
+      this.scopeRow() +
+      `<div class="flex items-center justify-between px-4 pt-3 pb-1">
+         <span class="text-[11px] font-semibold uppercase tracking-wide text-muted">${esc(d.recentLabel)}</span>
+         <button type="button" data-clear aria-label="${esc(d.clearLabel)}"
+                 title="${esc(d.clearLabel)}"
+                 class="text-muted hover:text-heading text-xs px-1">✕</button>
+       </div>` +
+      entries.map((q) => `
+        <div class="flex items-center gap-1 pr-2 hover:bg-surface-alt">
+          <button type="button" data-row data-recall="${esc(q)}"
+                  class="flex-1 flex items-center gap-2 px-4 py-2 text-left text-sm text-body outline-none">
+            <span class="text-muted">↺</span><span class="truncate">${esc(q)}</span>
+          </button>
+          <button type="button" data-forget="${esc(q)}" aria-label="${esc(d.removeLabel)}"
+                  class="px-1.5 text-muted hover:text-heading text-xs">✕</button>
+        </div>`).join("");
+
+    this.items = Array.from(this.panel.querySelectorAll("[data-row]"));
+    this.cursor = -1;
+    this.open();
+    return true;
+  },
+
+  // "in this topic" — only meaningful on a topic page. Toggling it re-runs the
+  // current query scoped to that thread, which is the whole point: finding the
+  // reply you remember in a 200-comment thread, not another thread.
+  scopeRow() {
+    if (!this.topicId) return "";
+    const d = this.el.dataset;
+
+    return this.scoped
+      ? `<button type="button" data-unscope
+                 class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-accent border-b border-border hover:bg-surface-alt outline-none">
+           <span class="rounded bg-accent-soft px-1.5 py-0.5 text-xs">${esc(d.scopeLabel)}</span>
+           <span class="text-muted text-xs ml-auto">${esc(d.scopeClearLabel)} →</span>
+         </button>`
+      : `<button type="button" data-scope
+                 class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-body border-b border-border hover:bg-surface-alt outline-none">
+           <span class="text-muted">⌕</span>${esc(d.scopeLabel)}
+         </button>`;
+  },
+
+  handlePanelClick(e) {
+    if (e.target.closest("[data-scope]") || e.target.closest("[data-unscope]")) {
+      e.preventDefault();
+      this.scoped = !!e.target.closest("[data-scope]");
+      const q = this.input.value.trim();
+      if (q.length >= this.minChars) this.fetch(q); else this.renderHistory();
+      this.input.focus();
+      return;
+    }
+
+    const forget = e.target.closest("[data-forget]");
+    if (forget) {
+      // Don't let the click fall through to the row and run the search.
+      e.preventDefault();
+      e.stopPropagation();
+      this.forget(forget.dataset.forget);
+      if (!this.renderHistory()) this.close();
+      return;
+    }
+
+    if (e.target.closest("[data-clear]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.writeHistory([]);
+      this.close();
+      return;
+    }
+
+    const recall = e.target.closest("[data-recall]");
+    if (recall) {
+      e.preventDefault();
+      this.input.value = recall.dataset.recall;
+      this.input.focus();
+      this.fetch(recall.dataset.recall);
+    }
+  },
+
+  onFocusOpen() {
+    // Nothing typed yet: offer what was searched before instead of a blank box.
+    if (this.input.value.trim().length < this.minChars) return this.renderHistory();
+    if (this.items.length) this.open();
+  },
+
+  // --- results ------------------------------------------------------------
+
+  schedule() {
+    clearTimeout(this.timer);
+    const q = this.input.value.trim();
+
+    if (q.length < this.minChars) {
+      // Falling back below the threshold reveals history again.
+      return this.renderHistory() || this.close();
+    }
+
+    this.timer = setTimeout(() => this.fetch(q), this.debounceMs);
+  },
+
+  async fetch(q) {
+    // Responses can land out of order; only the newest one may render.
+    const seq = ++this.seq;
+    const scope = this.scoped && this.topicId ? `&topic_id=${encodeURIComponent(this.topicId)}` : "";
+    const url = `${this.el.dataset.resultsUrl}?q=${encodeURIComponent(q)}${scope}`;
+
+    try {
+      const res = await fetch(url, { headers: { accept: "application/json" } });
+      if (!res.ok) return this.close();
+
+      const data = await res.json();
+      if (seq !== this.seq) return;
+
+      this.render(data, q);
+    } catch (_err) {
+      // Offline or aborted: leave the form as a plain GET rather than
+      // surfacing an error in the header.
+      this.close();
+    }
+  },
+
+  render(data, q) {
+    const { topics = [], posts = [] } = data;
+    const d = this.el.dataset;
+
+    // Remember a query that produced something, at the point results arrive —
+    // not on every keystroke, which would fill the list with prefixes.
+    if (topics.length || posts.length) this.remember(q);
+
+    if (!topics.length && !posts.length) {
+      this.panel.innerHTML =
+        this.scopeRow() + `<p class="px-4 py-3 text-sm text-muted">${esc(d.emptyLabel)}</p>`;
+      this.items = Array.from(this.panel.querySelectorAll("[data-row]"));
+      this.cursor = -1;
+      return this.open();
+    }
+
+    let html = this.scopeRow();
+
+    if (topics.length) {
+      html += section(d.topicsLabel);
+      html += topics.map((t) => `
+        <a href="${esc(t.url)}" data-row class="block px-4 py-2 hover:bg-surface-alt focus:bg-surface-alt outline-none">
+          <span class="block text-sm text-heading truncate">${esc(t.title)}</span>
+          <span class="block text-xs text-muted truncate">${esc(t.category || "")}</span>
+        </a>`).join("");
+    }
+
+    if (posts.length) {
+      html += section(d.postsLabel);
+      html += posts.map((p) => `
+        <a href="${esc(p.url)}" data-row class="block px-4 py-2 hover:bg-surface-alt focus:bg-surface-alt outline-none">
+          <span class="block text-sm text-body truncate">${esc(p.excerpt)}…</span>
+          <span class="block text-xs text-muted truncate">${esc(p.topic || "")}</span>
+        </a>`).join("");
+    }
+
+    html += `
+      <a href="/search?q=${encodeURIComponent(q)}" data-row
+         class="block px-4 py-2.5 text-sm font-medium text-accent border-t border-border hover:bg-surface-alt outline-none">
+        ${esc(d.allLabel)} →
+      </a>`;
+
+    this.panel.innerHTML = html;
+    this.items = Array.from(this.panel.querySelectorAll("[data-row]"));
+    this.cursor = -1;
+    this.open();
+  },
+
+  handleKey(e) {
+    if (e.key === "Escape") return this.close();
+    if (!this.items.length) return;
+
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const delta = e.key === "ArrowDown" ? 1 : -1;
+      this.cursor = (this.cursor + delta + this.items.length) % this.items.length;
+      this.highlight();
+    } else if (e.key === "Enter" && this.cursor >= 0) {
+      // Only intercept Enter when a row is highlighted; otherwise the form
+      // submits to /search as it always has.
+      e.preventDefault();
+      this.items[this.cursor].click();
+    }
+  },
+
+  highlight() {
+    this.items.forEach((el, i) => {
+      const on = i === this.cursor;
+      el.classList.toggle("bg-surface-alt", on);
+      el.setAttribute("aria-selected", on ? "true" : "false");
+      if (on) el.scrollIntoView({ block: "nearest" });
+    });
+  },
+
+  open() {
+    this.panel.hidden = false;
+    this.input.setAttribute("aria-expanded", "true");
+  },
+
+  close() {
+    this.panel.hidden = true;
+    this.input.setAttribute("aria-expanded", "false");
+    this.cursor = -1;
+  },
+
+  destroyed() {
+    clearTimeout(this.timer);
+    document.removeEventListener("click", this.onDocClick);
+    this.el.removeEventListener("submit", this.onSubmit);
+    this.panel.removeEventListener("click", this.onPanelClick);
+  }
+};
+
+function section(label) {
+  return `<p class="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">${esc(label)}</p>`;
+}
+
+// Results are interpolated into innerHTML, so every value from the server has
+// to be escaped — topic titles and post excerpts are user-written.
+function esc(value) {
+  const div = document.createElement("div");
+  div.textContent = value == null ? "" : String(value);
+  return div.innerHTML;
+}
+
 Hooks.JumpToUnread = {
   mounted() {
     this.target = document.getElementById(this.el.dataset.target);
@@ -1334,14 +1643,27 @@ Hooks.JumpToUnread = {
     this.onClick = () => this.target.scrollIntoView({ block: "start", behavior: "smooth" });
     this.el.addEventListener("click", this.onClick);
 
-    // Reveal the pill only when the divider isn't already on screen, and drop it
-    // the moment the reader reaches the new posts (whether via the pill or by
-    // scrolling there themselves).
+    // The pill is viewport-fixed at the bottom, so anything else living down
+    // there — the reply composer — would end up underneath it. Track both and
+    // show the pill only when the divider is off screen *and* the composer
+    // isn't in the way.
+    this.avoid = document.getElementById(this.el.dataset.avoid || "");
+    this.dividerVisible = false;
+    this.avoidVisible = false;
+
     this.observer = new IntersectionObserver(
-      ([entry]) => this.toggle(!entry.isIntersecting),
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.target === this.target) this.dividerVisible = entry.isIntersecting;
+          if (entry.target === this.avoid) this.avoidVisible = entry.isIntersecting;
+        }
+        this.toggle(!this.dividerVisible && !this.avoidVisible);
+      },
       { threshold: 0 }
     );
+
     this.observer.observe(this.target);
+    if (this.avoid) this.observer.observe(this.avoid);
   },
 
   toggle(show) {

@@ -20,10 +20,6 @@ defmodule ColloqWeb.ForumLive.Index do
 
   @per_page 20
 
-  # The "new or updated topics" banner auto-hides this long after the *last*
-  # update — each new event reschedules, so a burst keeps it up, then it clears.
-  @banner_ttl_ms 8_000
-
   @impl true
   def mount(_params, session, socket) do
     current_user = load_user(session)
@@ -60,9 +56,9 @@ defmodule ColloqWeb.ForumLive.Index do
       |> assign(:loads, 0)
       |> assign(:topics_empty?, false)
       |> assign(:new_count, 0)
+      |> assign(:updated_count, 0)
       |> assign(:pending_ids, MapSet.new())
-      # Ref for the banner auto-dismiss timer, so we can cancel/reschedule it.
-      |> assign(:banner_timer, nil)
+      |> assign(:pending_updated_ids, MapSet.new())
       |> stream(:topics, [])
       |> assign_new(:page_title, fn -> gettext("Forum") end)
 
@@ -232,29 +228,57 @@ defmodule ColloqWeb.ForumLive.Index do
   end
 
   # New or bumped topic elsewhere: don't disrupt the reader's scroll — buffer it
-  # into the banner and let them choose to refresh. Distinct topic ids are
-  # counted once (a topic bumped twice still reads as one update).
+  # into the banner and let them choose to refresh. Created and bumped topics are
+  # counted separately so the banner can say how many of each. Distinct topic ids
+  # are counted once (a topic bumped twice still reads as one update), and a
+  # topic that was created since the last load stays "new" even once it's bumped.
   @impl true
   def handle_info(%{event: event, payload: payload}, socket)
       when event in ["topic_created", "topic_bumped"] do
     viewing = category_id_from_slug(socket.assigns.selected_category_slug, socket.assigns.categories)
 
     if relevant_to_view?(payload, viewing) do
-      pending = MapSet.put(socket.assigns.pending_ids, payload.topic_id)
+      %{pending_ids: created, pending_updated_ids: updated} = socket.assigns
+      id = payload.topic_id
+
+      {created, updated} =
+        case event do
+          "topic_created" -> {MapSet.put(created, id), MapSet.delete(updated, id)}
+          "topic_bumped" ->
+            if MapSet.member?(created, id),
+              do: {created, updated},
+              else: {created, MapSet.put(updated, id)}
+        end
 
       {:noreply,
        socket
-       |> assign(:pending_ids, pending)
-       |> assign(:new_count, MapSet.size(pending))
-       |> schedule_banner_dismiss()}
+       |> assign(:pending_ids, created)
+       |> assign(:pending_updated_ids, updated)
+       |> assign(:new_count, MapSet.size(created))
+       |> assign(:updated_count, MapSet.size(updated))}
     else
       {:noreply, socket}
     end
   end
 
-  # Fired by the auto-dismiss timer: drop the banner if the reader never clicked.
-  def handle_info(:clear_banner, socket) do
-    {:noreply, reset_banner(socket)}
+  # A post was deleted somewhere. Refresh that row in place — its reply count and
+  # "last activity" just changed — without touching the banner: there is nothing
+  # new to go and read, so announcing it would send readers after content that
+  # has just been removed.
+  #
+  # Only rows already on screen are touched. `stream_insert` on an id the stream
+  # has never seen *appends* it, so deleting a post in some old topic on page 4
+  # made that topic materialise at the bottom of page 1 — a row appearing out of
+  # nowhere, which is worse than the stale count it was meant to fix.
+  def handle_info(%{event: "topic_changed", payload: payload}, socket) do
+    if MapSet.member?(socket.assigns.loaded_topic_ids, payload.topic_id) do
+      case Forum.get_topic_for_list(payload.topic_id) do
+        nil -> {:noreply, socket}
+        topic -> {:noreply, stream_insert(socket, :topics, hd(decorate([topic])))}
+      end
+    else
+      {:noreply, socket}
+    end
   end
 
   # When viewing "All", everything is relevant; in a category, only that category.
@@ -289,8 +313,14 @@ defmodule ColloqWeb.ForumLive.Index do
         hidden_category_ids: a.hidden_category_ids
       )
 
+    ids = MapSet.new(result.entries, & &1.id)
+
     socket
     |> stream(:topics, decorate(result.entries), reset: reset?)
+    |> assign(
+      :loaded_topic_ids,
+      if(reset?, do: ids, else: MapSet.union(socket.assigns.loaded_topic_ids, ids))
+    )
     |> assign(:page, page)
     |> assign(:has_more, page < result.total_pages)
     |> then(fn s -> if reset?, do: assign(s, :topics_empty?, result.entries == []), else: s end)
@@ -312,11 +342,21 @@ defmodule ColloqWeb.ForumLive.Index do
     end)
   end
 
+  # A hidden or deleted opening post must not leak its text here. `first_post`
+  # is a belongs_to on first_post_id, so the preload can't filter on deleted_at
+  # the way every post query does — the topic page served nothing while this row
+  # still printed the full body of a post moderation had just hidden.
+  defp excerpt(%{first_post: %{deleted_at: %DateTime{}}}), do: nil
+
   defp excerpt(%{first_post: %{body: body}}) when is_binary(body) do
     case body |> HtmlSanitizeEx.strip_tags() |> String.replace(~r/\s+/, " ") |> String.trim() do
-      "" -> nil
-      # CSS truncates to one line; this just caps the payload.
-      text -> truncate(text, 140)
+      "" ->
+        nil
+
+      # A bot-created thread opens with the command itself, so the preview would
+      # read "/sofascore liga 2". The title already says what the thread is.
+      text ->
+        if Forum.bot_command?(text), do: nil, else: truncate(text, 140)
     end
   end
 
@@ -326,25 +366,32 @@ defmodule ColloqWeb.ForumLive.Index do
     if String.length(text) > max, do: String.slice(text, 0, max) <> "…", else: text
   end
 
+  # The banner never times out: it clears only when the reader clicks it or when
+  # a filter/sort change rebuilds the list from scratch.
   defp reset_banner(socket) do
-    cancel_banner_timer(socket.assigns[:banner_timer])
-
     socket
     |> assign(:new_count, 0)
+    |> assign(:updated_count, 0)
     |> assign(:pending_ids, MapSet.new())
-    |> assign(:banner_timer, nil)
+    |> assign(:pending_updated_ids, MapSet.new())
   end
 
-  # Reschedule the auto-dismiss on every update, so the banner stays visible
-  # through a burst and disappears @banner_ttl_ms after the last one.
-  defp schedule_banner_dismiss(socket) do
-    cancel_banner_timer(socket.assigns[:banner_timer])
-    ref = Process.send_after(self(), :clear_banner, @banner_ttl_ms)
-    assign(socket, :banner_timer, ref)
-  end
+  @doc """
+  Label for the "new or updated topics" banner, counting each kind separately.
+  """
+  def banner_label(new, 0), do: ngettext("See %{count} new topic", "See %{count} new topics", new, count: new)
 
-  defp cancel_banner_timer(nil), do: :ok
-  defp cancel_banner_timer(ref), do: Process.cancel_timer(ref)
+  def banner_label(0, updated),
+    do:
+      ngettext(
+        "See %{count} updated topic",
+        "See %{count} updated topics",
+        updated,
+        count: updated
+      )
+
+  def banner_label(new, updated),
+    do: gettext("See %{new} new and %{updated} updated topics", new: new, updated: updated)
 
   @doc "Auto-load this many batches on scroll before switching to a button."
   def auto_batches, do: @auto_batches

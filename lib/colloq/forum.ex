@@ -68,6 +68,20 @@ defmodule Colloq.Forum do
   end
 
   @doc """
+  A single topic with the same preloads the topic list uses, or nil.
+
+  Lets a live update refresh one row without re-running the whole page query.
+  Returns nil for a soft-deleted topic, so a row that has just been removed
+  isn't resurrected by the refresh.
+  """
+  def get_topic_for_list(topic_id) do
+    Topic
+    |> where([t], t.id == ^topic_id and is_nil(t.deleted_at))
+    |> preload([:category, :user, :first_post, last_post: :user])
+    |> Repo.one()
+  end
+
+  @doc """
   Ids of the "hot" topics — those with the most (non-deleted) posts created in
   the last `window_hours` (default 48h), so the topic list can tag them with a
   🔥 badge. Views break ties. Returns a `MapSet` of the top `:limit` ids
@@ -1079,6 +1093,22 @@ defmodule Colloq.Forum do
 
   defp enqueue_ca_command(_), do: :ok
 
+  # Every bot trigger, matched on a word boundary so "/calendario" isn't read as
+  # "/ca". Kept beside the enqueue_* clauses above so a new bot is added here too.
+  @bot_commands ~w(sofascore dolar clima f1 ca)
+
+  @doc """
+  True when `text` is a bot invocation rather than something a human wrote.
+
+  Used by the topic list, where a match thread's opening post is the raw command
+  ("/sofascore liga 2") and previewing it tells the reader nothing.
+  """
+  def bot_command?(text) when is_binary(text) do
+    Regex.match?(~r/^\/(#{Enum.join(@bot_commands, "|")})\b/i, String.trim(text))
+  end
+
+  def bot_command?(_), do: false
+
   @doc """
   Creates a nested reply to a specific post within a topic.
 
@@ -1109,7 +1139,21 @@ defmodule Colloq.Forum do
       |> Topic.changeset(Map.merge(attrs, %{"user_id" => topic.user_id}))
       |> Repo.update()
 
+    # A retitle is an edit to screened content: the opening post is classified as
+    # title + body, so renaming a topic to "casino online" has to be re-checked
+    # exactly like editing the body would be.
     case result do
+      {:ok, %Topic{title: new_title} = updated} when new_title != topic.title ->
+        if op = Repo.get_by(Post, topic_id: updated.id, post_number: 1),
+          do: enqueue_spam_check_for_post(op)
+
+        if is_list(tag_names) do
+          tags = Colloq.Tags.find_or_create_tags(tag_names, create: can_create, limit: tag_limit)
+          Colloq.Tags.set_topic_tags(updated, tags)
+        end
+
+        {:ok, updated}
+
       {:ok, updated} when is_list(tag_names) ->
         tags = Colloq.Tags.find_or_create_tags(tag_names, create: can_create, limit: tag_limit)
         Colloq.Tags.set_topic_tags(updated, tags)
@@ -1292,11 +1336,40 @@ defmodule Colloq.Forum do
       {:ok, updated} = ok ->
         # Re-unfurl links: an edit may have added or removed URLs.
         enqueue_embed(updated)
+
+        # Re-screen the edited body. Screening only on create meant a post that
+        # passed once was trusted forever: publish "casino", let it through,
+        # then edit in "online" and the blocked phrase never gets looked at
+        # again. Anything that can become spam has to be re-checked when it
+        # changes.
+        if Map.has_key?(changed_fields(post, updated), :body) do
+          enqueue_spam_check_for_post(updated)
+        end
+
         ok
 
       error ->
         error
     end
+  end
+
+  # Which of the fields we care about actually changed.
+  defp changed_fields(%Post{} = before, %Post{} = now) do
+    if before.body == now.body, do: %{}, else: %{body: now.body}
+  end
+
+  # Enqueue by post id, letting the worker apply its own trust-level and
+  # bot guards — an edit path doesn't always have the author loaded.
+  defp enqueue_spam_check_for_post(%Post{is_system: true}), do: :ok
+
+  defp enqueue_spam_check_for_post(%Post{} = post) do
+    %{post_id: post.id}
+    |> Colloq.Workers.SpamDetectorWorker.new()
+    |> Oban.insert()
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   # Only a genuine change to the body counts. Opening the editor and saving
@@ -1340,11 +1413,14 @@ defmodule Colloq.Forum do
           post_id: post.id
         })
 
-        # The delete changed the topic's "last activity" and its order in the
-        # list, so tell the index the same way a new reply does — otherwise the
-        # front page shows the stale time until a manual refresh.
+        # The delete changed the topic's "last activity" and its counters, so the
+        # index still needs to hear about it — but NOT as "topic_bumped", which
+        # feeds the "N new or updated topics" banner. A deletion has nothing for
+        # the reader to go and see; announcing it as an update sent them to look
+        # for content that had just been removed. Its own event lets the index
+        # refresh the row in place, silently.
         if topic = Repo.get(Topic, post.topic_id) do
-          ColloqWeb.Endpoint.broadcast("forum:topic_list", "topic_bumped", %{
+          ColloqWeb.Endpoint.broadcast("forum:topic_list", "topic_changed", %{
             topic_id: topic.id,
             category_id: topic.category_id
           })
@@ -1579,24 +1655,55 @@ defmodule Colloq.Forum do
         limit = Keyword.get(opts, :limit, 20)
         hidden_cats = Keyword.get(opts, :hidden_category_ids, [])
 
-        base =
-          from(t in Topic,
-            where: t.archived == false and is_nil(t.deleted_at),
-            order_by: [desc: t.bumped_at],
-            limit: ^limit,
-            preload: [:category, :user]
-          )
+        results =
+          case tsquery(terms) do
+            nil -> []
+            tsq -> topics_by_rank(tsq, limit, hidden_cats)
+          end
 
-        terms
-        |> Enum.reduce(base, fn term, q ->
-          from(t in q, where: ilike(t.title, ^like_pattern(term)))
-        end)
-        |> then(fn q ->
-          if hidden_cats == [], do: q, else: from(t in q, where: t.category_id not in ^hidden_cats)
-        end)
-        |> Repo.all()
+        # Full-text prefixes match the *start* of a word, so "campo" no longer
+        # finds "mediocampo". Fall back to the old contains-match when ranking
+        # found nothing, rather than regressing searches that used to work.
+        if results == [], do: topics_by_ilike(terms, limit, hidden_cats), else: results
     end
   end
+
+  defp topics_by_rank(tsq, limit, hidden_cats) do
+    from(t in Topic,
+      where: t.archived == false and is_nil(t.deleted_at),
+      where: fragment("? @@ to_tsquery('es_unaccent', ?)", t.search_vector, ^tsq),
+      order_by: [
+        desc: fragment("ts_rank_cd(?, to_tsquery('es_unaccent', ?))", t.search_vector, ^tsq),
+        desc: t.bumped_at
+      ],
+      limit: ^limit,
+      preload: [:category, :user]
+    )
+    |> exclude_categories(hidden_cats)
+    |> Repo.all()
+  end
+
+  defp topics_by_ilike(terms, limit, hidden_cats) do
+    base =
+      from(t in Topic,
+        where: t.archived == false and is_nil(t.deleted_at),
+        order_by: [desc: t.bumped_at],
+        limit: ^limit,
+        preload: [:category, :user]
+      )
+
+    terms
+    |> Enum.reduce(base, fn term, q ->
+      from(t in q, where: ilike(t.title, ^like_pattern(term)))
+    end)
+    |> exclude_categories(hidden_cats)
+    |> Repo.all()
+  end
+
+  defp exclude_categories(query, []), do: query
+
+  defp exclude_categories(query, hidden_cats),
+    do: from(t in query, where: t.category_id not in ^hidden_cats)
 
   @doc """
   Searches visible posts by body text. Returns `Post` structs (with `:user` and
@@ -1610,30 +1717,92 @@ defmodule Colloq.Forum do
       terms ->
         limit = Keyword.get(opts, :limit, 20)
         hidden_cats = Keyword.get(opts, :hidden_category_ids, [])
+        # Scopes the search to one thread ("in this topic" in the header panel).
+        topic_id = Keyword.get(opts, :topic_id)
 
-        base =
-          from(p in Post,
-            where: is_nil(p.deleted_at) and p.is_system == false,
-            order_by: [desc: p.inserted_at],
-            limit: ^limit,
-            preload: [:user, topic: :category]
-          )
-
-        terms
-        |> Enum.reduce(base, fn term, q ->
-          from(p in q, where: ilike(p.body, ^like_pattern(term)))
-        end)
-        |> then(fn q ->
-          # Post bodies leak their topic just as surely as titles do, so the
-          # same category filter has to apply here — via a join, since the
-          # category lives on the topic.
-          if hidden_cats == [] do
-            q
-          else
-            from(p in q, join: t in Topic, on: t.id == p.topic_id, where: t.category_id not in ^hidden_cats)
+        results =
+          case tsquery(terms) do
+            nil -> []
+            tsq -> posts_by_rank(tsq, limit, hidden_cats, topic_id)
           end
-        end)
-        |> Repo.all()
+
+        if results == [],
+          do: posts_by_ilike(terms, limit, hidden_cats, topic_id),
+          else: results
+    end
+  end
+
+  defp posts_by_rank(tsq, limit, hidden_cats, topic_id) do
+    from(p in Post,
+      where: is_nil(p.deleted_at) and p.is_system == false,
+      where: fragment("? @@ to_tsquery('es_unaccent', ?)", p.search_vector, ^tsq),
+      order_by: [
+        desc: fragment("ts_rank_cd(?, to_tsquery('es_unaccent', ?))", p.search_vector, ^tsq),
+        desc: p.inserted_at
+      ],
+      limit: ^limit,
+      preload: [:user, topic: :category]
+    )
+    |> scope_to_topic(topic_id)
+    |> exclude_posts_in_categories(hidden_cats)
+    |> Repo.all()
+  end
+
+  defp posts_by_ilike(terms, limit, hidden_cats, topic_id) do
+    base =
+      from(p in Post,
+        where: is_nil(p.deleted_at) and p.is_system == false,
+        order_by: [desc: p.inserted_at],
+        limit: ^limit,
+        preload: [:user, topic: :category]
+      )
+
+    terms
+    |> Enum.reduce(base, fn term, q ->
+      # Match the *text*, not the markup. Against the raw body a search for "p"
+      # or "href" hit the HTML in every single post.
+      from(p in q,
+        where:
+          ilike(
+            fragment("regexp_replace(?, '<[^>]*>', ' ', 'g')", p.body),
+            ^like_pattern(term)
+          )
+      )
+    end)
+    |> scope_to_topic(topic_id)
+    |> exclude_posts_in_categories(hidden_cats)
+    |> Repo.all()
+  end
+
+  defp scope_to_topic(query, nil), do: query
+  defp scope_to_topic(query, topic_id), do: from(p in query, where: p.topic_id == ^topic_id)
+
+  # Post bodies leak their topic just as surely as titles do, so the same
+  # category filter has to apply here — via a join, since the category lives on
+  # the topic.
+  defp exclude_posts_in_categories(query, []), do: query
+
+  defp exclude_posts_in_categories(query, hidden_cats) do
+    from(p in query,
+      join: t in Topic,
+      on: t.id == p.topic_id,
+      where: t.category_id not in ^hidden_cats
+    )
+  end
+
+  # Builds a prefix tsquery ("medio & camp:*") from already-split terms.
+  #
+  # Terms are stripped of everything that carries meaning in tsquery syntax
+  # (`&`, `|`, `!`, `:`, `*`, parens, quotes) rather than escaped: user input
+  # reaching to_tsquery/2 unsanitised raises a syntax error on something as
+  # ordinary as "racing & independiente". Returns nil when nothing survives.
+  defp tsquery(terms) do
+    terms
+    |> Enum.map(&String.replace(&1, ~r/[^\p{L}\p{N}_]/u, ""))
+    |> Enum.reject(&(&1 == ""))
+    |> case do
+      [] -> nil
+      words -> words |> Enum.map_join(" & ", &"#{&1}:*")
     end
   end
 

@@ -415,14 +415,17 @@
   </div>
 
   <%!-- "Jump to new replies" pill — user-initiated so nothing moves on load.
-       Fixed above the reply box; taps down to the "New replies" divider and
-       hides itself once that divider scrolls into view. --%>
+       Floats at the bottom of the viewport; taps down to the "New replies"
+       divider and hides itself once that divider scrolls into view. It also
+       hides while the reply box is on screen: being viewport-fixed, it would
+       otherwise sit on top of the editor (`data-avoid`). --%>
   <button
     :if={@unread_count > 0}
     id="jump-to-unread"
     type="button"
     phx-hook="JumpToUnread"
     data-target="unread-divider"
+    data-avoid="reply-form"
     class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-40 items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white shadow-lg hover:bg-accent-hover transition-colors"
   >
     <%= ngettext("1 new reply", "%{count} new replies", @unread_count) %>
@@ -483,7 +486,7 @@
   </div>
 
   <%!-- Reply form --%>
-  <div :if={can_reply?(assigns)} class="mt-8 pt-6 border-t border-border">
+  <div :if={can_reply?(assigns)} id="reply-form" class="mt-8 pt-6 border-t border-border">
     <h3 class="text-lg font-semibold text-heading mb-4"><%= gettext("Reply") %></h3>
 
     <%!-- Lineup composer: "the XI I'd play". Controls are sibling forms (a form

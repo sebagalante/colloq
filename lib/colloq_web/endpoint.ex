@@ -30,9 +30,16 @@ defmodule ColloqWeb.Endpoint do
   # Longpoll is enabled so the client's `longPollFallbackMs` fallback works when
   # the WebSocket can't connect (e.g. proxies / WSL2) — otherwise LiveView never
   # connects and the page renders but is completely non-interactive.
+  # `peer_data` + `x_headers` let a LiveView work out the client's address: the
+  # RemoteIp plug below only runs for plain HTTP requests, so inside a connected
+  # LiveView `peer_data` alone is Caddy on loopback. Registration needs the real
+  # address (see ColloqWeb.UserLive.Registration), which means walking the same
+  # forwarded chain the plug does.
+  @connect_info [:peer_data, :x_headers, session: {__MODULE__, :session_options, []}]
+
   socket "/live", Phoenix.LiveView.Socket,
-    websocket: [connect_info: [session: {__MODULE__, :session_options, []}]],
-    longpoll: [connect_info: [session: {__MODULE__, :session_options, []}]]
+    websocket: [connect_info: @connect_info],
+    longpoll: [connect_info: @connect_info]
 
   # Socket mount for channels (DMs, notifications, forum)
   socket "/socket", ColloqWeb.UserSocket,

@@ -224,6 +224,20 @@ defmodule ColloqWeb.AdminLive.Users do
   def status_label(:active), do: gettext("Active")
 
   @doc """
+  Network an address belongs to, e.g. `"AMAZON-02"`, or nil.
+
+  Resolved per render from GeoLite2-ASN rather than stored, matching how the
+  country hint already works. Returns nil when no ASN database is configured,
+  which is the normal state without a MaxMind key — the row simply omits it.
+  """
+  def signup_network(ip) do
+    case Colloq.GeoIP.lookup_asn(ip) do
+      {:ok, %{org: org}} when is_binary(org) -> org
+      _ -> nil
+    end
+  end
+
+  @doc """
   Role options the actor may actually grant, as `{value, label}`.
 
   Capped at the actor's own rank so an admin is never offered "Super Admin" —

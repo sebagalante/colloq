@@ -147,11 +147,27 @@ defmodule Colloq.Accounts do
 
   @doc """
   Register a new user with email/password.
+
+  `ip` (an `:inet` tuple or a string) is resolved to country and network and
+  stamped on the account. Purely advisory — nothing here blocks or quarantines a
+  signup; the values surface in the admin user list for a human to judge. A
+  missing or unresolvable IP is normal and simply leaves the columns nil.
   """
-  def register_user(attrs) do
+  def register_user(attrs, ip \\ nil) do
     %User{}
     |> User.registration_changeset(attrs)
+    |> put_signup_provenance(ip)
     |> Repo.insert()
+  end
+
+  # Stamps the signup address. Country and network aren't stored — they're
+  # resolved from this IP at render time, so a moved MaxMind boundary doesn't
+  # leave a stale country frozen on the account.
+  defp put_signup_provenance(changeset, ip) do
+    case format_ip(ip) do
+      nil -> changeset
+      address -> Ecto.Changeset.change(changeset, %{signup_ip: address})
+    end
   end
 
   @doc """
@@ -245,17 +261,37 @@ defmodule Colloq.Accounts do
   @doc """
   OAuth: Find or create user from OAuth data.
   """
-  def find_or_create_from_oauth(%{"provider" => provider, "uid" => uid} = attrs) do
-    case Repo.get_by(User, oauth_provider: provider, oauth_uid: to_string(uid)) do
+  def find_or_create_from_oauth(%{"provider" => provider, "uid" => uid} = attrs, ip \\ nil) do
+    case get_by_oauth(provider, uid) do
       nil ->
-        # New OAuth user
+        # Callers pass "provider"/"uid" (that's what this function matches on),
+        # but the changeset casts the schema's own :oauth_provider/:oauth_uid.
+        # Without this mapping neither ever bound, so validate_required
+        # rejected *every* first-time OAuth signup with "can't be blank" —
+        # returning users were unaffected, which is why it went unnoticed.
+        attrs = Map.merge(attrs, %{"oauth_provider" => provider, "oauth_uid" => to_string(uid)})
+
+        # Stamped with the same signup provenance as a password registration,
+        # so the admin list has no blind spot for provider-button accounts.
         %User{}
         |> User.oauth_changeset(attrs)
+        |> put_signup_provenance(ip)
         |> Repo.insert()
 
       user ->
         {:ok, user}
     end
+  end
+
+  @doc """
+  Existing account for an OAuth identity, or nil.
+
+  Split out of `find_or_create_from_oauth/1` so the callback can tell "returning
+  user" from "would create an account" — the second is what `registration_mode`
+  has to gate.
+  """
+  def get_by_oauth(provider, uid) do
+    Repo.get_by(User, oauth_provider: provider, oauth_uid: to_string(uid))
   end
 
   # =========================================================================
