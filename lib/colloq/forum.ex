@@ -1564,6 +1564,34 @@ defmodule Colloq.Forum do
   end
 
   @doc """
+  Topics to offer a reader who reached the end of `topic` (Discourse-style).
+
+  Relevance is "shares a tag, or failing that shares the category", ranked by
+  shared tag count first so a thread matching three tags outranks one matching
+  the category alone. Tag matches are unioned with category matches rather than
+  intersected — most topics carry no tags, and requiring both would leave the
+  list empty on exactly the threads that need it.
+
+  Deleted and restricted-category topics are excluded, as is `topic` itself.
+  """
+  def suggested_topics(%Topic{} = topic, user, limit \\ 5) do
+    hidden = hidden_category_ids(user)
+    tag_ids = Repo.all(from(tt in "topic_tags", where: tt.topic_id == ^topic.id, select: tt.tag_id))
+
+    Topic
+    |> join(:left, [t], tt in "topic_tags", on: tt.topic_id == t.id and tt.tag_id in ^tag_ids)
+    |> where([t], t.id != ^topic.id)
+    |> where([t], is_nil(t.deleted_at))
+    |> then(fn q -> if hidden == [], do: q, else: where(q, [t], t.category_id not in ^hidden) end)
+    |> where([t, tt], t.category_id == ^topic.category_id or not is_nil(tt.tag_id))
+    |> group_by([t], t.id)
+    |> order_by([t, tt], desc: count(tt.tag_id), desc: t.bumped_at)
+    |> limit(^limit)
+    |> preload([:category, :user])
+    |> Repo.all()
+  end
+
+  @doc """
   Categories visible to `user` — restricted ones are dropped for non-staff.
 
   `list_categories/0` (no user) still returns everything, for the admin screens

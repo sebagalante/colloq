@@ -20,8 +20,10 @@ defmodule ColloqWeb.TopicSortTest do
     {view, post_id_order(html)}
   end
 
+  # Scoped to the header copy: the same pill group is rendered again in the
+  # footer, so an unscoped phx-click selector matches two elements.
   defp click_top(view) do
-    view |> element("button[phx-click='toggle-sort']") |> render_click() |> post_id_order()
+    view |> element("#header-sort") |> render_click() |> post_id_order()
   end
 
   setup do

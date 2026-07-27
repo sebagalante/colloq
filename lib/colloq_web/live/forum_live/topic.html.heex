@@ -293,20 +293,7 @@
   <%!-- Topic stats bar (Discourse-style) --%>
   <div class="flex items-center justify-between gap-4 flex-wrap py-3 mb-6 border-y border-border">
     <div class="flex items-center gap-5">
-      <div class="flex items-center gap-4">
-        <div class="text-center leading-tight">
-          <div class="text-base font-semibold text-accent"><%= @topic.views_count %></div>
-          <div class="text-xs text-muted"><%= gettext("views") %></div>
-        </div>
-        <div class="text-center leading-tight">
-          <div class="text-base font-semibold text-accent"><%= @topic_stats.likes %></div>
-          <div class="text-xs text-muted"><%= gettext("likes") %></div>
-        </div>
-        <div class="text-center leading-tight">
-          <div class="text-base font-semibold text-accent"><%= @topic_stats.participant_count %></div>
-          <div class="text-xs text-muted"><%= gettext("users") %></div>
-        </div>
-      </div>
+      <.topic_stat_chips topic={@topic} stats={@topic_stats} />
 
       <%!-- Participant avatars --%>
       <div class="flex items-center -space-x-2">
@@ -333,85 +320,13 @@
       </div>
     </div>
 
-    <div class="flex items-center gap-4">
-      <div class="text-right leading-tight">
-        <div class="text-sm font-medium text-body"><%= @topic_stats.read_minutes %> min</div>
-        <div class="text-xs text-muted"><%= gettext("read") %></div>
-      </div>
-
-      <%!-- Sort the thread by reactions (most points first) --%>
-      <button
-        type="button"
-        phx-click="toggle-sort"
-        aria-pressed={@sort == :top}
-        title={gettext("Sort replies by reactions")}
-        class={[
-          "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-sm font-medium transition-colors",
-          (@sort == :top && "bg-accent text-white border-accent") ||
-            "bg-surface-alt border-border text-body hover:bg-border"
-        ]}
-      >
-        <.icon name="layers" class="w-4 h-4" />
-        <%= gettext("Top replies") %>
-      </button>
-
-      <%!-- Notification level (Discourse-style) --%>
-      <div :if={@current_user} class="relative" id="notif-level">
-        <button
-          type="button"
-          phx-click={Phoenix.LiveView.JS.toggle(to: "#notif-level-menu")}
-          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-alt border border-border text-sm font-medium text-body hover:bg-border transition-colors"
-        >
-          <.icon name={level_icon(@notification_level)} class="w-4 h-4 text-accent" />
-          <%= level_label(@notification_level) %>
-          <.icon name="chevron-down" class="w-3.5 h-3.5" />
-        </button>
-        <div
-          id="notif-level-menu"
-          class="hidden absolute right-0 mt-2 w-80 rounded-xl bg-surface border border-border shadow-lg p-1 z-30"
-          phx-click-away={Phoenix.LiveView.JS.hide()}
-        >
-          <button
-            :for={level <- notification_levels()}
-            type="button"
-            phx-click={
-              Phoenix.LiveView.JS.hide(to: "#notif-level-menu")
-              |> Phoenix.LiveView.JS.push("set-notification-level", value: %{level: level})
-            }
-            class={[
-              "flex items-start gap-3 w-full text-left px-3 py-2.5 rounded-lg transition-colors",
-              @notification_level == level && "bg-surface-alt" || "hover:bg-surface-alt"
-            ]}
-          >
-            <.icon name={level_icon(level)} class="w-4 h-4 mt-0.5 flex-shrink-0 text-accent" />
-            <span class="min-w-0">
-              <span class="block text-sm font-semibold text-heading"><%= level_label(level) %></span>
-              <span class="block text-xs text-muted mt-0.5"><%= level_description(level) %></span>
-            </span>
-          </button>
-        </div>
-      </div>
-
-      <button
-        :if={@current_user}
-        type="button"
-        phx-click="toggle-topic-bookmark"
-        class={[
-          "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-sm font-medium transition-colors",
-          @topic_bookmarked && "bg-warning-soft border-warning text-warning" || "bg-surface-alt border-border text-body hover:bg-border"
-        ]}
-      >
-        <.icon name={if @topic_bookmarked, do: "bookmark-filled", else: "bookmark"} class="w-4 h-4" />
-        <%= if @topic_bookmarked, do: gettext("Bookmarked"), else: gettext("Bookmark") %>
-      </button>
-      <button
-        type="button"
-        phx-click="show-summary"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-accent-soft border border-accent-border text-sm font-medium text-accent hover:bg-accent hover:text-white transition-colors"
-      >
-        <.icon name="sparkles" class="w-4 h-4" /><%= gettext("Summarize") %>
-      </button>
-    </div>
+    <.topic_actions
+      id_prefix="header"
+      sort={@sort}
+      current_user={@current_user}
+      notification_level={@notification_level}
+      topic_bookmarked={@topic_bookmarked}
+    />
   </div>
 
   <%!-- "Jump to new replies" pill — user-initiated so nothing moves on load.
@@ -485,9 +400,76 @@
     </button>
   </div>
 
+  <%!-- Footer bar: mirrors the header bar, so a reader who reached the last
+       post can see the topic's stats and watch/bookmark/summarize it without
+       scrolling back to the top. --%>
+  <div class="flex items-center justify-between gap-4 flex-wrap py-3 mt-6 border-t border-border">
+    <.topic_stat_chips topic={@topic} stats={@topic_stats} />
+    <.topic_actions
+      id_prefix="footer"
+      scroll_to_posts
+      sort={@sort}
+      current_user={@current_user}
+      notification_level={@notification_level}
+      topic_bookmarked={@topic_bookmarked}
+    />
+  </div>
+
+  <%!-- Suggested topics (Discourse-style): keeps a reader who finished the
+       thread inside the forum instead of bouncing. --%>
+  <div :if={@suggested_topics != []} class="mt-8 pt-6 border-t border-border">
+    <h3 class="text-lg font-semibold text-heading mb-4"><%= gettext("Suggested topics") %></h3>
+    <ul class="divide-y divide-border">
+      <li :for={t <- @suggested_topics} class="py-3">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <.link
+              navigate={~p"/t/#{t.id}/#{t.slug}"}
+              class="text-body hover:text-accent font-medium transition-colors"
+            >
+              <%= t.title %>
+            </.link>
+            <div class="mt-1 flex items-center gap-2 text-xs text-muted">
+              <span :if={t.category}><%= t.category.name %></span>
+              <span :if={t.category} aria-hidden="true">·</span>
+              <span>
+                <%= ngettext("%{count} reply", "%{count} replies", max(t.posts_count - 1, 0),
+                  count: max(t.posts_count - 1, 0)
+                ) %>
+              </span>
+            </div>
+          </div>
+          <span
+            class="inline-flex items-center gap-1.5 flex-shrink-0 text-xs text-muted"
+            aria-label={ngettext("%{count} view", "%{count} views", t.views_count, count: t.views_count)}
+          >
+            <.icon name="eye" class="w-3.5 h-3.5" aria-hidden="true" />
+            <%= t.views_count %>
+          </span>
+        </div>
+      </li>
+    </ul>
+  </div>
+
   <%!-- Reply form --%>
   <div :if={can_reply?(assigns)} id="reply-form" class="mt-8 pt-6 border-t border-border">
     <h3 class="text-lg font-semibold text-heading mb-4"><%= gettext("Reply") %></h3>
+
+    <%!-- Necropost notice. Deliberately advisory: the composer stays fully
+         usable, because a months-old thread is often exactly the right place
+         to post when news finally lands. --%>
+    <div
+      :if={days = necropost_days(@topic)}
+      class="flex items-start gap-2.5 mb-4 px-3.5 py-3 rounded-lg bg-warning-soft border border-warning text-sm text-body"
+    >
+      <.icon name="clock" class="w-4 h-4 mt-0.5 flex-shrink-0 text-warning" aria-hidden="true" />
+      <p>
+        <%= gettext("The last reply here was %{age} ago.", age: necropost_label(days)) %>
+        <span class="text-muted">
+          <%= gettext("Make sure your reply still adds something before bumping it.") %>
+        </span>
+      </p>
+    </div>
 
     <%!-- Lineup composer: "the XI I'd play". Controls are sibling forms (a form
          can't nest), each mapping to its own event. --%>

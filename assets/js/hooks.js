@@ -143,6 +143,16 @@ function applyTheme(theme) {
 // Persisted theme change from the server (after saving settings).
 window.addEventListener("phx:set-theme", (e) => applyTheme(e.detail && e.detail.theme));
 
+// Re-sorting from the footer bar changes the post list, which sits entirely
+// above that button — so without this the thread silently reorders off screen
+// and the click looks like it did nothing. Dispatched by the footer's "Top
+// replies" pill only; the header copy is already next to the list.
+window.addEventListener("colloq:scroll-to-posts", () => {
+  document
+    .getElementById("posts-container")
+    ?.scrollIntoView({ block: "start", behavior: "smooth" });
+});
+
 // Instant client-side preview when picking a theme in Settings.
 Hooks.ThemePreview = {
   mounted() {

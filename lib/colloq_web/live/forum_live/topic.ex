@@ -119,6 +119,9 @@ defmodule ColloqWeb.ForumLive.Topic do
       |> assign(:back_to, back_to)
       # Topic-wide engagement, computed with aggregates (not the paginated tree).
       |> assign(:topic_stats, Forum.topic_stats(id, blocked_ids))
+      # Related threads for the footer. Computed once at mount: it only feeds
+      # the end-of-topic list, so it need not track live replies.
+      |> assign(:suggested_topics, Forum.suggested_topics(topic, current_user))
       # Reply ordering: :chrono (posting order) or :top (most reactions first)
       |> assign(:sort, :chrono)
       # Emoji reaction counts per post id, e.g. %{123 => %{"👍" => 2}}
@@ -1741,11 +1744,65 @@ defmodule ColloqWeb.ForumLive.Topic do
   def level_description(_),
     do: gettext("You'll be notified if someone mentions your @name or replies to you.")
 
-  @doc "The topic author or a moderator+ (edit_topics) may edit the topic."
+  # How quiet a thread must be before replying to it is worth a second thought.
+  # Deliberately a warning and not an auto-close: on this forum a thread can go
+  # months between bumps and still be the right place to post when news lands,
+  # so the reader decides. Tune freely — nothing depends on the exact number.
+  @necropost_days 90
+
+  @doc """
+  Days since the last reply, or `nil` while the thread is still active.
+
+  Reads `bumped_at` rather than `updated_at`: the latter moves on edits and
+  metadata changes, so a topic nobody has replied to in a year would look
+  fresh.
+  """
+  def necropost_days(%{bumped_at: %DateTime{} = bumped_at}) do
+    days = DateTime.diff(DateTime.utc_now(), bumped_at, :day)
+    if days >= @necropost_days, do: days
+  end
+
+  def necropost_days(_topic), do: nil
+
+  @doc """
+  Humanized gap for the necropost notice — "4 months", "2 years".
+
+  Coarse on purpose: the point is "this is old", and "127 days" makes the
+  reader do the arithmetic. The day branch only matters if @necropost_days is
+  tuned below ~60.
+  """
+  def necropost_label(days) when days >= 365 do
+    years = div(days, 365)
+    ngettext("%{count} year", "%{count} years", years, count: years)
+  end
+
+  def necropost_label(days) when days >= 60 do
+    months = div(days, 30)
+    ngettext("%{count} month", "%{count} months", months, count: months)
+  end
+
+  def necropost_label(days) do
+    ngettext("%{count} day", "%{count} days", days, count: days)
+  end
+
+  @doc """
+  The topic author or a moderator+ (`edit_topics`) may edit the topic.
+
+  The author loses that right once staff close or archive the topic: locking a
+  thread has to stop the author from rewriting its title, category and tags,
+  otherwise the lock only stops replies. Staff keep editing either way, which
+  is what makes a lock recoverable. Mirrors `can_edit_post?/3`, and both defer
+  to `Forum.can_reply?/2` so "is this topic still open to its author" is
+  decided in exactly one place.
+  """
   def can_edit_topic?(nil, _topic), do: false
 
   def can_edit_topic?(user, topic) do
-    topic.user_id == user.id || Colloq.Permissions.can?(user, :edit_topics)
+    cond do
+      Colloq.Permissions.can?(user, :edit_topics) -> true
+      topic.user_id == user.id -> Forum.can_reply?(topic, user)
+      true -> false
+    end
   end
 
   @doc """
@@ -2686,6 +2743,182 @@ defmodule ColloqWeb.ForumLive.Topic do
           <%= gettext("No reactions yet.") %>
         </li>
       </ul>
+    </div>
+    """
+  end
+
+  # =========================================================================
+  # Topic stat chips
+  # =========================================================================
+
+  @doc """
+  Views / likes / participants / read-time chips.
+
+  Icon chips rather than number-over-label columns: keeps the bar one line tall
+  and matches the icon+label vocabulary of the action pills. The count stays
+  visible (icon-only would hide the number behind a hover), so the icon is
+  decorative and `aria-label` carries the full localized phrase.
+
+  Rendered in both the header and the footer bar.
+  """
+  attr :topic, Colloq.Forum.Topic, required: true
+  attr :stats, :map, required: true
+
+  def topic_stat_chips(assigns) do
+    ~H"""
+    <div class="flex items-center gap-4 text-sm text-muted">
+      <span
+        class="inline-flex items-center gap-1.5"
+        title={gettext("Views")}
+        aria-label={ngettext("%{count} view", "%{count} views", @topic.views_count, count: @topic.views_count)}
+      >
+        <.icon name="eye" class="w-4 h-4" aria-hidden="true" />
+        <span class="font-medium text-body"><%= @topic.views_count %></span>
+      </span>
+      <span
+        class="inline-flex items-center gap-1.5"
+        title={gettext("Likes")}
+        aria-label={ngettext("%{count} like", "%{count} likes", @stats.likes, count: @stats.likes)}
+      >
+        <.icon name="heart" class="w-4 h-4" aria-hidden="true" />
+        <span class="font-medium text-body"><%= @stats.likes %></span>
+      </span>
+      <span
+        class="inline-flex items-center gap-1.5"
+        title={gettext("Participants")}
+        aria-label={
+          ngettext("%{count} participant", "%{count} participants", @stats.participant_count,
+            count: @stats.participant_count
+          )
+        }
+      >
+        <.icon name="users" class="w-4 h-4" aria-hidden="true" />
+        <span class="font-medium text-body"><%= @stats.participant_count %></span>
+      </span>
+      <span
+        class="inline-flex items-center gap-1.5"
+        title={gettext("Read time")}
+        aria-label={gettext("%{count} minute read", count: @stats.read_minutes)}
+      >
+        <.icon name="clock" class="w-4 h-4" aria-hidden="true" />
+        <span class="font-medium text-body"><%= @stats.read_minutes %> min</span>
+      </span>
+    </div>
+    """
+  end
+
+  # =========================================================================
+  # Topic action pills
+  # =========================================================================
+
+  @doc """
+  The Top replies / notification level / Bookmark / Summarize pill group.
+
+  Rendered twice — once in the header stats bar, once in the footer after the
+  last post — so a reader who has scrolled to the bottom can watch or bookmark
+  without scrolling back up. Every id inside is namespaced by `id_prefix`,
+  because two copies of the notification dropdown sharing one id would make
+  JS.toggle target whichever came first in the DOM.
+  """
+  attr :id_prefix, :string, required: true
+  attr :sort, :atom, required: true
+  attr :current_user, :any, default: nil
+  attr :notification_level, :any, required: true
+  attr :topic_bookmarked, :boolean, default: false
+
+  attr :scroll_to_posts, :boolean,
+    default: false,
+    doc: """
+    Scroll up to the post list after re-sorting. Set by the footer copy, whose
+    button sits below the whole thread — without it the list reorders off
+    screen and the click looks inert.
+    """
+
+  def topic_actions(assigns) do
+    ~H"""
+    <div class="flex items-center gap-4">
+      <%!-- Sort the thread by reactions (most points first) --%>
+      <button
+        type="button"
+        id={"#{@id_prefix}-sort"}
+        phx-click={
+          if @scroll_to_posts,
+            do:
+              Phoenix.LiveView.JS.push("toggle-sort")
+              |> Phoenix.LiveView.JS.dispatch("colloq:scroll-to-posts"),
+            else: "toggle-sort"
+        }
+        aria-pressed={@sort == :top}
+        title={gettext("Sort replies by reactions")}
+        class={[
+          "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-sm font-medium transition-colors",
+          (@sort == :top && "bg-accent text-white border-accent") ||
+            "bg-surface-alt border-border text-body hover:bg-border"
+        ]}
+      >
+        <.icon name="layers" class="w-4 h-4" />
+        <%= gettext("Top replies") %>
+      </button>
+
+      <%!-- Notification level (Discourse-style) --%>
+      <div :if={@current_user} class="relative" id={"#{@id_prefix}-notif-level"}>
+        <button
+          type="button"
+          phx-click={Phoenix.LiveView.JS.toggle(to: "##{@id_prefix}-notif-level-menu")}
+          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-surface-alt border border-border text-sm font-medium text-body hover:bg-border transition-colors"
+        >
+          <.icon name={level_icon(@notification_level)} class="w-4 h-4 text-accent" />
+          <%= level_label(@notification_level) %>
+          <.icon name="chevron-down" class="w-3.5 h-3.5" />
+        </button>
+        <div
+          id={"#{@id_prefix}-notif-level-menu"}
+          class="hidden absolute right-0 mt-2 w-80 rounded-xl bg-surface border border-border shadow-lg p-1 z-30"
+          phx-click-away={Phoenix.LiveView.JS.hide()}
+        >
+          <button
+            :for={level <- notification_levels()}
+            type="button"
+            phx-click={
+              Phoenix.LiveView.JS.hide(to: "##{@id_prefix}-notif-level-menu")
+              |> Phoenix.LiveView.JS.push("set-notification-level", value: %{level: level})
+            }
+            class={[
+              "flex items-start gap-3 w-full text-left px-3 py-2.5 rounded-lg transition-colors",
+              (@notification_level == level && "bg-surface-alt") || "hover:bg-surface-alt"
+            ]}
+          >
+            <.icon name={level_icon(level)} class="w-4 h-4 mt-0.5 flex-shrink-0 text-accent" />
+            <span class="min-w-0">
+              <span class="block text-sm font-semibold text-heading"><%= level_label(level) %></span>
+              <span class="block text-xs text-muted mt-0.5"><%= level_description(level) %></span>
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <button
+        :if={@current_user}
+        type="button"
+        id={"#{@id_prefix}-bookmark"}
+        phx-click="toggle-topic-bookmark"
+        class={[
+          "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-sm font-medium transition-colors",
+          (@topic_bookmarked && "bg-warning-soft border-warning text-warning") ||
+            "bg-surface-alt border-border text-body hover:bg-border"
+        ]}
+      >
+        <.icon name={if @topic_bookmarked, do: "bookmark-filled", else: "bookmark"} class="w-4 h-4" />
+        <%= if @topic_bookmarked, do: gettext("Bookmarked"), else: gettext("Bookmark") %>
+      </button>
+      <button
+        type="button"
+        id={"#{@id_prefix}-summarize"}
+        phx-click="show-summary"
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-accent-soft border border-accent-border text-sm font-medium text-accent hover:bg-accent hover:text-white transition-colors"
+      >
+        <.icon name="sparkles" class="w-4 h-4" /><%= gettext("Summarize") %>
+      </button>
     </div>
     """
   end
