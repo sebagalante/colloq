@@ -55,7 +55,9 @@ defmodule Colloq.Workers.ScoreBotWorker do
     topic = Forum.get_topic!(to_int(topic_id))
 
     case fetch_live_events(fixture_id, topic.id) do
-      {:ok, events} ->
+      {:ok, events, event} ->
+        maybe_post_team_sheet(topic, fixture_id, event, true)
+
         # Every poll returns the fixture's FULL event list, so without this the
         # same goal is re-posted on each tick for the rest of the match. Events
         # already posted are identified by a stable key stored in event_data.
@@ -80,8 +82,11 @@ defmodule Colloq.Workers.ScoreBotWorker do
         finalize_match(topic, fixture_id, event)
         {:ok, :finished}
 
-      {:pending, _event} ->
-        # Match not live yet — keep polling until it kicks off.
+      {:pending, event} ->
+        # Match not live yet — keep polling until it kicks off. Lineups usually
+        # land during this window, which is the whole point of posting them from
+        # here rather than at kickoff.
+        maybe_post_team_sheet(topic, fixture_id, event, false)
         maybe_schedule_next_poll(fixture_id, topic_id)
         {:ok, :pending}
 
@@ -128,7 +133,7 @@ defmodule Colloq.Workers.ScoreBotWorker do
 
         cond do
           Sofascore.live?(event) ->
-            {:ok, event_id |> Sofascore.incidents() |> parse_events(event)}
+            {:ok, event_id |> Sofascore.incidents() |> parse_events(event), event}
 
           match_finished?(event) ->
             {:finished, event}
@@ -331,6 +336,78 @@ defmodule Colloq.Workers.ScoreBotWorker do
       "is_system" => true,
       "system_type" => "preview"
     })
+  end
+
+  # --- Team sheet ---
+
+  # The matchday card — both XIs, the benches, the absentees and the referee —
+  # posted at most once per thread. Sofascore publishes lineups about an hour
+  # before kickoff, so it is normally a pre-kickoff poll that catches them.
+  #
+  # Probable lineups are held back while the match hasn't started: they still
+  # change, and a board that turns out wrong is worse than one that arrives a
+  # little later. Once the match is live, what Sofascore has *is* what was
+  # fielded, so it goes up whether or not the payload says "confirmed".
+  #
+  # A match that kicks off with no lineups published still gets a card with the
+  # referee alone: coverage is often started at kickoff, and that is the last
+  # moment the information is worth anything.
+  defp maybe_post_team_sheet(topic, event_id, event, live?) do
+    event_id = to_int(event_id)
+    key = team_sheet_key(event_id)
+
+    if MapSet.member?(posted_event_keys(topic.id), key) do
+      :ok
+    else
+      case Sofascore.lineups(event_id) do
+        {:ok, lineups} ->
+          if lineups["confirmed"] || live? do
+            post_team_sheet(topic, event, lineups, key)
+          else
+            :ok
+          end
+
+        {:error, _reason} ->
+          if live?, do: post_team_sheet(topic, event, nil, key), else: :ok
+      end
+    end
+  end
+
+  defp post_team_sheet(topic, event, lineups, key) do
+    referee = Sofascore.referee(event)
+
+    # Nothing to show: no lineups and no official listed. Skipping without
+    # storing the key leaves the door open for a later poll.
+    if is_nil(lineups) and is_nil(referee) do
+      :ok
+    else
+      Forum.create_post(topic, get_or_create_scorebot_user(), %{
+        "body" => team_sheet_body(event, lineups, referee),
+        "is_system" => true,
+        "system_type" => "lineups",
+        "event_data" =>
+          event
+          |> Colloq.Sofascore.TeamSheet.build(lineups)
+          |> Map.put("key", key)
+      })
+
+      Logger.info("[ResultaBot] formaciones publicadas en topic #{topic.id}")
+      :ok
+    end
+  end
+
+  defp team_sheet_key(event_id), do: "teamsheet:#{event_id}"
+
+  defp team_sheet_body(_event, nil, referee) do
+    "🧑‍⚖️ <strong>Árbitro</strong> — dirige #{referee.name}. Sin formaciones publicadas todavía."
+  end
+
+  defp team_sheet_body(event, lineups, referee) do
+    s = Sofascore.match_summary(event)
+    label = if lineups["confirmed"], do: "Formaciones confirmadas", else: "Formaciones probables"
+    ref = if referee, do: " · Árbitro: #{referee.name}", else: ""
+
+    "👥 <strong>#{label}</strong> — #{s.home} vs #{s.away}#{ref}"
   end
 
   defp create_event_post(topic, event) do

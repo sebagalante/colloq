@@ -935,6 +935,151 @@ defmodule ColloqWeb.CoreComponents do
     """
   end
 
+  # ============= MATCHDAY TEAM SHEET =============
+  # ResultaBot's pre-kickoff card: both XIs, benches, absentees and the referee.
+  # The data is built by Colloq.Sofascore.TeamSheet and stored in the post's
+  # event_data, so every key here is a string — it has been through JSON.
+  #
+  # Two columns side by side on a wide screen, stacked on a phone: the two teams
+  # are read as a comparison, but forcing them side by side at 360px would give
+  # each XI half a line of width.
+  attr :sheet, :map, required: true
+
+  def team_sheet(assigns) do
+    ~H"""
+    <div class="not-prose mt-3 overflow-hidden rounded-xl border border-border bg-surface">
+      <div class="flex items-center justify-between border-b border-border bg-surface-alt px-4 py-2.5">
+        <span class="text-[11px] font-bold uppercase tracking-wider text-heading">
+          <%= gettext("Line-ups") %>
+        </span>
+        <span
+          :if={@sheet["has_lineups"]}
+          class={[
+            "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+            (@sheet["confirmed"] && "bg-emerald-500/15 text-emerald-500") ||
+              "bg-amber-400/15 text-amber-500"
+          ]}
+        >
+          <%= (@sheet["confirmed"] && gettext("Confirmed")) || gettext("Probable") %>
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+        <.team_sheet_side side={@sheet["home"]} />
+        <.team_sheet_side side={@sheet["away"]} />
+      </div>
+
+      <div
+        :if={@sheet["referee"]}
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border bg-surface-alt px-4 py-2.5"
+      >
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          <%= gettext("Referee") %>
+        </span>
+        <span class="text-sm font-semibold text-heading">
+          <%= @sheet["referee"]["name"] %>
+          <span :if={@sheet["referee"]["country"]} class="font-normal text-muted">
+            (<%= @sheet["referee"]["country"] %>)
+          </span>
+        </span>
+
+        <%!-- Season tallies: the part the thread actually argues about. --%>
+        <span class="ml-auto flex items-center gap-2 text-xs tabular-nums text-muted">
+          <span :if={@sheet["referee"]["games"]}>
+            <%= gettext("%{count} matches", count: @sheet["referee"]["games"]) %>
+          </span>
+          <span :if={@sheet["referee"]["yellow"]} class="flex items-center gap-1">
+            <span class="inline-block h-3 w-2 rounded-[1px] bg-amber-400"></span>
+            <%= @sheet["referee"]["yellow"] %>
+          </span>
+          <span :if={@sheet["referee"]["red"]} class="flex items-center gap-1">
+            <span class="inline-block h-3 w-2 rounded-[1px] bg-red-500"></span>
+            <%= @sheet["referee"]["red"] %>
+          </span>
+        </span>
+      </div>
+    </div>
+    """
+  end
+
+  attr :side, :map, required: true
+
+  defp team_sheet_side(assigns) do
+    ~H"""
+    <div class="px-4 py-3">
+      <div class="flex items-center gap-2">
+        <img :if={@side["crest"]} src={@side["crest"]} alt="" class="h-5 w-5 flex-shrink-0" />
+        <span class="min-w-0 flex-1 truncate text-sm font-bold text-heading"><%= @side["name"] %></span>
+        <span
+          :if={@side["formation"]}
+          class="flex-shrink-0 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold text-white"
+        >
+          <%= @side["formation"] %>
+        </span>
+      </div>
+
+      <ul :if={@side["starters"] != []} class="mt-2.5 space-y-1">
+        <.team_sheet_player :for={p <- @side["starters"]} player={p} side={@side} />
+      </ul>
+
+      <.team_sheet_label :if={@side["bench"] != []} text={gettext("Substitutes")} />
+      <ul :if={@side["bench"] != []} class="space-y-1">
+        <.team_sheet_player :for={p <- @side["bench"]} player={p} side={@side} small />
+      </ul>
+
+      <.team_sheet_label :if={@side["missing"] != []} text={gettext("Unavailable")} />
+      <ul :if={@side["missing"] != []} class="space-y-1">
+        <li :for={p <- @side["missing"]} class="flex items-center gap-2 text-xs">
+          <span class="min-w-0 flex-1 truncate text-muted line-through decoration-muted/40">
+            <%= p["name"] %>
+          </span>
+          <span :if={p["reason"]} class="flex-shrink-0 text-[10px] uppercase tracking-wide text-muted">
+            <%= p["reason"] %>
+          </span>
+        </li>
+      </ul>
+    </div>
+    """
+  end
+
+  attr :text, :string, required: true
+
+  defp team_sheet_label(assigns) do
+    ~H"""
+    <div class="mb-1.5 mt-3 border-t border-border pt-2 text-[10px] font-bold uppercase tracking-wider text-muted">
+      <%= @text %>
+    </div>
+    """
+  end
+
+  attr :player, :map, required: true
+  attr :side, :map, required: true
+  attr :small, :boolean, default: false
+
+  defp team_sheet_player(assigns) do
+    # The shirt chip is painted in the team's real kit, which is what makes two
+    # plain lists read as two teams at a glance.
+    kit = if assigns.player["gk"], do: assigns.side["gk_kit"], else: assigns.side["kit"]
+    assigns = assign(assigns, :kit, kit)
+
+    ~H"""
+    <li class={["flex items-center gap-2", (@small && "text-xs") || "text-sm"]}>
+      <span
+        class={[
+          "flex flex-shrink-0 items-center justify-center rounded border text-[10px] font-bold tabular-nums",
+          (@small && "h-4 w-6") || "h-5 w-7"
+        ]}
+        style={"background:##{@kit["primary"]};color:##{@kit["number"]};border-color:##{@kit["outline"]}"}
+      >
+        <%= @player["number"] %>
+      </span>
+      <span class={["min-w-0 truncate", (@player["gk"] && "text-muted") || "text-body"]}>
+        <%= @player["name"] %>
+      </span>
+    </li>
+    """
+  end
+
   # ============= STANDINGS TABLE (SVG) =============
   # Renders a Sofascore-style league table as an inline SVG stored in the system
   # post's event_data. We render it raw (not through the body sanitizer, which

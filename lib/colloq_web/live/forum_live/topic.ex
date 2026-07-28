@@ -3183,6 +3183,9 @@ defmodule ColloqWeb.ForumLive.Topic do
 
           <.standings_table :if={@post.system_type == "standings" && @post.event_data} data={@post.event_data} />
 
+          <%!-- Matchday team sheet (XIs, bench, absentees, referee). --%>
+          <.team_sheet :if={@post.system_type == "lineups" && @post.event_data} sheet={@post.event_data} />
+
           <%!-- Player comparison: reuses the generic SVG-in-event_data renderer. --%>
           <.standings_table :if={@post.system_type == "comparison" && @post.event_data} data={@post.event_data} />
 

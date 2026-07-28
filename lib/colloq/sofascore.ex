@@ -1382,6 +1382,56 @@ defmodule Colloq.Sofascore do
   end
 
   @doc """
+  Both teams' lineups for an event: formation, XI, bench and absentees.
+
+  Returns `{:error, :not_found}` until Sofascore publishes them — usually about
+  an hour before kickoff — so a caller polling before that gets a clean "not
+  yet" rather than an empty board.
+
+  `confirmed` in the payload separates the *probable* XI (published early, still
+  liable to change) from the real one, which is why the cache is short-lived
+  while unconfirmed: a probable lineup cached for hours would still be on screen
+  after the teams were announced.
+  """
+  def lineups(event_id) when is_integer(event_id) do
+    key = "sofascore:lineups:#{event_id}"
+
+    case Cachex.get(:forum_cache, key) do
+      {:ok, %{} = data} ->
+        {:ok, data}
+
+      _ ->
+        with {:ok, %{"home" => _, "away" => _} = data} <- api_get("/event/#{event_id}/lineups") do
+          ttl = if data["confirmed"], do: :timer.hours(4), else: :timer.minutes(5)
+          Cachex.put(:forum_cache, key, data, ttl: ttl)
+          {:ok, data}
+        else
+          {:ok, _} -> {:error, :unexpected_payload}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  @doc """
+  The match official from an `event/1` payload, or `nil` when none is listed.
+
+  Sofascore carries the referee's season tallies alongside the name, which is
+  the part people in the thread actually argue about — so they come along.
+  """
+  def referee(%{"referee" => %{"name" => name} = ref}) when is_binary(name) do
+    %{
+      name: name,
+      country: get_in(ref, ["country", "alpha3"]),
+      games: ref["games"],
+      yellow: ref["yellowCards"],
+      red: ref["redCards"],
+      yellow_red: ref["yellowRedCards"]
+    }
+  end
+
+  def referee(_event), do: nil
+
+  @doc """
   Flattens an `event/1` payload into the shape the match banner renders.
 
   Lives here rather than in the LiveView so the poller and the page agree on

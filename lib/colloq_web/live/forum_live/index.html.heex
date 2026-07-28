@@ -50,7 +50,7 @@
       <button
         phx-click="set-order"
         phx-value-order="replies"
-        class={["w-20 inline-flex items-center justify-end gap-0.5 hover:text-heading transition-colors", @order == :replies && "text-heading"]}
+        class={["w-20 inline-flex items-center justify-center gap-0.5 hover:text-heading transition-colors", @order == :replies && "text-heading"]}
       >
         <%= gettext("Replies") %>
         <.icon :if={@order == :replies} name="chevron-down" class="w-3 h-3" />
@@ -58,7 +58,7 @@
       <button
         phx-click="set-order"
         phx-value-order="top"
-        class={["w-16 inline-flex items-center justify-end gap-0.5 hover:text-heading transition-colors", @order == :top && "text-heading"]}
+        class={["w-16 inline-flex items-center justify-center gap-0.5 hover:text-heading transition-colors", @order == :top && "text-heading"]}
       >
         <%= gettext("Views") %>
         <.icon :if={@order == :top} name="chevron-down" class="w-3 h-3" />
@@ -66,7 +66,7 @@
       <button
         phx-click="set-order"
         phx-value-order="latest"
-        class={["w-20 inline-flex items-center justify-end gap-0.5 hover:text-heading transition-colors", @order in [:latest] && "text-heading"]}
+        class={["w-20 inline-flex items-center justify-center gap-0.5 hover:text-heading transition-colors", @order in [:latest] && "text-heading"]}
       >
         <%= gettext("Activity") %>
         <.icon :if={@order in [:latest]} name="chevron-down" class="w-3 h-3" />
@@ -180,13 +180,13 @@
             </span>
           </span>
         </div>
-        <div class="w-20 text-right font-semibold text-body tabular-nums">
+        <div class="w-20 text-center font-semibold text-body tabular-nums">
           <%= format_count(max(row.topic.posts_count - 1, 0)) %>
         </div>
-        <div class="w-16 text-right text-muted tabular-nums">
+        <div class="w-16 text-center text-muted tabular-nums">
           <%= format_count(row.topic.views_count) %>
         </div>
-        <div class="w-20 text-right text-xs whitespace-nowrap">
+        <div class="w-20 text-center text-xs whitespace-nowrap">
           <.link
             navigate={~p"/t/#{row.topic.id}/#{row.topic.slug}?#{[to: "latest"]}"}
             class="text-muted hover:text-accent transition-colors"
