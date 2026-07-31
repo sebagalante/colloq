@@ -458,15 +458,51 @@ Hooks.TopicTimeline = {
 };
 
 // =========================================================================
-// ChatComposer — DM composer: Enter-to-send, emoji picker, file attachments
+// ChatHistory — infinite back-scroll for the DM thread. Sits above the oldest
+// loaded message; when it scrolls into view the server prepends the previous
+// page. Prepending grows the scroll pane upward, so the reader's position has
+// to be re-anchored afterwards or the view jumps to the top of the new page.
+// =========================================================================
+Hooks.ChatHistory = {
+  mounted() {
+    this.scroller = document.getElementById(this.el.dataset.scroller);
+    this.loading = false;
+
+    this.observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting) || this.loading) return;
+        this.loading = true;
+
+        // Measured before the patch; the difference after it is exactly how
+        // much taller the prepended page made the pane.
+        const before = this.scroller ? this.scroller.scrollHeight : 0;
+
+        this.pushEvent("load-older", {}, () => {
+          if (this.scroller) {
+            this.scroller.scrollTop += this.scroller.scrollHeight - before;
+          }
+          this.loading = false;
+        });
+      },
+      // Start fetching slightly before the sentinel is actually visible.
+      { root: this.scroller, rootMargin: "200px 0px 0px 0px" }
+    );
+
+    this.observer.observe(this.el);
+  },
+  destroyed() {
+    if (this.observer) this.observer.disconnect();
+  }
+};
+
+// =========================================================================
+// ChatComposer — DM composer: Enter-to-send, emoji picker, stickers
 // =========================================================================
 Hooks.ChatComposer = {
   mounted() {
     const form = this.el;
     const textarea = form.querySelector("#chat-input");
     const emojiBtn = form.querySelector("#chat-emoji-btn");
-    const fileBtn = form.querySelector("#chat-file-btn");
-    const fileInput = form.querySelector("#chat-file");
 
     // --- Enter to send (Shift+Enter = newline) ---
     textarea.addEventListener("keydown", (ev) => {
@@ -647,34 +683,6 @@ Hooks.ChatComposer = {
       });
     }
 
-    // --- File attachments ---
-    fileBtn.addEventListener("click", () => fileInput.click());
-    fileInput.addEventListener("change", async () => {
-      const file = fileInput.files && fileInput.files[0];
-      fileInput.value = "";
-      if (!file) return;
-      const fd = new FormData();
-      fd.append("file", file);
-      const csrf = document.querySelector("meta[name='csrf-token']")?.getAttribute("content");
-      fileBtn.disabled = true;
-      try {
-        const res = await fetch("/api/chat/upload", {
-          method: "POST",
-          headers: { "x-csrf-token": csrf },
-          body: fd
-        });
-        const data = await res.json();
-        if (res.ok && data.url) {
-          this.pushEvent("send-file", { url: data.url, name: data.name, type: data.type });
-        } else {
-          alert(data.error || "No se pudo subir el archivo");
-        }
-      } catch (e) {
-        alert("Error al subir el archivo");
-      } finally {
-        fileBtn.disabled = false;
-      }
-    });
   },
   destroyed() {
     if (this._emojiPop) {

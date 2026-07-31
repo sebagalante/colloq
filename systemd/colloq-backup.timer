@@ -1,0 +1,19 @@
+# Nightly database backup.
+#
+#   systemctl enable --now colloq-backup.timer
+#   systemctl list-timers colloq-backup   # confirm the next run
+#   journalctl -u colloq-backup           # see what happened
+
+[Unit]
+Description=Nightly Colloq database backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+# Keeps every VPS on the planet from hammering its disk at exactly 03:30.
+RandomizedDelaySec=15m
+# Runs at next boot if the machine was off when it was due — a laptop-style
+# miss should not silently skip a night.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

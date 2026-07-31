@@ -104,7 +104,6 @@ defmodule ColloqWeb.Router do
     pipe_through [:browser, :require_authenticated_user]
 
     post "/api/upload", UploadController, :create
-    post "/api/chat/upload", UploadController, :attachment
     get "/api/users/search", MentionController, :search
     get "/api/stickers", MentionController, :stickers
     get "/api/tags/search", MentionController, :tags

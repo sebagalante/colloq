@@ -1,7 +1,7 @@
 defmodule Colloq.Accounts.User do
   @moduledoc """
   User schema for Colloq.
-  
+
   Trust levels (adapted from Discourse for a football forum):
   - TL0: New user (0 posts) — 100 posts/day, 100 reactions/day
   - TL1: Basic (10 posts, 1 day) — 200 posts/day, 200 reactions/day
@@ -17,9 +17,15 @@ defmodule Colloq.Accounts.User do
     field :email, :string
     field :username, :string
     field :display_name, :string
-    field :password_hash, :string
-    field :password, :string, virtual: true
-    field :password_confirmation, :string, virtual: true
+    # `redact: true` keeps these out of `inspect/1` output. Without it the
+    # plaintext password reaches anywhere a changeset or struct gets inspected:
+    # Ecto's debug logging on a constraint error, a crash report, or an
+    # exception forwarded to an error tracker. The hash is redacted too — it
+    # is not secret exactly, but a log aggregator is a poor place to leave
+    # something crackable offline.
+    field :password_hash, :string, redact: true
+    field :password, :string, virtual: true, redact: true
+    field :password_confirmation, :string, virtual: true, redact: true
 
     # Trust system
     field :trust_level, :integer, default: 0
@@ -30,7 +36,8 @@ defmodule Colloq.Accounts.User do
     field :is_admin, :boolean, default: false
 
     # Role-based access control
-    field :role, :string  # nil | "moderator" | "admin" | "super_admin"
+    # nil | "moderator" | "admin" | "super_admin"
+    field :role, :string
 
     # Two-factor authentication (TOTP)
     field :totp_secret, :binary
@@ -101,9 +108,19 @@ defmodule Colloq.Accounts.User do
   def update_changeset(user, attrs) do
     user
     |> cast(attrs, [
-      :username, :display_name, :bio, :location, :website,
-      :theme, :locale, :notifications_enabled, :allow_messages, :avatar_url, :flair,
-      :profile_header_url, :card_background_url
+      :username,
+      :display_name,
+      :bio,
+      :location,
+      :website,
+      :theme,
+      :locale,
+      :notifications_enabled,
+      :allow_messages,
+      :avatar_url,
+      :flair,
+      :profile_header_url,
+      :card_background_url
     ])
     |> validate_length(:display_name, max: 50)
     |> validate_length(:bio, max: 500)
@@ -144,17 +161,48 @@ defmodule Colloq.Accounts.User do
   defp validate_username(changeset) do
     changeset
     |> validate_length(:username, min: 3, max: 30)
-    |> validate_format(:username, ~r/^[a-zA-Z0-9_]+$/, message: gettext("letters, numbers and underscores only"))
+    |> validate_format(:username, ~r/^[a-zA-Z0-9_]+$/,
+      message: gettext("letters, numbers and underscores only")
+    )
     |> update_change(:username, &String.downcase/1)
   end
+
+  @doc """
+  Changeset for setting a new password on an existing user.
+
+  The reset-password flow used to hash straight into `Ecto.Changeset.change/2`,
+  which meant the rules enforced at registration did not apply to a reset —
+  the two paths could drift apart. Both go through here now.
+  """
+  def password_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:password, :password_confirmation])
+    |> validate_required([:password])
+    |> validate_password()
+    |> put_password_hash()
+  end
+
+  # Bcrypt hashes at most the first 72 bytes and silently ignores the rest, so
+  # a longer passphrase is not as strong as it looks — and the extra characters
+  # would start counting if the algorithm ever changed, invalidating passwords
+  # that used to work. Rejecting them outright keeps the stored hash and the
+  # password the user typed in agreement.
+  @max_password_bytes 72
 
   defp validate_password(changeset) do
     changeset
     |> validate_length(:password, min: 8, message: gettext("must be at least 8 characters"))
+    |> validate_length(:password,
+      max: @max_password_bytes,
+      count: :bytes,
+      message: gettext("must be at most %{count} characters", count: @max_password_bytes)
+    )
     |> validate_confirmation(:password, message: gettext("passwords do not match"))
   end
 
-  defp put_password_hash(%Ecto.Changeset{valid?: true, changes: %{password: password}} = changeset) do
+  defp put_password_hash(
+         %Ecto.Changeset{valid?: true, changes: %{password: password}} = changeset
+       ) do
     change(changeset, password_hash: Bcrypt.hash_pwd_salt(password))
   end
 
@@ -174,6 +222,7 @@ defmodule Colloq.Accounts.User do
   Checks if the user is currently suspended (suspension hasn't expired).
   """
   def suspended?(%__MODULE__{suspended_until: nil}), do: false
+
   def suspended?(%__MODULE__{suspended_until: until}) do
     DateTime.compare(DateTime.utc_now(), until) == :lt
   end
@@ -184,6 +233,7 @@ defmodule Colloq.Accounts.User do
   A silenced user can log in and read, but cannot post or reply.
   """
   def silenced?(%__MODULE__{silenced_until: nil}), do: false
+
   def silenced?(%__MODULE__{silenced_until: until}) do
     DateTime.compare(DateTime.utc_now(), until) == :lt
   end
@@ -200,6 +250,7 @@ defmodule Colloq.Accounts.User do
   Returns a human-readable moderation status.
   """
   def moderation_status(%__MODULE__{banned: true}), do: :banned
+
   def moderation_status(%__MODULE__{} = user) do
     cond do
       suspended?(user) -> :suspended

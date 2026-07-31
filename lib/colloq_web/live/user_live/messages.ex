@@ -3,6 +3,7 @@ defmodule ColloqWeb.UserLive.Messages do
 
   alias Colloq.Accounts
   alias Colloq.Messaging
+  alias Colloq.Messaging.Message
 
   @impl true
   def mount(_params, session, socket) do
@@ -16,12 +17,21 @@ defmodule ColloqWeb.UserLive.Messages do
       blocked_ids = Accounts.dm_blocked_user_ids(current_user.id)
       conversations = Messaging.list_conversations(current_user.id)
 
+      # Subscribed for the whole page rather than per thread: the sidebar used
+      # to refresh only inside the "dm:<id>" handler, so a message arriving in
+      # any thread you didn't have open left the list stale.
+      if connected?(socket), do: ColloqWeb.Endpoint.subscribe("dm_list:#{current_user.id}")
+
       socket =
         socket
         |> assign(:current_user, current_user)
         |> assign(:conversations, conversations)
         |> assign(:active_conversation, nil)
         |> assign(:messages, [])
+        |> assign(:has_more_messages, false)
+        # The message being quoted by the composer, if any.
+        |> assign(:replying_to, nil)
+        |> assign(:replying_to_id, nil)
         |> assign(:message_body, "")
         # Topic this LiveView is currently subscribed to, so we can drop it
         # before subscribing to another (see subscribe_to_conversation/2).
@@ -61,7 +71,8 @@ defmodule ColloqWeb.UserLive.Messages do
     if me.id in [conversation.user1_id, conversation.user2_id] do
       show_conversation(conversation, conversation_id, socket)
     else
-      {:noreply, put_flash(socket, :error, gettext("You don't have access to this conversation."))}
+      {:noreply,
+       put_flash(socket, :error, gettext("You don't have access to this conversation."))}
     end
   end
 
@@ -103,15 +114,27 @@ defmodule ColloqWeb.UserLive.Messages do
 
         Messaging.mark_read!(conversation_id, socket.assigns.current_user.id)
 
+        user_id = socket.assigns.current_user.id
+        messages = Messaging.list_messages(conversation.id, user_id)
+
         {:noreply,
          socket
          |> assign(:active_conversation, conversation)
-         |> assign(:messages, Messaging.list_messages(conversation.id, socket.assigns.current_user.id))
-         |> assign(:unread_messages, Messaging.unread_count(socket.assigns.current_user.id))
+         |> assign(:messages, messages)
+         # Switching threads drops a half-composed reply; the quoted message
+         # belongs to the conversation you just left.
+         |> assign(:replying_to, nil)
+         |> assign(:replying_to_id, nil)
+         |> assign(
+           :has_more_messages,
+           Messaging.more_messages?(conversation.id, user_id, oldest_cursor(messages))
+         )
+         |> assign(:unread_messages, Messaging.unread_count(user_id))
          |> assign(:page_title, other.display_name || other.username)}
       end
     else
-      {:noreply, put_flash(socket, :error, gettext("You don't have access to this conversation."))}
+      {:noreply,
+       put_flash(socket, :error, gettext("You don't have access to this conversation."))}
     end
   end
 
@@ -175,6 +198,48 @@ defmodule ColloqWeb.UserLive.Messages do
     end
   end
 
+  # Older history, one page at a time, triggered by the sentinel at the top of
+  # the thread. Replies (rather than :noreply) so the client can restore the
+  # scroll position once the prepended page has been patched in.
+  def handle_event("load-older", _params, socket) do
+    conv = socket.assigns.active_conversation
+    user = socket.assigns.current_user
+    cursor = oldest_cursor(socket.assigns.messages)
+
+    if conv && cursor do
+      older = Messaging.list_messages(conv.id, user.id, before: cursor)
+      messages = older ++ socket.assigns.messages
+
+      {:reply, %{},
+       socket
+       |> assign(:messages, messages)
+       |> assign(
+         :has_more_messages,
+         Messaging.more_messages?(conv.id, user.id, oldest_cursor(messages))
+       )}
+    else
+      {:reply, %{}, assign(socket, :has_more_messages, false)}
+    end
+  end
+
+  # Quote a message in the composer.
+  def handle_event("reply-to", %{"id" => id}, socket) do
+    case Integer.parse(to_string(id)) do
+      {message_id, _} ->
+        case Enum.find(socket.assigns.messages, &(&1.id == message_id)) do
+          nil -> {:noreply, socket}
+          message -> {:noreply, assign(socket, replying_to: message, replying_to_id: message.id)}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("cancel-reply", _params, socket) do
+    {:noreply, assign(socket, replying_to: nil, replying_to_id: nil)}
+  end
+
   # Delete one of your own messages (soft-delete).
   def handle_event("delete-message", %{"id" => id}, socket) do
     user = socket.assigns.current_user
@@ -184,7 +249,14 @@ defmodule ColloqWeb.UserLive.Messages do
       {message_id, _} when not is_nil(conv) ->
         case Messaging.delete_message(message_id, user) do
           {:ok, _} ->
-            {:noreply, assign(socket, :messages, Messaging.list_messages(conv.id, user.id))}
+            # Drop it from the window in place. Re-listing would throw away every
+            # older page the reader had already scrolled back through.
+            {:noreply,
+             assign(
+               socket,
+               :messages,
+               Enum.reject(socket.assigns.messages, &(&1.id == message_id))
+             )}
 
           _ ->
             {:noreply, socket}
@@ -315,7 +387,8 @@ defmodule ColloqWeb.UserLive.Messages do
                  |> push_patch(to: ~p"/messages/#{conversation.id}")}
 
               {:error, _} ->
-                {:noreply, put_flash(socket, :error, gettext("Could not start the conversation."))}
+                {:noreply,
+                 put_flash(socket, :error, gettext("Could not start the conversation."))}
             end
 
           {:error, :opted_out} ->
@@ -337,9 +410,13 @@ defmodule ColloqWeb.UserLive.Messages do
 
       case Messaging.can_message?(user, other) do
         :ok ->
-          case Messaging.send_message(conv.id, user, body) do
+          case Messaging.send_message(conv.id, user, body, socket.assigns.replying_to_id) do
             {:ok, _message} ->
-              {:noreply, assign(socket, :message_body, "")}
+              {:noreply,
+               socket
+               |> assign(:message_body, "")
+               |> assign(:replying_to, nil)
+               |> assign(:replying_to_id, nil)}
 
             {:error, _} ->
               {:noreply, put_flash(socket, :error, gettext("Could not send the message."))}
@@ -356,28 +433,13 @@ defmodule ColloqWeb.UserLive.Messages do
     end
   end
 
-  def handle_event("send-file", %{"url" => url} = params, socket) do
-    user = socket.assigns.current_user
-    conv = socket.assigns.active_conversation
-
-    if conv && Messaging.can_message?(user, other_user(conv, user)) == :ok do
-      Messaging.send_attachment(conv.id, user, %{
-        url: url,
-        name: params["name"],
-        type: params["type"]
-      })
-    end
-
-    {:noreply, socket}
-  end
-
   def handle_event("send-sticker", %{"url" => url}, socket) do
     user = socket.assigns.current_user
     conv = socket.assigns.active_conversation
 
     if conv && Colloq.Stickers.sticker_url?(url) &&
          Messaging.can_message?(user, other_user(conv, user)) == :ok do
-      Messaging.send_attachment(conv.id, user, %{url: url, name: "sticker", type: "sticker"})
+      Messaging.send_sticker(conv.id, user, url)
     end
 
     {:noreply, socket}
@@ -385,22 +447,19 @@ defmodule ColloqWeb.UserLive.Messages do
 
   @impl true
   def handle_info(%{event: "new_message", payload: payload}, socket) do
-    if payload.sender_id in socket.assigns.blocked_user_ids do
+    me = socket.assigns.current_user
+
+    # The row is loaded rather than rebuilt from the payload, so the appended
+    # bubble carries its real id and its quoted parent.
+    message =
+      if payload.sender_id in socket.assigns.blocked_user_ids,
+        do: nil,
+        else: Messaging.get_message_for_display(payload.message_id)
+
+    if is_nil(message) do
       {:noreply, socket}
     else
-      new_message = %{
-        id: System.unique_integer([:monotonic]),
-        body: payload.body,
-        user_id: payload.sender_id,
-        inserted_at: payload.timestamp,
-        read: false,
-        attachment_url: Map.get(payload, :attachment_url),
-        attachment_name: Map.get(payload, :attachment_name),
-        attachment_type: Map.get(payload, :attachment_type)
-      }
-
-      messages = socket.assigns.messages ++ [new_message]
-      me = socket.assigns.current_user
+      messages = socket.assigns.messages ++ [message]
 
       # Since the recipient is looking at this conversation, mark it read so the
       # header badge doesn't over-count.
@@ -413,6 +472,18 @@ defmodule ColloqWeb.UserLive.Messages do
        |> assign(:conversations, Messaging.list_conversations(me.id))
        |> assign(:unread_messages, Messaging.unread_count(me.id))}
     end
+  end
+
+  # A message landed in one of my conversations. Only the sidebar and the badge
+  # are touched: if that thread is also open, the "dm:<id>" handler above is
+  # what appends the bubble, and doing it here too would double it.
+  def handle_info(%{event: "conversations_changed"}, socket) do
+    me = socket.assigns.current_user
+
+    {:noreply,
+     socket
+     |> assign(:conversations, Messaging.list_conversations(me.id))
+     |> assign(:unread_messages, Messaging.unread_count(me.id))}
   end
 
   # The other participant opened the conversation and read our messages — flip
@@ -440,17 +511,73 @@ defmodule ColloqWeb.UserLive.Messages do
     end
   end
 
-  def attachment_image?(%{attachment_url: url, attachment_type: type})
-      when is_binary(url) and url != "" do
-    String.starts_with?(type || "", "image/")
+  @doc """
+  Hover actions for a message bubble: reply, plus delete on your own.
+
+  Rendered on whichever side of the bubble faces the middle of the pane —
+  before it for your own right-aligned messages, after it for theirs. The reply
+  arrow is mirrored to match, so it always points at the bubble it acts on
+  rather than off toward the edge.
+  """
+  attr :row, :map, required: true
+
+  def msg_actions(assigns) do
+    ~H"""
+    <div class="relative flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex-shrink-0">
+      <button
+        type="button"
+        phx-click="reply-to"
+        phx-value-id={@row.msg.id}
+        title={gettext("Reply")}
+        class="p-1 rounded text-muted hover:text-heading transition-colors"
+      >
+        <.icon name="reply" class={["w-4 h-4", @row.mine && "scale-x-[-1]"]} />
+      </button>
+      <button
+        :if={@row.mine}
+        type="button"
+        phx-click="delete-message"
+        phx-value-id={@row.msg.id}
+        data-confirm={gettext("Delete this message?")}
+        title={gettext("Delete")}
+        class="p-1 rounded text-muted hover:text-danger transition-colors"
+      >
+        <.icon name="trash-2" class="w-4 h-4" />
+      </button>
+    </div>
+    """
   end
 
-  def attachment_image?(_), do: false
+  # Paging cursor: the oldest persisted message on screen.
+  defp oldest_cursor(messages), do: Enum.find(messages, &match?(%Message{}, &1))
+
+  @doc """
+  The message quoted by `msg`, `:deleted` if it's gone, or nil if this isn't a
+  reply. A quoted message can vanish two ways — soft-deleted by its author, or
+  hard-deleted by the prune path, which nilifies `reply_to_id`'s target — and
+  both render the same placeholder.
+  """
+  def quoted(%{reply_to_id: nil}), do: nil
+  def quoted(%{reply_to: %Message{deleted_at: nil} = parent}), do: parent
+  def quoted(%{reply_to: %Message{}}), do: :deleted
+  def quoted(%{reply_to: nil}), do: :deleted
+  def quoted(_), do: nil
+
+  @doc "Name to show above a quoted message."
+  def quote_author(%Message{user_id: uid}, %{id: uid}), do: gettext("You")
+
+  def quote_author(%Message{} = parent, _current_user) do
+    # Matching the struct specifically, not `%{}` — `Ecto.Association.NotLoaded`
+    # is itself a map, so a loose pattern let an unloaded association through
+    # and blew up on the field access.
+    case parent.user do
+      %Colloq.Accounts.User{} = user -> user.display_name || user.username
+      _ -> gettext("Message")
+    end
+  end
 
   @doc "A sticker message renders as a bare floating image, not a bubble."
-  def sticker?(%{attachment_type: "sticker", attachment_url: url})
-      when is_binary(url) and url != "",
-      do: true
+  def sticker?(%{sticker_url: url}) when is_binary(url) and url != "", do: true
 
   def sticker?(_), do: false
 
@@ -458,7 +585,7 @@ defmodule ColloqWeb.UserLive.Messages do
   A Lottie/TGS sticker is vector JSON, not an image, so it can't go in an
   `<img>` — it's mounted by the LottieSticker hook instead.
   """
-  def lottie_sticker?(%{attachment_url: url} = msg) when is_binary(url) do
+  def lottie_sticker?(%{sticker_url: url} = msg) when is_binary(url) do
     sticker?(msg) and (String.ends_with?(url, ".tgs") or String.ends_with?(url, ".json"))
   end
 
@@ -495,11 +622,16 @@ defmodule ColloqWeb.UserLive.Messages do
   check once sent, a blue double check once the recipient has read it.
   """
   attr :read, :boolean, default: false
-  attr :variant, :atom, default: :accent, doc: ":accent (on the accent bubble) or :muted (on a light badge)"
+
+  attr :variant, :atom,
+    default: :accent,
+    doc: ":accent (on the accent bubble) or :muted (on a light badge)"
 
   def read_receipt(assigns) do
     assigns =
-      assign(assigns, :color,
+      assign(
+        assigns,
+        :color,
         cond do
           assigns.read and assigns.variant == :accent -> "text-sky-300"
           assigns.read -> "text-sky-500"
@@ -549,14 +681,16 @@ defmodule ColloqWeb.UserLive.Messages do
   @emoji_only ~r/^(?:\s|\p{So}|\p{Sk}|[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{FE0F}\x{200D}\x{20E3}\x{1F1E6}-\x{1F1FF}])+$/u
 
   @doc """
-  Whether a message is *only* emoji (up to 8) and has no attachment/embed — those
+  Whether a message is *only* emoji (up to 8) and has no sticker/embed — those
   render large and bubble-less, WhatsApp/Telegram-style.
   """
-  def emoji_only?(%{attachment_url: url}) when is_binary(url) and url != "", do: false
+  def emoji_only?(%{sticker_url: url}) when is_binary(url) and url != "", do: false
 
   def emoji_only?(%{body: body} = msg) when is_binary(body) do
     t = String.trim(body)
-    t != "" and String.length(t) <= 8 and message_embeds(msg) == [] and Regex.match?(@emoji_only, t)
+
+    t != "" and String.length(t) <= 8 and message_embeds(msg) == [] and
+      Regex.match?(@emoji_only, t)
   end
 
   def emoji_only?(_), do: false
@@ -572,9 +706,12 @@ defmodule ColloqWeb.UserLive.Messages do
 
   @doc """
   Annotates messages with grouping flags for a Telegram-style thread:
-    - `mine`  — sent by the current user
-    - `top`   — first of a run of consecutive same-sender messages (more spacing)
-    - `tail`  — last of the run (rounded "tail" corner + timestamp)
+    - `mine`      — sent by the current user
+    - `top`       — first of a run of consecutive same-sender messages (more spacing)
+    - `tail`      — last of the run (rounded "tail" corner + timestamp)
+    - `day_break` — label to render *above* this message when it opens a new
+      day, else nil. Bubbles only carry a clock time, so without these the
+      thread gives no way to tell an hour's gap from a fortnight's.
   """
   def message_rows(messages, current_user_id) do
     list = Enum.to_list(messages)
@@ -589,38 +726,102 @@ defmodule ColloqWeb.UserLive.Messages do
         msg: m,
         mine: m.user_id == current_user_id,
         top: is_nil(prev) or prev.user_id != m.user_id,
-        tail: is_nil(next) or next.user_id != m.user_id
+        tail: is_nil(next) or next.user_id != m.user_id,
+        day_break: day_break(prev, m)
       }
     end)
   end
+
+  # The oldest message on screen always gets a separator — with pagination it's
+  # the top of the loaded window, not necessarily the start of the thread.
+  defp day_break(nil, msg), do: day_label(msg.inserted_at)
+
+  defp day_break(prev, msg) do
+    unless same_day?(prev.inserted_at, msg.inserted_at), do: day_label(msg.inserted_at)
+  end
+
+  defp same_day?(a, b), do: local_date(a) == local_date(b)
+
+  defp local_date(datetime), do: datetime |> to_display_tz() |> DateTime.to_date()
+
+  defp day_label(datetime) do
+    date = local_date(datetime)
+    today = local_date(DateTime.utc_now())
+
+    cond do
+      date == today -> gettext("Today")
+      date == Date.add(today, -1) -> gettext("Yesterday")
+      date.year == today.year -> es_short_date(datetime)
+      true -> es_date(datetime)
+    end
+  end
+
+  @doc """
+  Clock time for a bubble.
+
+  Only the time — the day comes from the separator above it. The shared
+  `es_locale/1` collapses anything older than a month to a bare "14d", which
+  told the reader nothing about when a message was actually sent.
+  """
+  def chat_time(datetime), do: datetime |> to_display_tz() |> Calendar.strftime("%H:%M")
 
   def online?(user_id), do: ColloqWeb.Presence.online?(user_id)
 
   @doc """
   One-line preview for the conversation list.
-
-  Attachments are described by *kind* — dumping `attachment_name` verbatim is
-  how a sticker ended up previewing as the literal "📎 sticker".
   """
   def last_message_preview(conversation) do
     case conversation.last_message do
-      nil ->
-        gettext("No messages")
-
-      %{body: body} when is_binary(body) and body != "" ->
-        String.slice(body, 0..60)
-
-      msg ->
-        attachment_preview(msg)
+      nil -> gettext("No messages")
+      msg -> message_preview(msg)
     end
   end
 
-  defp attachment_preview(msg) do
+  @doc """
+  One-line plain-text summary of a message — used by the sidebar and by the
+  quoted-reply strip.
+
+  A body that is nothing but a media URL renders in-thread as an embed, so
+  previewing it verbatim spilled a raw https://… across the row. Those are
+  described by kind instead.
+  """
+  def message_preview(msg, max \\ 60) do
     cond do
-      sticker?(msg) -> "🏷 " <> gettext("Sticker")
-      attachment_image?(msg) -> "🖼 " <> gettext("Photo")
-      is_binary(msg.attachment_name) -> "📎 " <> msg.attachment_name
-      true -> "📎 " <> gettext("Attachment")
+      sticker?(msg) ->
+        "🏷 " <> gettext("Sticker")
+
+      has_text?(msg) ->
+        msg.body |> String.trim() |> ellipsize(max)
+
+      true ->
+        case message_embeds(msg) do
+          [%{type: type} | _] -> media_preview(type)
+          [] -> gettext("No messages")
+        end
     end
   end
+
+  @doc """
+  Shorter preview for the quoted strip inside a bubble.
+
+  The strip is one narrow line, so the sidebar's 60 characters were always cut
+  off by CSS mid-word with no ellipsis to show it had been.
+  """
+  def quote_preview(msg), do: message_preview(msg, 42)
+
+  # Cut on the last word boundary that fits rather than mid-word, and say so.
+  defp ellipsize(text, max) do
+    if String.length(text) <= max do
+      text
+    else
+      text
+      |> String.slice(0, max)
+      |> String.replace(~r/\s+\S*$/u, "")
+      |> Kernel.<>("…")
+    end
+  end
+
+  defp media_preview(:image), do: "🖼 " <> gettext("Image")
+  defp media_preview(:video), do: "🎬 " <> gettext("Video")
+  defp media_preview(_), do: "🔗 " <> gettext("Link")
 end

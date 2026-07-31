@@ -1,0 +1,28 @@
+# Database backup, driven by colloq-backup.timer (this unit is not enabled
+# directly — enable the timer).
+#
+# Runs as root because it uses `runuser -u postgres` for pg_dump and writes to
+# /var/backups/colloq with 0600. Install with:
+#   install -m 0644 systemd/colloq-backup.{service,timer} /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now colloq-backup.timer
+
+[Unit]
+Description=Colloq database backup
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/colloq/src/backup.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=colloq-backup
+
+# Set BACKUP_UPLOAD_CMD here (or in an EnvironmentFile) or backups never leave
+# this machine — see the header of backup.sh.
+# Environment=BACKUP_UPLOAD_CMD=rclone copy --config /etc/rclone.conf {} r2:colloq-backups/
+# Environment=KEEP_DAYS=14
+
+# A dump competing with request traffic should lose.
+Nice=10
+IOSchedulingClass=idle

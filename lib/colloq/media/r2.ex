@@ -27,7 +27,7 @@ defmodule Colloq.Media.R2 do
     content_type = Keyword.get(opts, :content_type, "application/octet-stream")
 
     bucket()
-    |> ExAws.S3.put_object(filename, data, content_type: content_type)
+    |> ExAws.S3.put_object(filename, data, put_opts(content_type, opts))
     |> ExAws.request()
     |> case do
       {:ok, %{status_code: status}} when status in 200..299 ->
@@ -63,6 +63,19 @@ defmodule Colloq.Media.R2 do
   end
 
   # --- config helpers --------------------------------------------------------
+
+  # Objects are served directly from the CDN domain, so no plug of ours ever
+  # sees the response — anything the browser must be told about a file has to
+  # be stored on the object itself. `disposition: :attachment` marks uploads
+  # that must never open as a document on that origin.
+  defp put_opts(content_type, opts) do
+    base = [content_type: content_type]
+
+    case Keyword.get(opts, :disposition) do
+      :attachment -> Keyword.put(base, :content_disposition, "attachment")
+      _ -> base
+    end
+  end
 
   defp bucket, do: config!(:bucket)
 

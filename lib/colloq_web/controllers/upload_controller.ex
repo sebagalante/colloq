@@ -1,6 +1,6 @@
 defmodule ColloqWeb.UploadController do
   @moduledoc """
-  Image uploads for the composer and chat attachments.
+  Image uploads for the composer.
 
   In prod (R2 selected) files go to Cloudflare R2 via `Colloq.Media`; otherwise
   they're written under priv/static/uploads and served from a local web path,
@@ -8,12 +8,14 @@ defmodule ColloqWeb.UploadController do
   """
   use ColloqWeb, :controller
 
+  alias Colloq.Media.Sniff
+
   @max_bytes 5_000_000
   @allowed ~w(image/png image/jpeg image/gif image/webp image/svg+xml)
 
   def create(conn, %{"file" => %Plug.Upload{} = upload}) do
-    with :ok <- validate(upload),
-         {:ok, url} <- store(upload) do
+    with {:ok, detected} <- validate(upload),
+         {:ok, url} <- store(upload, detected) do
       json(conn, %{url: url})
     else
       {:error, msg} -> conn |> put_status(422) |> json(%{error: msg})
@@ -24,48 +26,36 @@ defmodule ColloqWeb.UploadController do
     conn |> put_status(400) |> json(%{error: "no file"})
   end
 
-  @attachment_max_bytes 15_000_000
-
-  @doc """
-  Chat attachment upload — accepts any file type (up to 15 MB) and returns
-  its URL, original name and content type.
-  """
-  def attachment(conn, %{"file" => %Plug.Upload{} = upload}) do
+  # The client's `content_type` is not evidence of anything — it's a form field
+  # the uploader controls. The file's own bytes decide what this is, and the
+  # extension it gets stored under follows from that, so the two can no longer
+  # disagree (a `.html` declared as `image/png` used to land in priv/static and
+  # be served back as text/html).
+  defp validate(%Plug.Upload{path: path}) do
     cond do
-      File.stat!(upload.path).size > @attachment_max_bytes ->
-        conn |> put_status(422) |> json(%{error: "El archivo supera los 15 MB"})
+      File.stat!(path).size > @max_bytes ->
+        {:error, "El archivo supera los 5 MB"}
 
       true ->
-        case store(upload) do
-          {:ok, url} ->
-            json(conn, %{url: url, name: upload.filename, type: upload.content_type})
-
-          {:error, msg} ->
-            conn |> put_status(422) |> json(%{error: msg})
+        case Sniff.detect(path) do
+          {:ok, %{content_type: ct} = detected} when ct in @allowed -> {:ok, detected}
+          _ -> {:error, "Tipo de archivo no permitido"}
         end
     end
   end
 
-  def attachment(conn, _params) do
-    conn |> put_status(400) |> json(%{error: "no file"})
-  end
-
-  defp validate(%Plug.Upload{content_type: ct, path: path}) do
-    cond do
-      ct not in @allowed -> {:error, "Tipo de archivo no permitido"}
-      File.stat!(path).size > @max_bytes -> {:error, "El archivo supera los 5 MB"}
-      true -> :ok
-    end
-  end
-
-  defp store(%Plug.Upload{path: tmp, filename: name} = upload) do
-    ext = name |> Path.extname() |> String.downcase()
+  defp store(%Plug.Upload{path: tmp}, %{ext: ext} = detected) do
     fname = "#{System.system_time(:millisecond)}-#{:rand.uniform(1_000_000)}#{ext}"
 
     if Application.get_env(:colloq, :media_storage) == Colloq.Media.R2 do
+      # R2 serves objects straight from the CDN domain, where UploadHeaders
+      # never runs — the disposition has to be baked into the object's metadata
+      # at write time. The sandbox CSP still has to come from a Cloudflare
+      # Transform Rule on that hostname.
       case Colloq.Media.upload(File.read!(tmp),
              filename: fname,
-             content_type: upload.content_type
+             content_type: detected.content_type,
+             disposition: detected.disposition
            ) do
         {:ok, %{url: url}} -> {:ok, url}
         {:error, reason} -> {:error, "No se pudo subir el archivo: #{inspect(reason)}"}

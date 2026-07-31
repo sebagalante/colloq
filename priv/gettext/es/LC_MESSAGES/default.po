@@ -92,7 +92,7 @@ msgstr "Cuentas a monitorear (separadas por coma)"
 #: lib/colloq_web/live/forum_live/topic.ex:672
 #: lib/colloq_web/live/forum_live/topic.ex:1015
 #: lib/colloq_web/live/forum_live/topic.ex:1049
-#: lib/colloq_web/live/user_live/messages.ex:171
+#: lib/colloq_web/live/user_live/messages.ex:189
 #, elixir-autogen, elixir-format
 msgid "Action failed."
 msgstr "La acción falló."
@@ -147,17 +147,6 @@ msgstr "¿Ya tenés cuenta?"
 #, elixir-autogen, elixir-format
 msgid "Appearance"
 msgstr "Apariencia"
-
-#: lib/colloq_web/live/user_live/messages.html.heex:374
-#, elixir-autogen, elixir-format
-msgid "Attach file"
-msgstr "Adjuntar archivo"
-
-#: lib/colloq_web/live/user_live/messages.ex:623
-#: lib/colloq_web/live/user_live/messages.html.heex:322
-#, elixir-autogen, elixir-format
-msgid "Attachment"
-msgstr "Adjunto"
 
 #: lib/colloq_web/controllers/auth_controller.ex:68
 #: lib/colloq_web/controllers/auth_controller.ex:81
@@ -401,7 +390,7 @@ msgstr "Categoría actualizada."
 msgid "Choose a category."
 msgstr "Elegí una categoría."
 
-#: lib/colloq_web/live/user_live/messages.html.heex:425
+#: lib/colloq_web/live/user_live/messages.html.heex:457
 #, elixir-autogen, elixir-format
 msgid "Choose a contact from the list to start chatting."
 msgstr "Elegí un contacto de la lista para empezar a chatear."
@@ -550,12 +539,12 @@ msgstr "No se pudo guardar '%{key}'."
 msgid "Could not save. Check the fields."
 msgstr "No se pudo guardar. Revisa los campos."
 
-#: lib/colloq_web/live/user_live/messages.ex:345
+#: lib/colloq_web/live/user_live/messages.ex:417
 #, elixir-autogen, elixir-format
 msgid "Could not send the message."
 msgstr "No se pudo enviar el mensaje."
 
-#: lib/colloq_web/live/user_live/messages.ex:318
+#: lib/colloq_web/live/user_live/messages.ex:386
 #: lib/colloq_web/live/user_live/profile.ex:131
 #, elixir-autogen, elixir-format
 msgid "Could not start the conversation."
@@ -623,7 +612,7 @@ msgstr "Panel de Control"
 #: lib/colloq_web/live/admin_live/stickers.html.heex:120
 #: lib/colloq_web/live/admin_live/tags.html.heex:53
 #: lib/colloq_web/live/forum_live/topic.ex:3289
-#: lib/colloq_web/live/user_live/messages.html.heex:255
+#: lib/colloq_web/live/user_live/messages.ex:525
 #, elixir-autogen, elixir-format
 msgid "Delete"
 msgstr "Eliminar"
@@ -732,7 +721,7 @@ msgid "Email is required"
 msgstr "El email es obligatorio"
 
 #: lib/colloq_web/components/navigation.ex:380
-#: lib/colloq_web/live/user_live/messages.html.heex:397
+#: lib/colloq_web/live/user_live/messages.html.heex:429
 #, elixir-autogen, elixir-format
 msgid "Emoji"
 msgstr "Emoji"
@@ -831,6 +820,7 @@ msgid "Icon (emoji)"
 msgstr "Ícono (emoji)"
 
 #: lib/colloq_web/live/admin_live/emojis.html.heex:32
+#: lib/colloq_web/live/user_live/messages.ex:787
 #, elixir-autogen, elixir-format
 msgid "Image"
 msgstr "Imagen"
@@ -971,6 +961,7 @@ msgstr "Marcar todo como leído"
 msgid "Match"
 msgstr "Partido"
 
+#: lib/colloq_web/live/user_live/messages.ex:558
 #: lib/colloq_web/live/user_live/profile.html.heex:53
 #, elixir-autogen, elixir-format
 msgid "Message"
@@ -978,7 +969,7 @@ msgstr "Mensaje"
 
 #: lib/colloq_web/components/navigation.ex:137
 #: lib/colloq_web/components/navigation.ex:167
-#: lib/colloq_web/live/user_live/messages.ex:30
+#: lib/colloq_web/live/user_live/messages.ex:35
 #, elixir-autogen, elixir-format
 msgid "Messages"
 msgstr "Mensajes"
@@ -1033,7 +1024,7 @@ msgstr "Nuevo Bot"
 msgid "New Category"
 msgstr "Nueva Categoría"
 
-#: lib/colloq_web/live/user_live/messages.html.heex:433
+#: lib/colloq_web/live/user_live/messages.html.heex:465
 #, elixir-autogen, elixir-format
 msgid "New message"
 msgstr "Nuevo mensaje"
@@ -1087,12 +1078,13 @@ msgstr "Todavía no hay categorías."
 msgid "No custom emoji yet. Add your first one above."
 msgstr "Todavía no hay emojis personalizados. Agregá el primero arriba."
 
-#: lib/colloq_web/live/user_live/messages.ex:608
+#: lib/colloq_web/live/user_live/messages.ex:758
+#: lib/colloq_web/live/user_live/messages.ex:782
 #, elixir-autogen, elixir-format
 msgid "No messages"
 msgstr "Sin mensajes"
 
-#: lib/colloq_web/live/user_live/messages.html.heex:355
+#: lib/colloq_web/live/user_live/messages.html.heex:375
 #, elixir-autogen, elixir-format
 msgid "No messages yet. Write the first one!"
 msgstr "No hay mensajes todavía. ¡Escribí el primero!"
@@ -1130,7 +1122,7 @@ msgid "No topics yet."
 msgstr "No hay temas todavía."
 
 #: lib/colloq_web/live/admin_live/users.html.heex:212
-#: lib/colloq_web/live/user_live/messages.html.heex:448
+#: lib/colloq_web/live/user_live/messages.html.heex:480
 #, elixir-autogen, elixir-format
 msgid "No users found."
 msgstr "No se encontraron usuarios."
@@ -1362,6 +1354,7 @@ msgstr "Repetí la contraseña"
 
 #: lib/colloq_web/live/forum_live/topic.ex:3253
 #: lib/colloq_web/live/forum_live/topic.html.heex:456
+#: lib/colloq_web/live/user_live/messages.ex:514
 #, elixir-autogen, elixir-format
 msgid "Reply"
 msgstr "Responder"
@@ -1442,7 +1435,7 @@ msgstr "Buscar por usuario, email o nombre..."
 msgid "Search player..."
 msgstr "Buscar jugador..."
 
-#: lib/colloq_web/live/user_live/messages.html.heex:441
+#: lib/colloq_web/live/user_live/messages.html.heex:473
 #, elixir-autogen, elixir-format
 msgid "Search users by name…"
 msgstr "Buscar usuarios por nombre…"
@@ -1457,7 +1450,7 @@ msgstr "Buscar…"
 msgid "Season"
 msgstr "Temporada"
 
-#: lib/colloq_web/live/user_live/messages.html.heex:424
+#: lib/colloq_web/live/user_live/messages.html.heex:456
 #, elixir-autogen, elixir-format
 msgid "Select a conversation"
 msgstr "Seleccioná una conversación"
@@ -1468,7 +1461,7 @@ msgid "Select two players and a season to compare their stats."
 msgstr "Seleccioná dos jugadores y una temporada para comparar sus estadísticas."
 
 #: lib/colloq_web/live/admin_live/invites.ex:152
-#: lib/colloq_web/live/user_live/messages.html.heex:405
+#: lib/colloq_web/live/user_live/messages.html.heex:437
 #, elixir-autogen, elixir-format
 msgid "Send"
 msgstr "Enviar"
@@ -1799,7 +1792,7 @@ msgid "User not found"
 msgstr "Usuario no encontrado"
 
 #: lib/colloq_web/live/admin_live/badges.ex:140
-#: lib/colloq_web/live/user_live/messages.ex:301
+#: lib/colloq_web/live/user_live/messages.ex:368
 #, elixir-autogen, elixir-format
 msgid "User not found."
 msgstr "Usuario no encontrado."
@@ -1887,7 +1880,7 @@ msgstr "¿Por qué estás reportando esto?"
 msgid "Wins: Player A"
 msgstr "Victorias: Jugador A"
 
-#: lib/colloq_web/live/user_live/messages.html.heex:382
+#: lib/colloq_web/live/user_live/messages.html.heex:414
 #, elixir-autogen, elixir-format
 msgid "Write a message..."
 msgstr "Escribí un mensaje..."
@@ -1949,8 +1942,8 @@ msgstr "No podés editar este comentario."
 msgid "You cannot reply to this topic."
 msgstr "No podés responder en este tema."
 
-#: lib/colloq_web/live/user_live/messages.ex:64
-#: lib/colloq_web/live/user_live/messages.ex:114
+#: lib/colloq_web/live/user_live/messages.ex:70
+#: lib/colloq_web/live/user_live/messages.ex:132
 #, elixir-autogen, elixir-format
 msgid "You don't have access to this conversation."
 msgstr "No tenés acceso a esta conversación."
@@ -2039,7 +2032,7 @@ msgstr "por"
 
 ## Ecto validation messages (schemas)
 #: lib/colloq/accounts/invite.ex:37
-#: lib/colloq/accounts/user.ex:139
+#: lib/colloq/accounts/user.ex:156
 #, elixir-autogen, elixir-format
 msgid "invalid email"
 msgstr "email inválido"
@@ -2054,7 +2047,7 @@ msgstr "script inválido. Válidos: %{scripts}"
 msgid "invalid trigger. Valid: %{triggers}"
 msgstr "trigger inválido. Válidos: %{triggers}"
 
-#: lib/colloq/accounts/user.ex:147
+#: lib/colloq/accounts/user.ex:165
 #, elixir-autogen, elixir-format
 msgid "letters, numbers and underscores only"
 msgstr "solo letras, números y guiones bajos"
@@ -2069,17 +2062,17 @@ msgstr "mínimo 8 caracteres"
 msgid "must be a valid URL"
 msgstr "debe ser una URL válida"
 
-#: lib/colloq/accounts/user.ex:153
+#: lib/colloq/accounts/user.ex:194
 #, elixir-autogen, elixir-format
 msgid "must be at least 8 characters"
 msgstr "debe tener al menos 8 caracteres"
 
-#: lib/colloq/accounts/user.ex:168
+#: lib/colloq/accounts/user.ex:216
 #, elixir-autogen, elixir-format
 msgid "must start with http:// or https://"
 msgstr "debe comenzar con http:// o https://"
 
-#: lib/colloq/accounts/user.ex:154
+#: lib/colloq/accounts/user.ex:200
 #, elixir-autogen, elixir-format
 msgid "passwords do not match"
 msgstr "las contraseñas no coinciden"
@@ -2417,7 +2410,7 @@ msgstr "Ninguno ve al otro."
 msgid "User blocked. Neither of you will see each other's posts."
 msgstr "Usuario bloqueado. Ninguno verá las publicaciones del otro."
 
-#: lib/colloq_web/live/user_live/messages.ex:154
+#: lib/colloq_web/live/user_live/messages.ex:172
 #: lib/colloq_web/live/user_live/profile.ex:151
 #, elixir-autogen, elixir-format
 msgid "User ignored. You won't see their posts."
@@ -2428,7 +2421,7 @@ msgstr "Usuario ignorado. No verás sus publicaciones."
 msgid "You stop seeing their posts."
 msgstr "Dejás de ver sus publicaciones."
 
-#: lib/colloq_web/live/user_live/messages.ex:50
+#: lib/colloq_web/live/user_live/messages.ex:55
 #, elixir-autogen, elixir-format
 msgid "This conversation no longer exists."
 msgstr "Esta conversación ya no existe."
@@ -2698,15 +2691,15 @@ msgstr "Mensajes directos"
 msgid "Not accepting messages"
 msgstr "No acepta mensajes"
 
-#: lib/colloq_web/live/user_live/messages.ex:322
-#: lib/colloq_web/live/user_live/messages.ex:349
+#: lib/colloq_web/live/user_live/messages.ex:390
+#: lib/colloq_web/live/user_live/messages.ex:421
 #: lib/colloq_web/live/user_live/profile.ex:135
 #, elixir-autogen, elixir-format
 msgid "This user isn't accepting messages."
 msgstr "Este usuario no está aceptando mensajes."
 
-#: lib/colloq_web/live/user_live/messages.ex:325
-#: lib/colloq_web/live/user_live/messages.ex:352
+#: lib/colloq_web/live/user_live/messages.ex:393
+#: lib/colloq_web/live/user_live/messages.ex:424
 #: lib/colloq_web/live/user_live/profile.ex:138
 #, elixir-autogen, elixir-format
 msgid "You can't message this user."
@@ -2722,12 +2715,12 @@ msgstr "¿Bloquear a este usuario? Ninguno de los dos va a poder enviarle mensaj
 msgid "Options"
 msgstr "Opciones"
 
-#: lib/colloq_web/live/user_live/messages.ex:155
+#: lib/colloq_web/live/user_live/messages.ex:173
 #, elixir-autogen, elixir-format
 msgid "User blocked. Neither of you will be able to message the other."
 msgstr "Usuario bloqueado. Ninguno de los dos va a poder enviarle mensajes al otro."
 
-#: lib/colloq_web/live/user_live/messages.ex:266
+#: lib/colloq_web/live/user_live/messages.ex:333
 #: lib/colloq_web/live/user_live/settings.ex:221
 #, elixir-autogen, elixir-format
 msgid "User unblocked."
@@ -2745,7 +2738,7 @@ msgid "You blocked this user. They can't message you."
 msgstr "Bloqueaste a este usuario. No puede enviarte mensajes."
 
 ## user_live/messages.html.heex
-#: lib/colloq_web/live/user_live/messages.ex:218
+#: lib/colloq_web/live/user_live/messages.ex:285
 #, elixir-autogen, elixir-format
 msgid "Conversation deleted."
 msgstr "Conversación eliminada."
@@ -2761,7 +2754,7 @@ msgstr "Eliminar conversación"
 msgid "Delete this conversation for you? The other person keeps their copy."
 msgstr "¿Eliminar esta conversación para vos? La otra persona conserva su copia."
 
-#: lib/colloq_web/live/user_live/messages.html.heex:254
+#: lib/colloq_web/live/user_live/messages.ex:524
 #, elixir-autogen, elixir-format
 msgid "Delete this message?"
 msgstr "¿Eliminar este mensaje?"
@@ -2803,7 +2796,7 @@ msgstr "Se eliminaron %{count} notificaciones leídas."
 msgid "online"
 msgstr "en línea"
 
-#: lib/colloq_web/live/user_live/messages.html.heex:421
+#: lib/colloq_web/live/user_live/messages.html.heex:453
 #, elixir-autogen, elixir-format
 msgid "No conversations yet"
 msgstr "Todavía no tenés conversaciones"
@@ -2813,7 +2806,7 @@ msgstr "Todavía no tenés conversaciones"
 msgid "Tap “+ New” above to start one."
 msgstr "Tocá “+ Nuevo” arriba para empezar."
 
-#: lib/colloq_web/live/user_live/messages.html.heex:422
+#: lib/colloq_web/live/user_live/messages.html.heex:454
 #, elixir-autogen, elixir-format
 msgid "Tap “+ New” to start one."
 msgstr "Tocá “+ Nuevo” para empezar."
@@ -3196,11 +3189,6 @@ msgstr "Pack creado."
 msgid "Pack deleted."
 msgstr "Pack eliminado."
 
-#: lib/colloq_web/live/user_live/messages.ex:621
-#, elixir-autogen, elixir-format
-msgid "Photo"
-msgstr "Foto"
-
 #: lib/colloq_web/live/admin_live/stickers.ex:117
 #, elixir-autogen, elixir-format
 msgid "Please choose at least one image."
@@ -3306,7 +3294,7 @@ msgstr "Configurá primero el id de temporada (Configuración ▸ Match Day ▸ 
 msgid "Sofascore"
 msgstr "Sofascore"
 
-#: lib/colloq_web/live/user_live/messages.ex:620
+#: lib/colloq_web/live/user_live/messages.ex:774
 #, elixir-autogen, elixir-format
 msgid "Sticker"
 msgstr "Sticker"
@@ -3319,7 +3307,7 @@ msgstr "Sticker eliminado."
 #: lib/colloq_web/components/navigation.ex:386
 #: lib/colloq_web/live/admin_live/stickers.ex:15
 #: lib/colloq_web/live/admin_live/stickers.html.heex:3
-#: lib/colloq_web/live/user_live/messages.html.heex:389
+#: lib/colloq_web/live/user_live/messages.html.heex:421
 #, elixir-autogen, elixir-format
 msgid "Stickers"
 msgstr "Stickers"
@@ -3442,7 +3430,7 @@ msgstr "Búsqueda web"
 msgid "Which provider and model generate topic summaries. Only providers configured in the environment can be selected."
 msgstr "Qué proveedor y modelo generan los resúmenes. Solo se pueden elegir proveedores configurados en el entorno."
 
-#: lib/colloq_web/live/user_live/messages.ex:167
+#: lib/colloq_web/live/user_live/messages.ex:185
 #: lib/colloq_web/live/user_live/profile.ex:166
 #, elixir-autogen, elixir-format
 msgid "You can't block staff. You can ignore them to hide their posts."
@@ -3550,12 +3538,12 @@ msgstr "Ir a la última publicación"
 msgid "New replies"
 msgstr "Respuestas nuevas"
 
-#: lib/colloq_web/live/user_live/messages.ex:512
+#: lib/colloq_web/live/user_live/messages.ex:627
 #, elixir-autogen, elixir-format
 msgid "Read"
 msgstr "Leído"
 
-#: lib/colloq_web/live/user_live/messages.ex:512
+#: lib/colloq_web/live/user_live/messages.ex:627
 #, elixir-autogen, elixir-format
 msgid "Sent"
 msgstr "Enviado"
@@ -5498,3 +5486,53 @@ msgstr "Suplentes"
 #, elixir-autogen, elixir-format
 msgid "Unavailable"
 msgstr "Bajas"
+
+#: lib/colloq_web/live/user_live/messages.ex:789
+#, elixir-autogen, elixir-format
+msgid "Link"
+msgstr "Enlace"
+
+#: lib/colloq_web/live/user_live/messages.html.heex:246
+#, elixir-autogen, elixir-format
+msgid "Loading earlier messages..."
+msgstr "Cargando mensajes anteriores..."
+
+#: lib/colloq_web/live/user_live/messages.ex:735
+#, elixir-autogen, elixir-format
+msgid "Today"
+msgstr "Hoy"
+
+#: lib/colloq_web/live/user_live/messages.ex:788
+#, elixir-autogen, elixir-format
+msgid "Video"
+msgstr "Video"
+
+#: lib/colloq_web/live/user_live/messages.ex:736
+#, elixir-autogen, elixir-format
+msgid "Yesterday"
+msgstr "Ayer"
+
+#: lib/colloq/accounts/user.ex:198
+#, elixir-autogen, elixir-format
+msgid "must be at most %{count} characters"
+msgstr ""
+
+#: lib/colloq_web/live/user_live/messages.html.heex:397
+#, elixir-autogen, elixir-format
+msgid "Cancel reply"
+msgstr "Cancelar respuesta"
+
+#: lib/colloq_web/live/user_live/messages.html.heex:326
+#, elixir-autogen, elixir-format
+msgid "Deleted message"
+msgstr "Mensaje eliminado"
+
+#: lib/colloq_web/live/user_live/messages.html.heex:390
+#, elixir-autogen, elixir-format
+msgid "Replying to %{who}"
+msgstr "Respondiendo a %{who}"
+
+#: lib/colloq_web/live/user_live/messages.ex:550
+#, elixir-autogen, elixir-format
+msgid "You"
+msgstr "Tú"

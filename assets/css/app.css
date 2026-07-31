@@ -989,6 +989,23 @@ h1 img.custom-emoji, h2 img.custom-emoji, h3 img.custom-emoji {
   border-radius: 12px;
   font-size: 0.8125rem;
 }
+/* Incoming bubbles sit on the chat wallpaper, not on --bg, so --surface-alt
+   left them almost edgeless against it (on the dark themes the two are #0d1117
+   and #0b1622 — a difference you can't see). Dark themes get an explicit lift
+   off the wallpaper, hardcoded the same way .chat-pattern hardcodes its base. */
+.chat-bubble-in {
+  background-color: var(--surface-alt);
+  border: 1px solid var(--border);
+}
+.theme-dark .chat-bubble-in,
+.theme-racing .chat-bubble-in,
+.theme-racing_navy .chat-bubble-in,
+.theme-racing_salmon .chat-bubble-in,
+.theme-dracula .chat-bubble-in,
+.theme-tokyo_night .chat-bubble-in {
+  background-color: #182533;
+  border-color: #24384f;
+}
 .chat-bubble,
 .chat-bubble * {
   line-height: 1.25;

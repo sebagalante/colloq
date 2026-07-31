@@ -230,9 +230,30 @@
 
       <%!-- Messages --%>
       <div id="messages-container" phx-hook="AutoScroll" class="flex-1 overflow-y-auto px-4 py-4 chat-pattern">
-        <div class="max-w-3xl mx-auto flex flex-col">
+        <%!-- min-h-full + justify-end keeps a short thread resting on the
+             composer instead of floating at the top of an empty pane. Once the
+             content is taller than the pane the container simply grows and the
+             justification stops mattering. --%>
+        <div class="max-w-3xl mx-auto flex flex-col min-h-full justify-end">
+          <%!-- Scrolling to the top of the thread pulls in the previous page. --%>
           <div
-            :for={row <- message_rows(@messages, @current_user.id)}
+            :if={@has_more_messages}
+            id="chat-history-sentinel"
+            phx-hook="ChatHistory"
+            data-scroller="messages-container"
+            class="flex justify-center py-3"
+          >
+            <span class="text-xs text-muted"><%= gettext("Loading earlier messages...") %></span>
+          </div>
+          <%!-- `contents` makes this wrapper invisible to the flex layout, so the
+               day separator and the message row stay siblings of each other. --%>
+          <div :for={row <- message_rows(@messages, @current_user.id)} class="contents">
+          <div :if={row.day_break} class="flex justify-center my-3">
+            <span class="px-2.5 py-1 rounded-full text-[11px] font-medium text-muted bg-surface/80 border border-border backdrop-blur-sm">
+              <%= row.day_break %>
+            </span>
+          </div>
+          <div
             id={"msg-row-#{row.msg.id}"}
             class={[
               "group flex items-end gap-1.5",
@@ -246,17 +267,7 @@
               end
             ]}
           >
-            <button
-              :if={row.mine}
-              type="button"
-              phx-click="delete-message"
-              phx-value-id={row.msg.id}
-              data-confirm={gettext("Delete this message?")}
-              title={gettext("Delete")}
-              class="opacity-0 group-hover:opacity-100 p-1 rounded text-muted hover:text-danger transition-opacity flex-shrink-0"
-            >
-              <.icon name="trash-2" class="w-4 h-4" />
-            </button>
+            <.msg_actions :if={row.mine} row={row} />
             <%!-- Sticker: bare floating image, no bubble --%>
             <div :if={sticker?(row.msg)} class="relative max-w-[128px]">
               <%!-- Lottie/TGS: vector, mounted by JS. Raster stickers (animated
@@ -266,19 +277,19 @@
                 id={"lottie-#{row.msg.id}"}
                 phx-hook="LottieSticker"
                 phx-update="ignore"
-                data-src={row.msg.attachment_url}
+                data-src={row.msg.sticker_url}
                 class="w-32 h-32 drop-shadow-sm"
               >
               </div>
               <img
                 :if={!lottie_sticker?(row.msg)}
-                src={row.msg.attachment_url}
+                src={row.msg.sticker_url}
                 alt="sticker"
                 class="w-32 h-32 object-contain drop-shadow-sm"
                 loading="lazy"
               />
               <span class="absolute bottom-0 right-0 flex items-center gap-1 text-[10px] leading-none text-muted bg-bg/70 rounded px-1 py-0.5">
-                <%= es_locale(row.msg.inserted_at) %>
+                <%= chat_time(row.msg.inserted_at) %>
                 <.read_receipt :if={row.mine} read={row.msg.read} variant={:muted} />
               </span>
             </div>
@@ -287,40 +298,50 @@
               <span class="text-[2.75rem] leading-none"><%= render_body(row.msg.body) %></span>
               <span class="flex items-center gap-0.5">
                 <span class="text-[10px] leading-none text-muted whitespace-nowrap">
-                  <%= es_locale(row.msg.inserted_at) %>
+                  <%= chat_time(row.msg.inserted_at) %>
                 </span>
                 <.read_receipt :if={row.mine} read={row.msg.read} variant={:muted} />
               </span>
             </div>
             <div :if={!sticker?(row.msg) && !emoji_only?(row.msg)} class={[
               "chat-bubble max-w-[72%]",
-              row.mine && "bg-accent text-white" || "bg-surface-alt text-body"
+              row.mine && "bg-accent text-white" || "chat-bubble-in text-body"
             ]}>
-              <%!-- Image attachment --%>
+              <%!-- Quoted message. Clicking jumps to the original if it's still
+                   in the loaded window; the browser ignores a missing anchor. --%>
+              <%!-- max-w caps how far the quote can stretch the bubble: without
+                   it a one-line quote dragged the bubble out to its full 72%
+                   even when the reply itself was two words. --%>
               <a
-                :if={attachment_image?(row.msg)}
-                href={row.msg.attachment_url}
-                target="_blank"
-                rel="noopener"
-                class="block mb-1 -mx-1.5 -mt-0.5 overflow-hidden rounded-2xl"
-              >
-                <img src={row.msg.attachment_url} alt={row.msg.attachment_name} class="max-h-64 max-w-full w-auto" loading="lazy" />
-              </a>
-              <%!-- Non-image file attachment --%>
-              <a
-                :if={row.msg.attachment_url && !attachment_image?(row.msg)}
-                href={row.msg.attachment_url}
-                download={row.msg.attachment_name}
-                target="_blank"
-                rel="noopener"
+                :if={quoted(row.msg)}
+                href={"#msg-row-#{row.msg.reply_to_id}"}
                 class={[
-                  "flex items-center gap-2 mb-1 rounded-lg px-3 py-2",
-                  row.mine && "bg-white/15" || "bg-surface-alt"
+                  "block w-full max-w-[15rem] mb-1 mt-0.5 pl-2 pr-1.5 py-1 rounded-md border-l-2 no-underline",
+                  row.mine && "border-white/70 bg-white/10" || "border-accent bg-accent-soft/50"
                 ]}
               >
-                <.icon name="file" class="w-5 h-5 flex-shrink-0" />
-                <span class="truncate"><%= row.msg.attachment_name || gettext("Attachment") %></span>
-                <.icon name="download" class="w-4 h-4 flex-shrink-0 ml-auto opacity-70" />
+                <%= case quoted(row.msg) do %>
+                  <% :deleted -> %>
+                    <span class={[
+                      "block text-[11px] leading-tight italic",
+                      row.mine && "text-white/70" || "text-muted"
+                    ]}>
+                      <%= gettext("Deleted message") %>
+                    </span>
+                  <% parent -> %>
+                    <span class={[
+                      "block text-[11px] leading-tight font-semibold truncate",
+                      row.mine && "text-white/90" || "text-accent"
+                    ]}>
+                      <%= quote_author(parent, @current_user) %>
+                    </span>
+                    <span class={[
+                      "block text-[11px] leading-tight truncate",
+                      row.mine && "text-white/70" || "text-muted"
+                    ]}>
+                      <%= quote_preview(parent) %>
+                    </span>
+                <% end %>
               </a>
               <%!-- Media/link embeds from URLs in the body (images, GIFs, YouTube…),
                    same detection as forum posts. --%>
@@ -331,21 +352,30 @@
                 <ColloqWeb.ForumLive.Topic.media_embed embed={emb} />
               </div>
               <%!-- Body + inline timestamp & read receipt (Telegram-style) --%>
+              <%!-- flex-1 on the body pins the meta to the bubble's right edge.
+                   Without it the timestamp sat immediately after the text, which
+                   stranded it mid-bubble whenever a quote made the bubble wider
+                   than the reply itself. --%>
               <div class="flex items-end gap-2">
-                <span :if={has_text?(row.msg)} class="whitespace-pre-wrap break-words min-w-0">
+                <span
+                  :if={has_text?(row.msg)}
+                  class="flex-1 whitespace-pre-wrap break-words min-w-0"
+                >
                   <%= render_body(row.msg.body) %>
                 </span>
-                <span class="flex items-center gap-0.5 self-end">
+                <span class="flex items-center gap-0.5 self-end flex-shrink-0 ml-auto">
                   <span class={[
                     "text-[10px] leading-none whitespace-nowrap",
                     row.mine && "text-white/70" || "text-muted"
                   ]}>
-                    <%= es_locale(row.msg.inserted_at) %>
+                    <%= chat_time(row.msg.inserted_at) %>
                   </span>
                   <.read_receipt :if={row.mine} read={row.msg.read} />
                 </span>
               </div>
             </div>
+            <.msg_actions :if={!row.mine} row={row} />
+          </div>
           </div>
 
           <div :if={@messages == []} class="flex flex-col items-center justify-center py-20 text-center">
@@ -359,6 +389,27 @@
 
       <%!-- Composer --%>
       <div class="px-4 py-3 border-t border-border bg-surface">
+        <%!-- Reply strip: what the next message will quote. --%>
+        <div
+          :if={@replying_to}
+          class="max-w-3xl mx-auto mb-2 flex items-center gap-2 rounded-xl border-l-2 border-accent bg-accent-soft/40 pl-2 pr-1 py-1.5"
+        >
+          <.icon name="reply" class="w-4 h-4 text-accent flex-shrink-0" />
+          <div class="min-w-0 flex-1">
+            <p class="text-[11px] font-semibold text-accent truncate">
+              <%= gettext("Replying to %{who}", who: quote_author(@replying_to, @current_user)) %>
+            </p>
+            <p class="text-[11px] text-muted truncate"><%= message_preview(@replying_to) %></p>
+          </div>
+          <button
+            type="button"
+            phx-click="cancel-reply"
+            title={gettext("Cancel reply")}
+            class="p-1 rounded text-muted hover:text-heading flex-shrink-0"
+          >
+            <.icon name="x" class="w-4 h-4" />
+          </button>
+        </div>
         <form
           id="chat-form"
           phx-submit="send"
@@ -366,16 +417,7 @@
           phx-hook="ChatComposer"
           class="flex items-end gap-2 max-w-3xl mx-auto"
         >
-          <input type="file" id="chat-file" class="hidden" />
           <div class="flex-1 flex items-end gap-1 rounded-2xl border border-border bg-bg px-1.5 py-1 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/40 transition-colors">
-            <button
-              type="button"
-              id="chat-file-btn"
-              title={gettext("Attach file")}
-              class="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-full text-muted hover:text-heading hover:bg-border transition-colors"
-            >
-              <.icon name="paperclip" class="w-5 h-5" />
-            </button>
             <textarea
               id="chat-input"
               name="body"

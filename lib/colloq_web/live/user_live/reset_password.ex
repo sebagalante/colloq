@@ -2,6 +2,7 @@ defmodule ColloqWeb.UserLive.ResetPassword do
   use ColloqWeb, :live_view
 
   alias Colloq.Accounts
+  alias Colloq.Accounts.User
   alias Colloq.Repo
 
   # Phoenix.Token.verify/4 takes `max_age` in SECONDS. `:timer.hours(1)` is
@@ -13,7 +14,9 @@ defmodule ColloqWeb.UserLive.ResetPassword do
 
     user =
       if token do
-        case Phoenix.Token.verify(ColloqWeb.Endpoint, "reset_password", token, max_age: @token_max_age) do
+        case Phoenix.Token.verify(ColloqWeb.Endpoint, "reset_password", token,
+               max_age: @token_max_age
+             ) do
           {:ok, user_id} -> Accounts.get_user(user_id)
           {:error, _reason} -> nil
         end
@@ -41,7 +44,11 @@ defmodule ColloqWeb.UserLive.ResetPassword do
     {:noreply, assign(socket, form: form)}
   end
 
-  def handle_event("save", %{"user" => %{"password" => password, "password_confirmation" => confirmation}}, socket) do
+  def handle_event(
+        "save",
+        %{"user" => %{"password" => password, "password_confirmation" => confirmation}},
+        socket
+      ) do
     user = socket.assigns.user
 
     cond do
@@ -76,9 +83,15 @@ defmodule ColloqWeb.UserLive.ResetPassword do
          |> assign(form: form, submitted: false)}
 
       true ->
-        password_hash = Bcrypt.hash_pwd_salt(password)
-
-        case user |> Ecto.Changeset.change(password_hash: password_hash) |> Repo.update() do
+        # Goes through the same changeset registration uses, so the length and
+        # confirmation rules can't drift between the two ways to set a password
+        # — and the hashing lives in one place.
+        case user
+             |> User.password_changeset(%{
+               password: password,
+               password_confirmation: confirmation
+             })
+             |> Repo.update() do
           {:ok, _user} ->
             {:noreply,
              socket
@@ -88,7 +101,10 @@ defmodule ColloqWeb.UserLive.ResetPassword do
           {:error, _changeset} ->
             {:noreply,
              socket
-             |> put_flash(:error, "Ocurrió un error al actualizar la contraseña. Intentá de nuevo.")}
+             |> put_flash(
+               :error,
+               "Ocurrió un error al actualizar la contraseña. Intentá de nuevo."
+             )}
         end
     end
   end
@@ -100,10 +116,17 @@ defmodule ColloqWeb.UserLive.ResetPassword do
       if is_nil(password) || String.trim(password) == "" do
         [{"password", "La contraseña es obligatoria"} | errors]
       else
-        if String.length(password) < 8 do
-          [{"password", "La contraseña debe tener al menos 8 caracteres"} | errors]
-        else
-          errors
+        cond do
+          String.length(password) < 8 ->
+            [{"password", "La contraseña debe tener al menos 8 caracteres"} | errors]
+
+          # Mirrors the 72-byte bcrypt limit enforced in User.password_changeset,
+          # so the form says so before the submit fails.
+          byte_size(password) > 72 ->
+            [{"password", "La contraseña no puede superar los 72 caracteres"} | errors]
+
+          true ->
+            errors
         end
       end
 
@@ -121,7 +144,11 @@ defmodule ColloqWeb.UserLive.ResetPassword do
     errors
   end
 
-  defp validate_password(_), do: [{"password", "La contraseña es obligatoria"}, {"password_confirmation", "La confirmación es obligatoria"}]
+  defp validate_password(_),
+    do: [
+      {"password", "La contraseña es obligatoria"},
+      {"password_confirmation", "La confirmación es obligatoria"}
+    ]
 
   def render(assigns) do
     ~H"""

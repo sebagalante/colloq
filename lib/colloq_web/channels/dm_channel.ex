@@ -18,14 +18,10 @@ defmodule ColloqWeb.DmChannel do
     user = socket.assigns.current_user
 
     case Messaging.send_message(conversation_id, user, body) do
-      {:ok, message} ->
-        payload = %{
-          sender_id: user.id,
-          body: message.body,
-          timestamp: message.inserted_at
-        }
-
-        ColloqWeb.Endpoint.broadcast("dm:#{conversation_id}", "new_message", payload)
+      {:ok, _message} ->
+        # `send_message/4` already broadcasts to "dm:<id>". This used to
+        # broadcast a second time with a payload of its own, so anything on both
+        # paths saw the message twice — and the two shapes have since diverged.
         {:noreply, socket}
 
       {:error, _changeset} ->

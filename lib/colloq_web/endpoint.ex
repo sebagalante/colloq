@@ -45,6 +45,10 @@ defmodule ColloqWeb.Endpoint do
   socket "/socket", ColloqWeb.UserSocket,
     websocket: true
 
+  # Sandbox CSP + nosniff for /uploads. Must stay above Plug.Static: static
+  # responses never reach the router, so the browser pipeline's CSP misses them.
+  plug ColloqWeb.Plugs.UploadHeaders
+
   # Serve static assets at / from priv/static
   plug Plug.Static,
     at: "/",
