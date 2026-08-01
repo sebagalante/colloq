@@ -1031,6 +1031,23 @@ h1 img.custom-emoji, h2 img.custom-emoji, h3 img.custom-emoji {
   border-radius: 0;
 }
 
+/* Link preview card inside a bubble. Hard-capped here rather than with utility
+   classes: the thumbnail and the two-line description are what keep the card
+   from turning a one-line message into a poster, and a 500px-tall og:image
+   (Wikipedia portraits, article heroes) must never get a say in the layout. */
+.chat-card-thumb {
+  width: 3rem;
+  height: 3rem;
+  max-height: 3rem;
+}
+.chat-card-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
 /* =========================================================================
    Selection-quote pill — floated next to a text selection inside a post body
    by the PostBody hook. Positioned in viewport coordinates (position: fixed),

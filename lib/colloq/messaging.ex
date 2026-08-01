@@ -10,7 +10,7 @@ defmodule Colloq.Messaging do
   # `:user` is loaded on the message itself as well as on the quoted parent —
   # quoting one of *their* messages reads the author off the message you picked,
   # not off its parent, and an unloaded association crashed the LiveView there.
-  @display_preloads [:user, reply_to: :user]
+  @display_preloads [:user, :embeds, reply_to: :user]
 
   # Deletion model (WhatsApp/Telegram style): deleting a conversation records a
   # per-user timestamp (`userN_deleted_at`). That timestamp is a boundary — the
@@ -289,7 +289,9 @@ defmodule Colloq.Messaging do
 
         # Notify the recipient's per-user channel so their header badge updates
         # live even if they're on another page.
-        notify_recipient(conversation_id, user.id)
+        notify_recipient(conversation_id, user, message)
+
+        unfurl_links(message)
 
         {:ok, message}
 
@@ -298,11 +300,47 @@ defmodule Colloq.Messaging do
     end
   end
 
-  defp notify_recipient(conversation_id, sender_id) do
+  # Link preview, fetched off the send path — the message must appear the moment
+  # it's sent, not after someone else's server answers. The card arrives later
+  # via the worker's "embed_ready" broadcast. Enqueued only when the body
+  # actually holds a link that isn't already self-rendering media.
+  defp unfurl_links(%Message{body: body} = message) do
+    if Colloq.Workers.MessageEmbedWorker.preview_url(body) do
+      %{message_id: message.id}
+      |> Colloq.Workers.MessageEmbedWorker.new()
+      |> Oban.insert()
+    end
+
+    :ok
+  end
+
+  # Short, plain-text body for a desktop notification. Kept in the context (and
+  # deliberately dumb) because it has to travel over PubSub to whatever page the
+  # recipient happens to be on — the rich sidebar preview lives in the LiveView
+  # and can't be reached from here.
+  defp notification_preview(%Message{sticker_url: url}) when is_binary(url) and url != "",
+    do: "🏷"
+
+  defp notification_preview(%Message{body: body}) when is_binary(body) do
+    body = String.trim(body)
+
+    if String.length(body) > 80, do: String.slice(body, 0, 80) <> "…", else: body
+  end
+
+  defp notification_preview(_), do: ""
+
+  defp notify_recipient(conversation_id, %Colloq.Accounts.User{} = sender, message) do
     case Repo.get(Conversation, conversation_id) do
       %Conversation{user1_id: u1, user2_id: u2} ->
-        recipient_id = if u1 == sender_id, do: u2, else: u1
-        ColloqWeb.Endpoint.broadcast("user:#{recipient_id}", "message_received", %{})
+        recipient_id = if u1 == sender.id, do: u2, else: u1
+
+        # Carries enough for the browser notification the client raises when the
+        # tab isn't focused: who wrote, roughly what, and where to land on click.
+        ColloqWeb.Endpoint.broadcast("user:#{recipient_id}", "message_received", %{
+          conversation_id: conversation_id,
+          sender: sender.display_name || sender.username,
+          preview: notification_preview(message)
+        })
 
         # Separate topic from "user:<id>". That one is owned by the global
         # `live_badges_hook` in UserAuth, which halts "message_received" so it
@@ -338,6 +376,30 @@ defmodule Colloq.Messaging do
              (is_nil(c.user2_deleted_at) or m.inserted_at > c.user2_deleted_at))
     )
     |> Repo.aggregate(:count, :id)
+  end
+
+  @doc """
+  Unread counts per conversation for `user_id`, as `%{conversation_id => count}`.
+
+  Same visibility rules as `unread_count/1` — the sidebar badge and the header
+  badge must never disagree — but grouped, so each row can show its own count
+  Telegram-style. Conversations with nothing unread are absent from the map.
+  """
+  def unread_counts(user_id) do
+    from(m in Message,
+      join: c in Conversation,
+      on: c.id == m.conversation_id,
+      where: m.user_id != ^user_id and m.read == false and is_nil(m.deleted_at),
+      where:
+        (c.user1_id == ^user_id and
+           (is_nil(c.user1_deleted_at) or m.inserted_at > c.user1_deleted_at)) or
+          (c.user2_id == ^user_id and
+             (is_nil(c.user2_deleted_at) or m.inserted_at > c.user2_deleted_at)),
+      group_by: m.conversation_id,
+      select: {m.conversation_id, count(m.id)}
+    )
+    |> Repo.all()
+    |> Map.new()
   end
 
   def mark_read!(conversation_id, user_id) do

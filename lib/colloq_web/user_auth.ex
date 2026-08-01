@@ -61,13 +61,38 @@ defmodule ColloqWeb.UserAuth do
   end
 
   # Global handle_info for the live header badges. Runs on every LiveView.
-  defp live_badges_hook(%{event: "message_received"}, socket, user_id) do
-    {:halt, Phoenix.Component.assign(socket, :unread_messages, Colloq.Messaging.unread_count(user_id))}
+  defp live_badges_hook(%{event: "message_received", payload: payload}, socket, user_id) do
+    socket =
+      Phoenix.Component.assign(socket, :unread_messages, Colloq.Messaging.unread_count(user_id))
+
+    # The client decides whether to raise a desktop notification (only when the
+    # tab is unfocused and permission was granted) — the server just reports the
+    # message. Sent on every page, since the recipient is rarely on /messages.
+    {:halt,
+     Phoenix.LiveView.push_event(socket, "chat:message", %{
+       conversation_id: payload[:conversation_id],
+       sender: payload[:sender] || "",
+       preview: payload[:preview] || ""
+     })}
   end
 
-  defp live_badges_hook(%{event: "notification"}, socket, user_id) do
+  defp live_badges_hook(%{event: "notification", payload: payload}, socket, user_id) do
+    socket =
+      Phoenix.Component.assign(
+        socket,
+        :unread_notifications,
+        Colloq.Notifications.unread_count(user_id)
+      )
+
+    # Same deal as a DM: the server reports, the client decides whether to raise
+    # a desktop notification. The link is built here rather than in the context —
+    # it's the same rule the notifications page renders its rows with.
     {:halt,
-     Phoenix.Component.assign(socket, :unread_notifications, Colloq.Notifications.unread_count(user_id))}
+     Phoenix.LiveView.push_event(socket, "app:notification", %{
+       title: payload[:title] || "",
+       body: payload[:body] || "",
+       url: ColloqWeb.UserLive.Notifications.notification_path(%{data: payload[:data] || %{}})
+     })}
   end
 
   defp live_badges_hook(_msg, socket, _user_id), do: {:cont, socket}
@@ -92,34 +117,34 @@ defmodule ColloqWeb.UserAuth do
         {:halt, socket}
 
       user_id ->
-          user = Accounts.get_user!(user_id)
-          theme = user.theme || "dark"
-          Gettext.put_locale(ColloqWeb.Gettext, user.locale || "es")
+        user = Accounts.get_user!(user_id)
+        theme = user.theme || "dark"
+        Gettext.put_locale(ColloqWeb.Gettext, user.locale || "es")
 
-          cond do
-            user.banned ->
-              socket =
-                socket
-                |> assign(current_user: nil)
-                |> assign(theme: "dark")
-                |> put_flash(:error, gettext("Your account has been banned."))
-                |> redirect(to: "/login")
+        cond do
+          user.banned ->
+            socket =
+              socket
+              |> assign(current_user: nil)
+              |> assign(theme: "dark")
+              |> put_flash(:error, gettext("Your account has been banned."))
+              |> redirect(to: "/login")
 
-              {:halt, socket}
+            {:halt, socket}
 
-            Colloq.Accounts.User.suspended?(user) ->
-              socket =
-                socket
-                |> assign(current_user: nil)
-                |> assign(theme: "dark")
-                |> put_flash(:error, gettext("Your account is suspended."))
-                |> redirect(to: "/login")
+          Colloq.Accounts.User.suspended?(user) ->
+            socket =
+              socket
+              |> assign(current_user: nil)
+              |> assign(theme: "dark")
+              |> put_flash(:error, gettext("Your account is suspended."))
+              |> redirect(to: "/login")
 
-              {:halt, socket}
+            {:halt, socket}
 
-            true ->
-              {:cont, socket |> assign(current_user: user) |> assign(theme: theme)}
-          end
+          true ->
+            {:cont, socket |> assign(current_user: user) |> assign(theme: theme)}
+        end
     end
   end
 

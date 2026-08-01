@@ -60,9 +60,16 @@ defmodule Colloq.Notifications do
         |> Notification.changeset(attrs)
         |> Repo.insert()
 
-      # Live bell badge for the recipient, on whatever page they're on.
-      with {:ok, _} <- result, true <- is_integer(user_id) or is_binary(user_id) do
-        ColloqWeb.Endpoint.broadcast("user:#{user_id}", "notification", %{})
+      # Live bell badge for the recipient, on whatever page they're on. The
+      # payload also feeds the browser notification the client raises when the
+      # window isn't focused — `data` travels as-is so the web layer can build
+      # the link with the same rules the notifications page uses.
+      with {:ok, notification} <- result, true <- is_integer(user_id) or is_binary(user_id) do
+        ColloqWeb.Endpoint.broadcast("user:#{user_id}", "notification", %{
+          title: notification.title,
+          body: notification.body,
+          data: notification.data
+        })
       end
 
       result

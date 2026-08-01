@@ -7,6 +7,24 @@
   topic={assigns[:topic]}
 />
 
+<%!-- Everything waiting for you, outside the page: the tab title carries the
+      count so it's visible from another tab, and a desktop notification fires
+      for anything that arrives while this window isn't focused. Lives in the
+      layout because you're almost never on /messages or /notifications when it
+      happens.
+
+      The count is messages + notifications: the tab is one number, and a tab
+      that says nothing is waiting while a mention sits unread would be lying. --%>
+<div
+  :if={@current_user}
+  id="chat-notifier"
+  phx-hook="ChatNotifier"
+  data-unread={(assigns[:unread_messages] || 0) + (assigns[:unread_notifications] || 0)}
+  data-messages-path={~p"/messages"}
+  hidden
+>
+</div>
+
 <div class="mx-auto max-w-7xl flex">
   <.sidebar
     current_user={@current_user}

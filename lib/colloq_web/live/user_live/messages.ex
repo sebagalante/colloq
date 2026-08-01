@@ -26,6 +26,7 @@ defmodule ColloqWeb.UserLive.Messages do
         socket
         |> assign(:current_user, current_user)
         |> assign(:conversations, conversations)
+        |> assign(:unread_counts, Messaging.unread_counts(current_user.id))
         |> assign(:active_conversation, nil)
         |> assign(:messages, [])
         |> assign(:has_more_messages, false)
@@ -37,6 +38,9 @@ defmodule ColloqWeb.UserLive.Messages do
         # before subscribing to another (see subscribe_to_conversation/2).
         |> assign(:subscribed_topic, nil)
         |> assign(:blocked_user_ids, blocked_ids)
+        # Corrected by the ChatFocus hook on connect; assumed true so a client
+        # with JS disabled behaves as it always did.
+        |> assign(:window_focused, true)
         |> assign(:page_title, gettext("Messages"))
         |> assign(:show_new_conversation, false)
         |> assign(:user_query, "")
@@ -130,6 +134,7 @@ defmodule ColloqWeb.UserLive.Messages do
            Messaging.more_messages?(conversation.id, user_id, oldest_cursor(messages))
          )
          |> assign(:unread_messages, Messaging.unread_count(user_id))
+         |> assign(:unread_counts, Messaging.unread_counts(user_id))
          |> assign(:page_title, other.display_name || other.username)}
       end
     else
@@ -154,6 +159,20 @@ defmodule ColloqWeb.UserLive.Messages do
   @impl true
   def handle_event("select_conversation", %{"id" => id}, socket) do
     {:noreply, push_patch(socket, to: ~p"/messages/#{id}")}
+  end
+
+  # Window focus, reported by the ChatFocus hook. Coming back to a tab that
+  # collected messages while you were away is the moment they count as read.
+  def handle_event("window-focus", %{"focused" => focused}, socket) do
+    socket = assign(socket, :window_focused, focused)
+    conv = socket.assigns.active_conversation
+
+    if focused && conv do
+      Messaging.mark_read!(conv.id, socket.assigns.current_user.id)
+      {:noreply, refresh_sidebar(socket)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("update_body", %{"body" => body}, socket) do
@@ -285,8 +304,7 @@ defmodule ColloqWeb.UserLive.Messages do
 
       socket =
         socket
-        |> assign(:conversations, Messaging.list_conversations(me.id))
-        |> assign(:unread_messages, Messaging.unread_count(me.id))
+        |> refresh_sidebar()
         |> put_flash(:info, gettext("Conversation deleted."))
 
       socket =
@@ -315,10 +333,7 @@ defmodule ColloqWeb.UserLive.Messages do
     if conv && me.id in [conv.user1_id, conv.user2_id] do
       Messaging.mark_read!(conversation_id, me.id)
 
-      {:noreply,
-       socket
-       |> assign(:conversations, Messaging.list_conversations(me.id))
-       |> assign(:unread_messages, Messaging.unread_count(me.id))}
+      {:noreply, refresh_sidebar(socket)}
     else
       {:noreply, socket}
     end
@@ -461,16 +476,40 @@ defmodule ColloqWeb.UserLive.Messages do
     else
       messages = socket.assigns.messages ++ [message]
 
-      # Since the recipient is looking at this conversation, mark it read so the
-      # header badge doesn't over-count.
+      # Read means *seen*: only mark it if the reader is actually looking at the
+      # window. Marking on arrival regardless of focus meant a message landing
+      # in an open-but-unfocused tab was read before anyone saw it — no unread
+      # badge, no count in the tab title, no notification-worthy state at all,
+      # which is exactly the case you hit testing with two windows open.
       conv = socket.assigns.active_conversation
-      if conv && payload.sender_id != me.id, do: Messaging.mark_read!(conv.id, me.id)
+
+      if conv && payload.sender_id != me.id && socket.assigns.window_focused,
+        do: Messaging.mark_read!(conv.id, me.id)
 
       {:noreply,
        socket
        |> assign(:messages, messages)
-       |> assign(:conversations, Messaging.list_conversations(me.id))
-       |> assign(:unread_messages, Messaging.unread_count(me.id))}
+       |> refresh_sidebar()}
+    end
+  end
+
+  # A link preview finished fetching. Only the one bubble is swapped — reloading
+  # the thread would throw away every older page the reader had scrolled back
+  # through, and the message may not be in the loaded window at all.
+  def handle_info(%{event: "embed_ready", payload: %{message_id: message_id}}, socket) do
+    if Enum.any?(socket.assigns.messages, &(&1.id == message_id)) do
+      case Messaging.get_message_for_display(message_id) do
+        nil ->
+          {:noreply, socket}
+
+        fresh ->
+          messages =
+            Enum.map(socket.assigns.messages, &if(&1.id == message_id, do: fresh, else: &1))
+
+          {:noreply, assign(socket, :messages, messages)}
+      end
+    else
+      {:noreply, socket}
     end
   end
 
@@ -478,12 +517,7 @@ defmodule ColloqWeb.UserLive.Messages do
   # are touched: if that thread is also open, the "dm:<id>" handler above is
   # what appends the bubble, and doing it here too would double it.
   def handle_info(%{event: "conversations_changed"}, socket) do
-    me = socket.assigns.current_user
-
-    {:noreply,
-     socket
-     |> assign(:conversations, Messaging.list_conversations(me.id))
-     |> assign(:unread_messages, Messaging.unread_count(me.id))}
+    {:noreply, refresh_sidebar(socket)}
   end
 
   # The other participant opened the conversation and read our messages — flip
@@ -501,6 +535,18 @@ defmodule ColloqWeb.UserLive.Messages do
 
       {:noreply, assign(socket, :messages, messages)}
     end
+  end
+
+  # Sidebar state travels together: the row order, each row's unread badge and
+  # the header badge all come from the same three queries, so refreshing one
+  # without the others is what leaves a stale count on screen.
+  defp refresh_sidebar(socket) do
+    me = socket.assigns.current_user
+
+    socket
+    |> assign(:conversations, Messaging.list_conversations(me.id))
+    |> assign(:unread_counts, Messaging.unread_counts(me.id))
+    |> assign(:unread_messages, Messaging.unread_count(me.id))
   end
 
   def other_user(conversation, current_user) do
@@ -664,6 +710,16 @@ defmodule ColloqWeb.UserLive.Messages do
   def message_embeds(%{body: body}), do: message_embeds(body)
   def message_embeds(body) when is_binary(body), do: ColloqWeb.ForumLive.Topic.body_embeds(body)
   def message_embeds(_), do: []
+
+  @doc """
+  Open Graph cards attached to a message (at most one), or `[]`.
+
+  Returns a list so the template can iterate without a nil check, and tolerates
+  an unloaded association — a bubble appended straight from a broadcast can
+  reach the template before its embeds have been preloaded.
+  """
+  def link_previews(%{embeds: embeds}) when is_list(embeds), do: embeds
+  def link_previews(_), do: []
 
   @doc """
   Whether a message still has visible text once its media URLs are stripped out.

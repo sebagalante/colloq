@@ -12,6 +12,7 @@ defmodule Colloq.Messaging.Message do
     belongs_to :conversation, Colloq.Messaging.Conversation
     belongs_to :user, Colloq.Accounts.User
     belongs_to :reply_to, Colloq.Messaging.Message
+    has_many :embeds, Colloq.Messaging.MessageEmbed
 
     timestamps(type: :utc_datetime_usec)
   end

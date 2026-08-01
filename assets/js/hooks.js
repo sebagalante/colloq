@@ -504,6 +504,21 @@ Hooks.ChatComposer = {
     const textarea = form.querySelector("#chat-input");
     const emojiBtn = form.querySelector("#chat-emoji-btn");
 
+    // Sending is intent to be at the end of the thread. AutoScroll only follows
+    // new messages while the reader is pinned to the bottom, so someone who had
+    // scrolled up saw nothing happen when they sent — the message landed off
+    // screen and read as "it didn't send". Re-pin *before* the round trip and
+    // AutoScroll's mutation handler carries us down to the new bubble.
+    this.stickToBottom = () => {
+      const pane = document.getElementById("messages-container");
+      if (!pane) return;
+      pane.scrollTop = pane.scrollHeight;
+      // AutoScroll owns the pane; it holds the bottom across the round trip and
+      // the late growth (embeds, avatars) that a single jump lands short of.
+      pane.dispatchEvent(new CustomEvent("chat:stick"));
+    };
+    form.addEventListener("submit", this.stickToBottom);
+
     // --- Enter to send (Shift+Enter = newline) ---
     textarea.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && !ev.shiftKey) {
@@ -607,6 +622,7 @@ Hooks.ChatComposer = {
           b.appendChild(img);
           b.addEventListener("mousedown", (ev) => {
             ev.preventDefault();
+            hook.stickToBottom();
             hook.pushEvent("send-sticker", { url: st.url });
             tray.classList.add("hidden");
           });
@@ -685,6 +701,7 @@ Hooks.ChatComposer = {
 
   },
   destroyed() {
+    if (this.stickToBottom) this.el.removeEventListener("submit", this.stickToBottom);
     if (this._emojiPop) {
       this._emojiPop.remove();
       this._emojiPop = null;
@@ -1154,6 +1171,9 @@ Hooks.AutoScroll = {
     // window (forum topic page, which scrolls the whole page).
     this.scroller = this.pickScroller();
 
+    this._onStick = () => this._pinBottom();
+    this.el.addEventListener("chat:stick", this._onStick);
+
     // A URL fragment is an explicit request for one specific post — a search
     // result, a shared permalink, a profile activity link. It outranks
     // "continue where you left off", which would otherwise bounce the reader to
@@ -1192,6 +1212,47 @@ Hooks.AutoScroll = {
     this.el.dataset.following = stayTop ? "false" : "true";
     this._setupObservers();
     if (!stayTop) this._settleToBottom();
+  },
+
+  // "chat:stick" — the composer says the reader just sent something, so the
+  // pane must end up at the very bottom whatever it was doing before.
+  //
+  // Nothing here can rely on `follow()`: the ResizeObserver watches this pane,
+  // whose box never changes when its contents grow, and `data-following` is set
+  // from JS so a DOM patch can drop it. A short rAF loop just re-jumps until the
+  // new bubble has arrived (one round trip) and settled.
+  _pinBottom(ms = 1200) {
+    this._unpin();
+    this.el.dataset.following = "true";
+
+    const until = performance.now() + ms;
+    const step = () => {
+      this.jump();
+      this._pinFrame = performance.now() < until ? requestAnimationFrame(step) : null;
+      if (!this._pinFrame) this._unpin();
+    };
+    this._pinFrame = requestAnimationFrame(step);
+
+    // Scrolling away mid-pin is intent to browse — stop fighting the reader.
+    // Deliberately no keydown here (unlike _anchorTo): the pin starts inside the
+    // composer's own Enter handler, and that keydown is still on its way up to
+    // window — it would release the pin the instant it was set.
+    this._releasePin = () => this._unpin();
+    window.addEventListener("wheel", this._releasePin, { passive: true });
+    window.addEventListener("touchstart", this._releasePin, { passive: true });
+  },
+
+  _unpin() {
+    if (this._pinFrame) {
+      cancelAnimationFrame(this._pinFrame);
+      this._pinFrame = null;
+    }
+    if (this._releasePin) {
+      window.removeEventListener("wheel", this._releasePin);
+      window.removeEventListener("touchstart", this._releasePin);
+      window.removeEventListener("keydown", this._releasePin);
+      this._releasePin = null;
+    }
   },
 
   // Hold the bottom while late layout settles.
@@ -1299,6 +1360,8 @@ Hooks.AutoScroll = {
   destroyed() {
     if (this._release) this._release();
     if (this._endSettle) this._endSettle();
+    this._unpin();
+    if (this._onStick) this.el.removeEventListener("chat:stick", this._onStick);
     if (this.observer) this.observer.disconnect();
     if (this.resizeObserver) this.resizeObserver.disconnect();
     if (this.target) this.target.removeEventListener("scroll", this.handleScrollEvent);
@@ -1729,6 +1792,175 @@ Hooks.PushSubscription = {
 };
 
 // =========================================================================
+// =========================================================================
+// ChatNotifier — unread messages outside the page: tab title + desktop
+// notification. Mounted once in the app layout, so it's alive on every page.
+//
+// No service worker involved (the one in priv/static/sw.js is a kill-switch),
+// which means notifications only fire while a Colloq tab is open. That's the
+// deliberate trade: reviving the PWA worker is what brought back stale assets.
+// =========================================================================
+Hooks.ChatNotifier = {
+  mounted() {
+    // Matches the SW line in app.js. Whether this appears in the console is the
+    // one-step answer to "is the tab count broken, or is the browser running a
+    // cached bundle that has never heard of this hook?".
+    console.info(`[Colloq] ChatNotifier listo (unread=${this.el.dataset.unread})`);
+    this.applyTitle();
+
+    // LiveView rewrites <title> on every navigation (live_title), which wipes
+    // the count prefix, so we put it back whenever the element changes.
+    //
+    // characterData + subtree, not just childList: assigning `document.title`
+    // updates the *data* of the existing text node rather than replacing the
+    // node, so a childList-only observer never fired and the count disappeared
+    // on the first navigation and never came back.
+    //
+    // applyTitle only writes when the value actually differs, so our own write
+    // re-entering here settles immediately instead of looping.
+    const titleEl = document.querySelector("title");
+    if (titleEl) {
+      this.titleObserver = new MutationObserver(() => this.applyTitle());
+      this.titleObserver.observe(titleEl, {
+        childList: true,
+        characterData: true,
+        subtree: true
+      });
+    }
+
+    // Belt and braces: a navigation that swaps the whole <title> element (rather
+    // than its text) would take the observed node with it.
+    this.onPageLoad = () => this.applyTitle();
+    window.addEventListener("phx:page-loading-stop", this.onPageLoad);
+
+    this.handleEvent("chat:message", (payload) => this.notify(payload));
+
+    // Mentions, replies, reactions — title and body come from the stored
+    // notification, so they're already in the reader's language.
+    this.handleEvent("app:notification", ({ title, body, url }) => {
+      if (document.hasFocus()) return;
+      this.notification = showNotification(title || "", { body, url, tag: "app-notification" });
+    });
+  },
+
+  updated() {
+    this.applyTitle();
+  },
+
+  destroyed() {
+    if (this.titleObserver) this.titleObserver.disconnect();
+    if (this.onPageLoad) window.removeEventListener("phx:page-loading-stop", this.onPageLoad);
+    if (this.notification) this.notification.close();
+  },
+
+  applyTitle() {
+    const count = parseInt(this.el.dataset.unread || "0", 10) || 0;
+    const base = document.title.replace(/^\(\d+\)\s+/, "");
+    const next = count > 0 ? `(${count}) ${base}` : base;
+    if (document.title !== next) document.title = next;
+  },
+
+  notify({ sender, preview, conversation_id }) {
+    // Focus, not visibility: `document.hidden` is only true for a backgrounded
+    // or minimised tab, so two windows side by side (exactly how you test a
+    // chat) counted as "visible" and nothing ever fired. An unfocused window is
+    // one the reader isn't looking at, whether or not pixels are on screen.
+    if (document.hasFocus()) return;
+
+    const path = this.el.dataset.messagesPath || "/messages";
+    const url = conversation_id ? `${path}/${conversation_id}` : path;
+
+    // One notification per conversation: a burst of messages replaces itself
+    // rather than stacking up a wall of them.
+    this.notification = showNotification(sender || "", {
+      body: preview || "",
+      tag: `dm-${conversation_id || "all"}`,
+      url
+    });
+  }
+};
+
+// Raise a desktop notification, or return null if the browser won't.
+//
+// The constructor is not universally available even when permission is granted
+// — Chrome on Android throws "Illegal constructor" and demands the service
+// worker path — so a failure here must never take the caller down with it.
+function showNotification(title, { body, tag, url }) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return null;
+
+  try {
+    const note = new Notification(title, {
+      body: body || "",
+      tag: tag,
+      icon: "/icons/icon.svg",
+      renotify: Boolean(tag)
+    });
+
+    if (url) {
+      note.onclick = () => {
+        window.focus();
+        window.location.href = url;
+        note.close();
+      };
+    }
+
+    return note;
+  } catch (_e) {
+    return null;
+  }
+}
+
+// =========================================================================
+// ChatFocus — tells the chat LiveView whether this window is being looked at.
+// Messages are only marked read while it is, so a message that arrives in an
+// open-but-unfocused tab stays unread (and therefore countable) until you come
+// back to it.
+// =========================================================================
+Hooks.ChatFocus = {
+  mounted() {
+    this.report = () => this.pushEvent("window-focus", { focused: document.hasFocus() });
+    this.report();
+    window.addEventListener("focus", this.report);
+    window.addEventListener("blur", this.report);
+    document.addEventListener("visibilitychange", this.report);
+  },
+
+  destroyed() {
+    if (!this.report) return;
+    window.removeEventListener("focus", this.report);
+    window.removeEventListener("blur", this.report);
+    document.removeEventListener("visibilitychange", this.report);
+  }
+};
+
+// =========================================================================
+// ChatNotifyPermission — the "turn on notifications" button in the chat
+// header. Only shown when the browser hasn't been asked yet: permission must
+// be requested from a real click (Safari refuses otherwise, and an unprompted
+// request on page load is how sites get permanently blocked).
+// =========================================================================
+Hooks.ChatNotifyPermission = {
+  mounted() {
+    if (!("Notification" in window) || Notification.permission !== "default") return;
+
+    this.el.classList.remove("hidden");
+    this.el.addEventListener("click", () => {
+      Notification.requestPermission().then((permission) => {
+        this.el.classList.add("hidden");
+        // Confirm out loud. Without it the only way to find out whether
+        // notifications actually work is to get someone to message you while
+        // you're looking somewhere else.
+        if (permission === "granted") {
+          showNotification(this.el.dataset.confirmTitle || "", {
+            body: this.el.dataset.confirmBody || "",
+            tag: "dm-permission"
+          });
+        }
+      });
+    });
+  }
+};
+
 // VoiceRoom — WebRTC + VAD para sala de voz
 // Signaling relayed through LiveView (server broadcasts via PubSub)
 // =========================================================================

@@ -1,15 +1,46 @@
-<div class="max-w-6xl mx-auto px-4 py-6">
-  <div class="flex h-[calc(100vh-140px)] border border-border rounded-2xl overflow-hidden bg-surface shadow-sm">
+<%!-- Phone layout is one pane at a time (list OR thread), the way every chat app
+      does it: side by side, the 20rem list left the thread ~4rem on a phone.
+      `dvh` rather than `vh` so the pane isn't cut off by mobile browser chrome.
+      From `md` up both panes show and the framing (padding, border, rounding)
+      comes back. --%>
+<%!-- The negative margins cancel the app layout's `main` padding so the chat goes
+      edge to edge on a phone; from `md` the normal page framing returns. The
+      height is the viewport minus the 3.5rem header (`dvh`, so mobile browser
+      chrome doesn't cut the composer off) — with the padding cancelled there's
+      nothing else to subtract, and the page itself never scrolls. --%>
+<div
+  id="chat-page"
+  phx-hook="ChatFocus"
+  class="-mx-4 sm:-mx-6 md:mx-auto -my-6 md:my-0 max-w-6xl md:px-4 md:py-6"
+>
+  <div class="flex h-[calc(100dvh-3.5rem)] md:h-[calc(100vh-140px)] md:border border-border md:rounded-2xl overflow-hidden bg-surface shadow-sm">
     <%!-- Conversation list sidebar --%>
-    <div class="w-80 border-r border-border flex flex-col flex-shrink-0 bg-surface">
+    <div class={[
+      "w-full md:w-80 border-r border-border flex-col flex-shrink-0 bg-surface",
+      (@active_conversation && "hidden md:flex") || "flex"
+    ]}>
       <div class="px-4 h-16 flex-shrink-0 border-b border-border flex items-center justify-between">
         <h2 class="text-lg font-bold text-heading"><%= gettext("Conversations") %></h2>
-        <button
-          phx-click="open-new-conversation"
-          class="inline-flex items-center gap-1 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover transition-colors"
-        >
-          <.icon name="plus" class="w-3.5 h-3.5" /><%= gettext("New") %>
-        </button>
+        <div class="flex items-center gap-1.5">
+          <%!-- Unhidden by its hook only when the browser hasn't been asked yet. --%>
+          <button
+            type="button"
+            id="chat-notify-permission"
+            phx-hook="ChatNotifyPermission"
+            data-confirm-title={gettext("Notifications are on")}
+            data-confirm-body={gettext("You'll get an alert when a message arrives and this tab isn't focused.")}
+            title={gettext("Notify me about new messages")}
+            class="hidden p-1.5 rounded-full text-muted hover:text-heading hover:bg-border transition-colors"
+          >
+            <.icon name="bell" class="w-4 h-4" />
+          </button>
+          <button
+            phx-click="open-new-conversation"
+            class="inline-flex items-center gap-1 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover transition-colors"
+          >
+            <.icon name="plus" class="w-3.5 h-3.5" /><%= gettext("New") %>
+          </button>
+        </div>
       </div>
 
       <div class="flex-1 overflow-y-auto py-1">
@@ -30,6 +61,7 @@
           ]}
         >
           <% u = other_user(conv, @current_user) %>
+          <% unread = Map.get(@unread_counts, conv.id, 0) %>
           <button
             phx-click="select_conversation"
             phx-value-id={conv.id}
@@ -58,20 +90,47 @@
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2">
-                <span class="text-sm font-semibold text-heading truncate flex-1">
+                <span class={[
+                  "text-sm text-heading truncate flex-1",
+                  (unread > 0 && "font-bold") || "font-semibold"
+                ]}>
                   <%= u.display_name || u.username %>
                 </span>
-                <span :if={conv.last_message} class="text-[11px] text-muted flex-shrink-0">
+                <span
+                  :if={conv.last_message}
+                  class={[
+                    "text-[11px] flex-shrink-0",
+                    (unread > 0 && "text-accent font-semibold") || "text-muted"
+                  ]}
+                >
                   <%= es_locale(conv.last_message.inserted_at) %>
                 </span>
               </div>
-              <p class="text-xs text-muted truncate mt-0.5 pr-5">
-                <%= last_message_preview(conv) %>
-              </p>
+              <%!-- Preview and the unread badge share the line, Telegram-style.
+                    The badge sits flush with the row's right edge so it lines up
+                    under the timestamp above it; `leading-none` centres the
+                    digits in the pill, which the inherited line-height didn't. --%>
+              <div class="flex items-center gap-2 mt-0.5">
+                <p class={[
+                  "text-xs truncate flex-1",
+                  (unread > 0 && "text-body") || "text-muted"
+                ]}>
+                  <%= last_message_preview(conv) %>
+                </p>
+                <span
+                  :if={unread > 0}
+                  class="flex-shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-accent text-white text-[11px] font-bold leading-none flex items-center justify-center"
+                  title={ngettext("1 unread message", "%{count} unread messages", unread)}
+                >
+                  <%= min(unread, 99) %>
+                </span>
+              </div>
             </div>
           </button>
-          <%!-- Row actions: a menu, not a bare trash bin. --%>
-          <div class="absolute top-1/2 -translate-y-1/2 right-2">
+          <%!-- Row actions: a menu, not a bare trash bin. Parked on the top line
+                (over the timestamp) rather than centred, so it doesn't sit on
+                top of the unread badge on the line below. --%>
+          <div class="absolute top-1.5 right-2">
             <button
               type="button"
               phx-click={
@@ -129,7 +188,16 @@
       <% blocked? = other.id in @blocked_user_ids %>
 
       <%!-- Header --%>
-      <div class="px-4 h-16 flex-shrink-0 border-b border-border flex items-center gap-3 bg-surface">
+      <div class="px-2 md:px-4 h-16 flex-shrink-0 border-b border-border flex items-center gap-2 md:gap-3 bg-surface">
+        <%!-- The only way back to the list on a phone, where the list is hidden
+              while a thread is open. --%>
+        <.link
+          patch={~p"/messages"}
+          class="md:hidden p-2 -mr-1 rounded-full text-muted hover:text-heading hover:bg-border transition-colors"
+          title={gettext("Back to conversations")}
+        >
+          <.icon name="chevron-left" class="w-5 h-5" />
+        </.link>
         <div class="relative flex-shrink-0">
           <img
             :if={other.avatar_url}
@@ -351,6 +419,57 @@
               >
                 <ColloqWeb.ForumLive.Topic.media_embed embed={emb} />
               </div>
+              <%!-- Link preview card, fetched asynchronously after the message was
+                    sent. Unlike the media embeds above it keeps the URL in the
+                    body: the card is extra context for the link, not a
+                    replacement for it. --%>
+              <%!-- Deliberately compact: a thumbnail beside two short lines, not a
+                    banner card. A preview is a hint about where the link goes —
+                    at full width it dwarfs the message that carried it. The
+                    clamps are `chat-card-*` rather than line-clamp utilities so a
+                    long title/description can't stretch the bubble even if the
+                    stylesheet a client has cached predates them. --%>
+              <a
+                :for={emb <- link_previews(row.msg)}
+                href={emb.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class={[
+                  "flex gap-2 items-start mb-1 mt-0.5 p-1.5 max-w-[16rem] rounded-lg no-underline border-l-[3px]",
+                  (row.mine && "bg-white/10 border-white/70") || "bg-surface-alt border-accent"
+                ]}
+              >
+                <img
+                  :if={emb.image_url not in [nil, ""]}
+                  src={emb.image_url}
+                  alt=""
+                  loading="lazy"
+                  class="chat-card-thumb rounded object-cover flex-shrink-0"
+                />
+                <span class="block min-w-0 flex-1">
+                  <span class={[
+                    "block text-[10px] truncate",
+                    (row.mine && "text-white/70") || "text-muted"
+                  ]}>
+                    <%= emb.host %>
+                  </span>
+                  <span class={[
+                    "block text-[11px] font-semibold truncate",
+                    (row.mine && "text-white") || "text-heading"
+                  ]}>
+                    <%= emb.title %>
+                  </span>
+                  <span
+                    :if={emb.description not in [nil, ""]}
+                    class={[
+                      "chat-card-desc block text-[10px]",
+                      (row.mine && "text-white/70") || "text-muted"
+                    ]}
+                  >
+                    <%= emb.description %>
+                  </span>
+                </span>
+              </a>
               <%!-- Body + inline timestamp & read receipt (Telegram-style) --%>
               <%!-- flex-1 on the body pins the meta to the bubble's right edge.
                    Without it the timestamp sat immediately after the text, which
@@ -453,8 +572,9 @@
       </div>
     </div>
 
-    <%!-- Empty state (no conversation selected) --%>
-    <div :if={!@active_conversation} class="flex-1 flex items-center justify-center chat-pattern">
+    <%!-- Empty state (no conversation selected). Desktop only: on a phone the
+          list itself is the empty state, and this would cover it. --%>
+    <div :if={!@active_conversation} class="hidden md:flex flex-1 items-center justify-center chat-pattern">
       <div class="text-center px-6">
         <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-surface border border-border flex items-center justify-center">
           <.icon name="mail" class="w-8 h-8 text-muted" />
