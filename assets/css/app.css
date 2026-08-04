@@ -880,10 +880,28 @@ h1 img.custom-emoji, h2 img.custom-emoji, h3 img.custom-emoji {
   margin: 0;
 }
 
-.tiptap-content .ProseMirror h2 {
+/* Text sizes from the toolbar's "Tt" menu. Kept close to body size on
+   purpose — these are forum posts, not articles. `.prose` needs its own rules
+   because there's no typography plugin, so Tailwind's preflight would
+   otherwise render h2/h3 at plain body size in the saved post. */
+.tiptap-content .ProseMirror h2,
+.prose h2 {
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--text-heading);
+}
+
+.tiptap-content .ProseMirror h3,
+.prose h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+/* `em`, so small print shrinks relative to whatever block it sits in. */
+.tiptap-content .ProseMirror small,
+.prose small {
+  font-size: 0.85em;
 }
 
 .tiptap-content .ProseMirror ul {
@@ -900,6 +918,20 @@ h1 img.custom-emoji, h2 img.custom-emoji, h3 img.custom-emoji {
   border-left: 3px solid var(--border);
   padding-left: 0.875rem;
   color: var(--text-muted);
+}
+
+/* Separator inserted from the toolbar. Styled for both the composer and the
+   rendered post — the html5 sanitizer strips `class`, so `hr` is the only
+   selector that survives into the saved body. */
+.tiptap-content .ProseMirror hr,
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.25rem 0;
+}
+
+.tiptap-content .ProseMirror hr.ProseMirror-selectednode {
+  border-top-color: var(--accent);
 }
 
 .tiptap-content .ProseMirror code {

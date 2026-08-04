@@ -2219,7 +2219,7 @@ Hooks.TiptapEditor = {
   },
 
   async setupTiptap() {
-    let Editor, StarterKit, Placeholder, LinkExtension, ImageExtension, Spoiler;
+    let Editor, StarterKit, Placeholder, LinkExtension, ImageExtension, Spoiler, Small;
     let Table, TableRow, TableCell, TableHeader;
     try {
       Editor = (await import("@tiptap/core")).Editor;
@@ -2228,6 +2228,7 @@ Hooks.TiptapEditor = {
       LinkExtension = (await import("@tiptap/extension-link")).default;
       ImageExtension = (await import("@tiptap/extension-image")).default;
       Spoiler = (await import("./extensions/spoiler.js")).default;
+      Small = (await import("./extensions/small.js")).default;
       Table = (await import("@tiptap/extension-table")).default;
       TableRow = (await import("@tiptap/extension-table-row")).default;
       TableCell = (await import("@tiptap/extension-table-cell")).default;
@@ -2264,6 +2265,7 @@ Hooks.TiptapEditor = {
         Placeholder.configure({ placeholder: this.el.dataset.placeholder || "Escribí..." }),
         LinkExtension.configure({ openOnClick: false }),
         Spoiler,
+        Small,
         ImageExtension.extend({
           // Persist width/height so stickers keep a fixed small size. These
           // attributes survive the server-side HTML sanitizer (class does not).
@@ -2347,11 +2349,86 @@ Hooks.TiptapEditor = {
       toolbar.appendChild(s);
     };
 
+    // Text size. Deliberately not a free font-size picker: `span[style]` is
+    // stripped by the server-side sanitizer, so arbitrary sizes would be lost
+    // on save. These four map to tags that survive it (h2/h3/small/p) and are
+    // styled to stay close to body size — see the heading rules in app.css.
+    const SIZES = [
+      { label: "Título", preview: "1.15rem",
+        is: () => this.editor.isActive("heading", { level: 2 }),
+        apply: () => chain().unsetSmall().setHeading({ level: 2 }).run() },
+      { label: "Subtítulo", preview: "1.05rem",
+        is: () => this.editor.isActive("heading", { level: 3 }),
+        apply: () => chain().unsetSmall().setHeading({ level: 3 }).run() },
+      { label: "Normal", preview: "0.875rem",
+        is: () => this.editor.isActive("paragraph") && !this.editor.isActive("small"),
+        apply: () => chain().unsetSmall().setParagraph().run() },
+      { label: "Pequeño", preview: "0.75rem",
+        is: () => this.editor.isActive("small"),
+        apply: () => chain().setParagraph().setSmall().run() }
+    ];
+
+    // "Tt" button opening a small menu, matching the emoji picker's popup idiom.
+    const mkSizeMenu = () => {
+      const box = document.createElement("div");
+      box.className = "relative inline-flex";
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.title = "Tamaño del texto";
+      btn.innerHTML = svg(I.textSize);
+      btn.className =
+        "flex items-center justify-center w-8 h-8 rounded text-muted hover:text-heading hover:bg-border transition-colors";
+
+      const pop = document.createElement("div");
+      pop.className =
+        "hidden absolute z-50 top-full left-0 mt-1 py-1 rounded-lg bg-surface border border-border shadow-lg w-40";
+
+      const items = SIZES.map((s) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = s.label;
+        b.className = "w-full text-left px-3 py-1.5 hover:bg-surface-alt text-body";
+        b.style.fontSize = s.preview;
+        b.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          s.apply();
+          pop.classList.add("hidden");
+        });
+        pop.appendChild(b);
+        return b;
+      });
+
+      btn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        pop.classList.toggle("hidden");
+      });
+      document.addEventListener("click", (ev) => {
+        if (!box.contains(ev.target)) pop.classList.add("hidden");
+      });
+
+      // Mark the size at the cursor as active.
+      const sync = () => {
+        const active = SIZES.findIndex((s) => s.is());
+        items.forEach((b, i) =>
+          b.classList.toggle("text-accent", i === (active === -1 ? 0 : active))
+        );
+      };
+      this.editor.on("selectionUpdate", sync);
+      this.editor.on("transaction", sync);
+      sync();
+
+      box.appendChild(btn);
+      box.appendChild(pop);
+      toolbar.appendChild(box);
+    };
+
     const I = {
       bold: '<path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8"/>',
       italic: '<line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/>',
       strike: '<path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" y1="12" x2="20" y2="12"/>',
-      heading: '<path d="M6 12h12"/><path d="M6 20V4"/><path d="M18 20V4"/>',
+      // "Tt" — a big T and a small t, the usual text-size glyph.
+      textSize: '<path d="M3 7V5h9v2"/><path d="M7.5 5v14"/><path d="M5.5 19h4"/><path d="M14 12v-1.5h6V12"/><path d="M17 10.5V19"/><path d="M15.5 19h3"/>',
       link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
       quote: QUOTE_ICON,
       code: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
@@ -2360,6 +2437,7 @@ Hooks.TiptapEditor = {
       image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
       smile: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>',
       table: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/>',
+      rule: '<line x1="3" y1="12" x2="21" y2="12"/><polyline points="8 8 12 4 16 8"/><polyline points="16 16 12 20 8 16"/>',
       sticker: '<path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><path d="M15 3v6h6"/><path d="M10 14a3.5 3.5 0 0 0 4 0"/><path d="M9 12h.01"/><path d="M15 12h.01"/>',
       spoiler: '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/>',
       sensitive: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'
@@ -2369,7 +2447,7 @@ Hooks.TiptapEditor = {
     mkBtn(svg(I.italic), () => chain().toggleItalic().run(), "Cursiva (Ctrl+I)");
     mkBtn(svg(I.strike), () => chain().toggleStrike().run(), "Tachado");
     mkBtn(svg(I.spoiler), () => chain().toggleSpoiler().run(), "Spoiler (ocultar hasta hacer clic)");
-    mkBtn(svg(I.heading), () => chain().toggleHeading({ level: 2 }).run(), "Título");
+    mkSizeMenu();
     sep();
     mkBtn(svg(I.link), () => {
       const url = window.prompt("URL del enlace:");
@@ -2382,6 +2460,7 @@ Hooks.TiptapEditor = {
     mkBtn(svg(I.list), () => chain().toggleBulletList().run(), "Lista");
     mkBtn(svg(I.listOrdered), () => chain().toggleOrderedList().run(), "Lista numerada");
     mkBtn(svg(I.table), () => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(), "Insertar tabla");
+    mkBtn(svg(I.rule), () => chain().setHorizontalRule().run(), "Línea separadora");
     sep();
 
     // --- Image upload ---
