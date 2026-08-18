@@ -554,6 +554,56 @@ defmodule Colloq.Sofascore do
     end
   end
 
+  @doc """
+  The fecha the Prode page and the round scorer should default to.
+
+  `current_round/0` is anchored on *Racing*, which is right for the match thread
+  and the `/sofascore` command but wrong for a league-wide Prode: when Racing's
+  next match is more than a day out, it stays on Racing's last finished round
+  even though the rest of the league is playing the following fecha right now.
+  That left the page showing a fully-played fecha on a match day, and the round
+  scorer never looking at the fecha being played.
+
+  So: if the round after the anchor is currently in play, that one; otherwise the
+  anchor unchanged, which keeps the deliberate "stay on the round just played
+  until kickoff is near" behaviour of `current_round/0`.
+  """
+  def current_prode_round do
+    anchor = current_round()
+
+    if round_in_play?(anchor + 1), do: anchor + 1, else: anchor
+  end
+
+  # In play = the fecha has started (at least one kickoff has passed) and hasn't
+  # finished (at least one match still to be played out). A round where every
+  # match is final is history, not the current fecha.
+  defp round_in_play?(round) do
+    case round_fixtures(round) do
+      {:ok, events} ->
+        now = System.system_time(:second)
+        # `fixture_window_days/0`, not `@fixture_window_days`: the attribute is
+        # defined further down this module and would read as nil here.
+        window = fixture_window_days() * 86_400
+
+        events
+        |> current_phase()
+        |> Enum.filter(fn e ->
+          is_integer(e["startTimestamp"]) and abs(e["startTimestamp"] - now) <= window
+        end)
+        |> case do
+          [] ->
+            false
+
+          evs ->
+            Enum.any?(evs, &(&1["startTimestamp"] <= now)) and
+              Enum.any?(evs, &(get_in(&1, ["status", "type"]) != "finished"))
+        end
+
+      _ ->
+        false
+    end
+  end
+
   defp within_lead_time?(ts) when is_integer(ts),
     do: ts - System.system_time(:second) <= @advance_lead_seconds
 

@@ -23,7 +23,10 @@ defmodule Colloq.Workers.PredictionRoundScorerWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    current = Sofascore.current_round()
+    # Prode round, not Racing's: on a fecha Racing doesn't open, the anchor lags
+    # a round behind and the fecha being played tonight would go unscored until
+    # Racing's own next match came within lead time.
+    current = Sofascore.current_prode_round()
 
     [current, current - 1]
     |> Enum.filter(&(&1 >= 1))

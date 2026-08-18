@@ -571,19 +571,18 @@
 
     <form :if={@show_poll_form} phx-submit="submit-with-poll" class="mb-6 p-4 rounded-lg bg-surface-alt border border-border">
       <h4 class="text-sm font-semibold text-heading mb-3"><%= gettext("Create poll") %></h4>
+      <%!-- The question is the required field, not the body: the poll is the
+           point of this form, and a blank question used to silently produce a
+           plain reply with no poll attached. `phx-keyup` keeps the assign in
+           sync so the text survives adding or removing an option. --%>
       <input
         type="text"
-        name="body"
-        placeholder={gettext("Write your reply...")}
-        class="w-full mb-3 px-3 py-2 bg-bg border border-border rounded-lg text-sm text-body placeholder-muted focus:outline-none focus:border-accent"
-        required
-      />
-      <input
-        type="text"
+        name="question"
         value={@poll_question}
         phx-keyup="update-poll-question"
         placeholder={gettext("Poll question")}
         class="w-full mb-3 px-3 py-2 bg-bg border border-border rounded-lg text-sm text-body placeholder-muted focus:outline-none focus:border-accent"
+        required
       />
       <div class="space-y-2 mb-3">
         <div :for={{option, idx} <- Enum.with_index(@poll_options)} class="flex gap-2">
@@ -615,6 +614,14 @@
           + <%= gettext("Add option") %>
         </button>
       </div>
+      <%!-- Optional: most polls need nothing beyond the question, which is used
+           as the post body when this is left empty. --%>
+      <input
+        type="text"
+        name="body"
+        placeholder={gettext("Add a comment (optional)")}
+        class="w-full mt-3 px-3 py-2 bg-bg border border-border rounded-lg text-sm text-body placeholder-muted focus:outline-none focus:border-accent"
+      />
       <label class="flex items-center gap-2 mt-3 text-sm text-body cursor-pointer select-none">
         <input
           type="checkbox"

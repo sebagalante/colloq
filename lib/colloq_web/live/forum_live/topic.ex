@@ -1276,47 +1276,66 @@ defmodule ColloqWeb.ForumLive.Topic do
     end
   end
 
-  def handle_event("submit-with-poll", %{"body" => body}, socket) do
+  def handle_event("submit-with-poll", params, socket) do
     user = socket.assigns.current_user
     topic = socket.assigns.topic
 
-    if user && !topic.closed && !topic.archived do
-      question = socket.assigns.poll_question
-      options = socket.assigns.poll_options |> Enum.reject(&(&1 == ""))
+    # The form field wins over the assign: `phx-keyup` misses a paste with the
+    # mouse, and submitting that would drop a question the user can see.
+    question = String.trim(params["question"] || socket.assigns.poll_question || "")
+    options = socket.assigns.poll_options |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
 
-      case Forum.create_post(topic, user, %{"body" => body}) do
-        {:ok, post} ->
-          if question != "" && length(options) >= 2 do
-            Forum.create_poll(post, question, options, anonymous: socket.assigns.poll_anonymous)
-
-            ColloqWeb.Endpoint.broadcast("forum:topic:#{topic.id}", "poll_updated", %{
-              post_id: post.id
-            })
-          end
-
-          topic = Forum.get_topic!(topic.id)
-
-          {:noreply,
-           socket
-           |> assign(:topic, topic)
-           |> assign(:posts, topic.posts)
-           |> assign(:reply_body, "")
-           |> assign(:show_poll_form, false)
-           |> assign(:poll_question, "")
-           |> assign(:poll_options, ["", ""])
-           |> assign(:poll_anonymous, false)
-           |> load_reaction_data(topic.posts)
-           |> load_user_reactions(topic.posts, user)
-           |> load_poll_data(topic.posts, user)}
-
-        {:error, reason} when reason in [:silenced, :suspended, :banned, :duplicate_post] ->
-          {:noreply, put_flash(socket, :error, moderation_block_message(reason))}
-
-        {:error, _} ->
-          {:noreply, put_flash(socket, :error, gettext("Could not post the reply."))}
+    # The body is optional — with nothing else to say, the question is the post.
+    body =
+      case String.trim(params["body"] || "") do
+        "" -> question
+        text -> text
       end
-    else
-      {:noreply, put_flash(socket, :error, gettext("You cannot reply to this topic."))}
+
+    cond do
+      is_nil(user) or topic.closed or topic.archived ->
+        {:noreply, put_flash(socket, :error, gettext("You cannot reply to this topic."))}
+
+      # Previously this posted the reply anyway and dropped the poll without a
+      # word, so a mistyped form looked like the poll feature was broken.
+      question == "" or length(options) < 2 ->
+        {:noreply,
+         put_flash(socket, :error, gettext("A poll needs a question and at least two options."))}
+
+      true ->
+        create_poll_post(socket, topic, user, body, question, options)
+    end
+  end
+
+  defp create_poll_post(socket, topic, user, body, question, options) do
+    case Forum.create_post(topic, user, %{"body" => body}) do
+      {:ok, post} ->
+        Forum.create_poll(post, question, options, anonymous: socket.assigns.poll_anonymous)
+
+        ColloqWeb.Endpoint.broadcast("forum:topic:#{topic.id}", "poll_updated", %{
+          post_id: post.id
+        })
+
+        topic = Forum.get_topic!(topic.id)
+
+        {:noreply,
+         socket
+         |> assign(:topic, topic)
+         |> assign(:posts, topic.posts)
+         |> assign(:reply_body, "")
+         |> assign(:show_poll_form, false)
+         |> assign(:poll_question, "")
+         |> assign(:poll_options, ["", ""])
+         |> assign(:poll_anonymous, false)
+         |> load_reaction_data(topic.posts)
+         |> load_user_reactions(topic.posts, user)
+         |> load_poll_data(topic.posts, user)}
+
+      {:error, reason} when reason in [:silenced, :suspended, :banned, :duplicate_post] ->
+        {:noreply, put_flash(socket, :error, moderation_block_message(reason))}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, gettext("Could not post the reply."))}
     end
   end
 

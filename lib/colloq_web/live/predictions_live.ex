@@ -9,28 +9,36 @@ defmodule ColloqWeb.PredictionsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    season_id = Sofascore.current_season_id()
-
     socket =
       socket
       |> assign(:page_title, pgettext("prode", "Predictions"))
-      |> assign(:season_id, season_id)
+      |> assign(:season_id, Sofascore.current_season_id())
 
+    {:ok, socket}
+  end
+
+  # The fecha lives in the URL, not just in the assigns. Keeping it in assigns
+  # only meant the browser's back button (and the mobile swipe-back gesture)
+  # skipped straight off the page instead of stepping back a fecha, and any
+  # reconnect remounted you onto the current one. It also makes a fecha
+  # linkable.
+  @impl true
+  def handle_params(params, _uri, socket) do
     socket =
-      if season_id do
-        load_round(socket, Sofascore.current_round())
+      if socket.assigns.season_id do
+        load_round(socket, param_round(params) || Sofascore.current_prode_round())
       else
         assign(socket, round: nil, matches: [], predictions: %{}, next_available?: false)
       end
 
-    {:ok, socket}
+    {:noreply, socket}
   end
 
   @impl true
   def handle_event("nav-round", %{"dir" => dir}, socket) do
     delta = if dir == "next", do: 1, else: -1
     round = max(1, (socket.assigns.round || 1) + delta)
-    {:noreply, load_round(socket, round)}
+    {:noreply, push_patch(socket, to: ~p"/predicciones?fecha=#{round}")}
   end
 
   def handle_event("save-round", params, socket) do
@@ -66,6 +74,17 @@ defmodule ColloqWeb.PredictionsLive do
   # ---------------------------------------------------------------------------
   # Round loading
   # ---------------------------------------------------------------------------
+
+  # Garbage in the query string falls back to the current fecha rather than
+  # rendering an empty page for `?fecha=chau`.
+  defp param_round(%{"fecha" => value}) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, ""} when n >= 1 -> n
+      _ -> nil
+    end
+  end
+
+  defp param_round(_), do: nil
 
   defp load_round(socket, round) do
     matches = fetch_matches(round)
