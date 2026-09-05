@@ -3081,7 +3081,7 @@ msgstr "Formación"
 msgid "Image is too large (max 2 MB)."
 msgstr "La imagen es demasiado grande (máx. 2 MB)."
 
-#: lib/colloq_web/live/admin_live/sofascore.ex:96
+#: lib/colloq_web/live/admin_live/sofascore.ex:93
 #, elixir-autogen, elixir-format
 msgid "Job enqueued. Watch the logs for the result."
 msgstr "Tarea encolada. Mirá los logs para ver el resultado."
@@ -3096,12 +3096,12 @@ msgstr "Key cargada desde"
 msgid "LLM / IA"
 msgstr "LLM / IA"
 
-#: lib/colloq_web/live/admin_live/sofascore.ex:119
+#: lib/colloq_web/live/admin_live/sofascore.ex:116
 #, elixir-autogen, elixir-format
 msgid "Last enqueued:"
 msgstr "Última encolada:"
 
-#: lib/colloq_web/live/admin_live/sofascore.html.heex:62
+#: lib/colloq_web/live/admin_live/sofascore.html.heex:63
 #, elixir-autogen, elixir-format
 msgid "League table for the current season. Requires the season id above."
 msgstr "Tabla de posiciones de la temporada actual. Necesita el id de temporada de arriba."
@@ -3205,7 +3205,7 @@ msgstr "Publicar con formación"
 msgid "Posts"
 msgstr "Publicaciones"
 
-#: lib/colloq_web/live/admin_live/sofascore.html.heex:56
+#: lib/colloq_web/live/admin_live/sofascore.html.heex:57
 #, elixir-autogen, elixir-format
 msgid "Re-fetch player rosters for all known teams and update the local DB."
 msgstr "Volver a traer los planteles de todos los equipos conocidos y actualizar la base local."
@@ -3220,12 +3220,12 @@ msgstr "Actualizar partidos de Racing"
 msgid "Refresh all fixtures"
 msgstr "Actualizar todos los partidos"
 
-#: lib/colloq_web/live/admin_live/sofascore.html.heex:55
+#: lib/colloq_web/live/admin_live/sofascore.html.heex:56
 #, elixir-autogen, elixir-format
 msgid "Refresh squads"
 msgstr "Actualizar planteles"
 
-#: lib/colloq_web/live/admin_live/sofascore.html.heex:61
+#: lib/colloq_web/live/admin_live/sofascore.html.heex:62
 #, elixir-autogen, elixir-format
 msgid "Refresh standings"
 msgstr "Actualizar posiciones"
@@ -3245,7 +3245,7 @@ msgstr "Reabrir"
 msgid "Reopen topic"
 msgstr "Reabrir tema"
 
-#: lib/colloq_web/live/admin_live/sofascore.ex:123
+#: lib/colloq_web/live/admin_live/sofascore.ex:120
 #, elixir-autogen, elixir-format
 msgid "Run"
 msgstr "Ejecutar"
@@ -3282,7 +3282,7 @@ msgstr "Id de temporada guardado."
 msgid "Set"
 msgstr "Configurá"
 
-#: lib/colloq_web/live/admin_live/sofascore.ex:81
+#: lib/colloq_web/live/admin_live/sofascore.ex:78
 #, elixir-autogen, elixir-format
 msgid "Set the season id first (Settings ▸ Match Day ▸ sofascore_season_id)."
 msgstr "Configurá primero el id de temporada (Configuración ▸ Match Day ▸ sofascore_season_id)."
@@ -4772,20 +4772,10 @@ msgstr "El once que yo pondría"
 msgid "Apply official roster"
 msgstr "Aplicar plantel oficial"
 
-#: lib/colloq_web/live/admin_live/sofascore.ex:65
-#, elixir-autogen, elixir-format
-msgid "Official roster applied: %{u} updated, %{i} added, %{r} removed."
-msgstr "Plantel oficial aplicado: %{u} actualizados, %{i} agregados, %{r} eliminados."
-
 #: lib/colloq_web/live/admin_live/sofascore.html.heex:45
 #, elixir-autogen, elixir-format
 msgid "Re-fetch Racing Club's roster from Sofascore, then reconcile to the official list. Names and numbers follow the official page; Sofascore only supplies photos and stats."
 msgstr "Vuelve a traer el plantel de Racing desde Sofascore y lo sincroniza con la lista oficial. Nombres y números siguen la página oficial; Sofascore solo aporta fotos y estadísticas."
-
-#: lib/colloq_web/live/admin_live/sofascore.html.heex:51
-#, elixir-autogen, elixir-format
-msgid "Reconcile the stored Racing squad to the official list (names, numbers, positions) without hitting Sofascore."
-msgstr "Sincroniza el plantel guardado de Racing con la lista oficial (nombres, números, posiciones) sin consultar Sofascore."
 
 #: lib/colloq_web/components/core_components.ex:865
 #, elixir-autogen, elixir-format
@@ -5572,3 +5562,8 @@ msgstr "La encuesta necesita una pregunta y al menos dos opciones."
 #, elixir-autogen, elixir-format
 msgid "Add a comment (optional)"
 msgstr "Agregá un comentario (opcional)"
+
+#: lib/colloq_web/live/admin_live/sofascore.html.heex:51
+#, elixir-autogen, elixir-format
+msgid "Re-read Racing's official squad page and reconcile the stored squad to it (names, numbers, positions), without hitting Sofascore. Runs automatically every night."
+msgstr "Vuelve a leer la página oficial del plantel de Racing y sincroniza el plantel guardado con ella (nombres, números, posiciones), sin consultar a Sofascore. Se ejecuta automáticamente cada noche."

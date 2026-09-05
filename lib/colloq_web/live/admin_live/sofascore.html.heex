@@ -48,8 +48,9 @@
     />
     <.sofascore_action
       title={gettext("Apply official roster")}
-      desc={gettext("Reconcile the stored Racing squad to the official list (names, numbers, positions) without hitting Sofascore.")}
+      desc={gettext("Re-read Racing's official squad page and reconcile the stored squad to it (names, numbers, positions), without hitting Sofascore. Runs automatically every night.")}
       event="apply-racing-roster"
+      last={last_run(@last_runs, "racing_roster")}
     />
     <.sofascore_action
       title={gettext("Refresh squads")}

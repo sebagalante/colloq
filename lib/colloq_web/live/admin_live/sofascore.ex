@@ -54,16 +54,13 @@ defmodule ColloqWeb.AdminLive.Sofascore do
     {:noreply, ran(socket, "racing_squad")}
   end
 
-  # Reconcile-only: no network, just re-apply RacingRoster over what's stored.
+  # Re-scrapes the club's squad page and reconciles it over what's stored. Runs
+  # nightly on its own; the button is for when you can't wait for the cron. It
+  # goes through Oban rather than running inline, so a slow club site can't hang
+  # the admin LiveView.
   def handle_event("apply-racing-roster", _params, socket) do
-    %{updated: u, inserted: i, removed: r} = Sofascore.apply_racing_roster()
-
-    {:noreply,
-     put_flash(
-       socket,
-       :info,
-       gettext("Official roster applied: %{u} updated, %{i} added, %{r} removed.", u: u, i: i, r: r)
-     )}
+    Sofascore.refresh_racing_roster()
+    {:noreply, ran(socket, "racing_roster")}
   end
 
   def handle_event("refresh-squads", _params, socket) do

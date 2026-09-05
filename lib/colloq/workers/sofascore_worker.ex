@@ -105,6 +105,23 @@ defmodule Colloq.Workers.SofascoreWorker do
   end
 
   @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"action" => "sync_racing_roster"}}) do
+    Logger.info("[Sofascore] Sincronizando plantel oficial de Racing")
+
+    case Colloq.Sofascore.apply_racing_roster() do
+      {:ok, %{updated: u, inserted: i, removed: r}} ->
+        Logger.info("[Sofascore] Plantel oficial: #{u} actualizados, #{i} altas, #{r} bajas")
+        {:ok, "racing roster: #{u} updated, #{i} inserted, #{r} removed"}
+
+      {:error, reason} ->
+        # The stored squad is untouched, so this is a retry-worthy blip (the
+        # club's site down, markup moved), not a data problem.
+        Logger.error("[Sofascore] Error plantel oficial: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @impl Oban.Worker
   def perform(%Oban.Job{args: %{"action" => "fetch_squad"}}) do
     # No team_id: fetches squads for all known teams
     {:ok, results} = Colloq.Sofascore.fetch_and_seed_all(force: true)

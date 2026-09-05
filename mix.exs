@@ -49,7 +49,7 @@ defmodule Colloq.MixProject do
       # DateTime.shift_zone!("America/Argentina/Buenos_Aires") raises, which
       # silently broke the fixture digest and shows "--:--" for kickoff times.
       {:tzdata, "~> 1.1"},
-      {:floki, ">= 0.36.0", only: :test},
+      {:floki, ">= 0.36.0"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:esbuild, "~> 0.9", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},

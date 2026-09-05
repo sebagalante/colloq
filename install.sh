@@ -26,7 +26,7 @@ set -euo pipefail
 ELIXIR_VERSION="${ELIXIR_VERSION:-1.20.2}"
 OTP_VERSION="${OTP_VERSION:-28.1}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
-POSTGRES_MAJOR="${POSTGRES_MAJOR:-17}"
+POSTGRES_MAJOR="${POSTGRES_MAJOR:-18}"
 
 # ParadeDB ships pg_search as a .deb per Postgres major version. There is no
 # apt repo, so point this at the release asset matching POSTGRES_MAJOR and this

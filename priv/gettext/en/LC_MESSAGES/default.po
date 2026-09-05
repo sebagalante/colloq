@@ -3078,7 +3078,7 @@ msgstr ""
 msgid "Image is too large (max 2 MB)."
 msgstr ""
 
-#: lib/colloq_web/live/admin_live/sofascore.ex:96
+#: lib/colloq_web/live/admin_live/sofascore.ex:93
 #, elixir-autogen, elixir-format
 msgid "Job enqueued. Watch the logs for the result."
 msgstr ""
@@ -3093,12 +3093,12 @@ msgstr ""
 msgid "LLM / IA"
 msgstr ""
 
-#: lib/colloq_web/live/admin_live/sofascore.ex:119
+#: lib/colloq_web/live/admin_live/sofascore.ex:116
 #, elixir-autogen, elixir-format
 msgid "Last enqueued:"
 msgstr ""
 
-#: lib/colloq_web/live/admin_live/sofascore.html.heex:62
+#: lib/colloq_web/live/admin_live/sofascore.html.heex:63
 #, elixir-autogen, elixir-format
 msgid "League table for the current season. Requires the season id above."
 msgstr ""
@@ -3202,7 +3202,7 @@ msgstr ""
 msgid "Posts"
 msgstr "Posts"
 
-#: lib/colloq_web/live/admin_live/sofascore.html.heex:56
+#: lib/colloq_web/live/admin_live/sofascore.html.heex:57
 #, elixir-autogen, elixir-format
 msgid "Re-fetch player rosters for all known teams and update the local DB."
 msgstr ""
@@ -3217,12 +3217,12 @@ msgstr ""
 msgid "Refresh all fixtures"
 msgstr ""
 
-#: lib/colloq_web/live/admin_live/sofascore.html.heex:55
+#: lib/colloq_web/live/admin_live/sofascore.html.heex:56
 #, elixir-autogen, elixir-format
 msgid "Refresh squads"
 msgstr ""
 
-#: lib/colloq_web/live/admin_live/sofascore.html.heex:61
+#: lib/colloq_web/live/admin_live/sofascore.html.heex:62
 #, elixir-autogen, elixir-format
 msgid "Refresh standings"
 msgstr ""
@@ -3242,7 +3242,7 @@ msgstr ""
 msgid "Reopen topic"
 msgstr ""
 
-#: lib/colloq_web/live/admin_live/sofascore.ex:123
+#: lib/colloq_web/live/admin_live/sofascore.ex:120
 #, elixir-autogen, elixir-format
 msgid "Run"
 msgstr ""
@@ -3279,7 +3279,7 @@ msgstr ""
 msgid "Set"
 msgstr ""
 
-#: lib/colloq_web/live/admin_live/sofascore.ex:81
+#: lib/colloq_web/live/admin_live/sofascore.ex:78
 #, elixir-autogen, elixir-format
 msgid "Set the season id first (Settings ▸ Match Day ▸ sofascore_season_id)."
 msgstr ""
@@ -4769,19 +4769,9 @@ msgstr ""
 msgid "Apply official roster"
 msgstr ""
 
-#: lib/colloq_web/live/admin_live/sofascore.ex:65
-#, elixir-autogen, elixir-format
-msgid "Official roster applied: %{u} updated, %{i} added, %{r} removed."
-msgstr ""
-
 #: lib/colloq_web/live/admin_live/sofascore.html.heex:45
 #, elixir-autogen, elixir-format
 msgid "Re-fetch Racing Club's roster from Sofascore, then reconcile to the official list. Names and numbers follow the official page; Sofascore only supplies photos and stats."
-msgstr ""
-
-#: lib/colloq_web/live/admin_live/sofascore.html.heex:51
-#, elixir-autogen, elixir-format
-msgid "Reconcile the stored Racing squad to the official list (names, numbers, positions) without hitting Sofascore."
 msgstr ""
 
 #: lib/colloq_web/components/core_components.ex:865
@@ -5569,3 +5559,8 @@ msgstr "A poll needs a question and at least two options."
 #, elixir-autogen, elixir-format
 msgid "Add a comment (optional)"
 msgstr "Add a comment (optional)"
+
+#: lib/colloq_web/live/admin_live/sofascore.html.heex:51
+#, elixir-autogen, elixir-format
+msgid "Re-read Racing's official squad page and reconcile the stored squad to it (names, numbers, positions), without hitting Sofascore. Runs automatically every night."
+msgstr ""

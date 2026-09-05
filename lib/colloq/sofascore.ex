@@ -15,7 +15,7 @@ defmodule Colloq.Sofascore do
   import Ecto.Query, warn: false
   alias Colloq.Repo
   alias Colloq.Sofascore.SofascorePlayer
-  alias Colloq.Sofascore.RacingRoster
+  alias Colloq.Sofascore.OfficialRoster
 
   @user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
@@ -249,6 +249,11 @@ defmodule Colloq.Sofascore do
         end
       end)
 
+    # Racing is reconciled again, last: another club's feed may still list a
+    # player Racing has signed, and seeding it after Racing would otherwise
+    # leave the official roster one man short.
+    apply_racing_roster()
+
     {:ok, results}
   end
 
@@ -372,6 +377,12 @@ defmodule Colloq.Sofascore do
   @doc "Enqueue a squad refresh for every known team."
   def refresh_squads, do: enqueue(%{"action" => "fetch_squad"})
 
+  @doc """
+  Enqueue a re-scrape of Racing's official squad page and a reconcile of the
+  stored squad onto it. Also runs nightly from the Oban crontab.
+  """
+  def refresh_racing_roster, do: enqueue(%{"action" => "sync_racing_roster"})
+
   @doc "Enqueue a squad refresh for one team (Sofascore team_id)."
   def refresh_squad(team_id) when is_integer(team_id),
     do: enqueue(%{"action" => "fetch_squad", "team_id" => team_id})
@@ -417,27 +428,81 @@ defmodule Colloq.Sofascore do
   def racing_team_id, do: @teams.racing.id
 
   @doc """
-  Reconciles the stored Racing squad to the official roster
-  (`Colloq.Sofascore.RacingRoster`).
+  Reconciles the stored Racing squad to the club's official squad page
+  (`Colloq.Sofascore.OfficialRoster`).
 
   The official list wins on names and numbers, since Sofascore's feed lags.
   Existing rows are matched by name so their `sofascore_id` (and the photos and
   stats it unlocks) survive a rename or a number change; genuinely new players
   are inserted with a synthetic id; players no longer in the squad are removed.
 
-  Returns `%{updated: n, inserted: n, removed: n}`.
+  Returns `{:ok, %{updated: n, inserted: n, removed: n}}`, or `{:error, reason}`
+  when the official page is unreachable or parses implausibly — in which case
+  the stored squad is left exactly as it was, since a bad scrape must never
+  empty the board.
   """
   def apply_racing_roster do
+    case OfficialRoster.fetch() do
+      {:ok, players} ->
+        {:ok, apply_racing_roster(players)}
+
+      {:error, reason} ->
+        Logger.error(
+          "[Sofascore] Official roster unavailable (#{inspect(reason)}); Racing squad left untouched"
+        )
+
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Reconciles the stored Racing squad to an already-fetched official list.
+
+  Takes the same player maps `OfficialRoster.fetch/1` returns, so a caller that
+  has one in hand (or a test) can reconcile without another request.
+  """
+  def apply_racing_roster(official_players) when is_list(official_players) do
     team_id = racing_team_id()
     existing = list_by_team(team_id)
 
-    # Greedy best-match: each official player claims the closest unclaimed row.
-    {ops, leftover} =
-      Enum.map_reduce(RacingRoster.players(), existing, fn official, pool ->
-        case best_match(official, pool) do
-          nil -> {{:insert, official}, pool}
+    # Two passes, so a shared surname can't hand one Pérez the other's
+    # `sofascore_id` (and with it his photo and stats): everyone who agrees on
+    # surname *and* given name claims his row first, and only the leftovers are
+    # then matched on surname alone.
+    {claimed, pool} =
+      Enum.map_reduce(official_players, existing, fn official, pool ->
+        case strict_match(official, pool) do
+          nil -> {{:pending, official}, pool}
           row -> {{:update, row, official}, List.delete(pool, row)}
         end
+      end)
+
+    {ops, leftover} =
+      Enum.map_reduce(claimed, pool, fn
+        {:pending, official}, pool ->
+          case best_match(official, pool) do
+            nil -> {{:insert, official}, pool}
+            row -> {{:update, row, official}, List.delete(pool, row)}
+          end
+
+        op, pool ->
+          {op, pool}
+      end)
+
+    # An official with no Racing row may simply be a transfer Sofascore hasn't
+    # processed: its feed still lists him at his former club, and seeding that
+    # club moves the row away from Racing. Claim it back instead of minting a
+    # synthetic id, so his photo and stats survive.
+    {ops, _pool} =
+      Enum.map_reduce(ops, list_outside_team(team_id), fn
+        {:insert, official}, pool ->
+          case strict_match(official, pool) do
+            nil -> {{:insert, official}, pool}
+            row -> {{:update, row, official}, List.delete(pool, row)}
+          end
+
+        op, pool ->
+          {op, pool}
       end)
 
     updated =
@@ -448,7 +513,8 @@ defmodule Colloq.Sofascore do
             name: official.name,
             jersey_number: official.number,
             position: official.position,
-            short_name: roster_short(official)
+            short_name: roster_short(official),
+            team_id: team_id
           })
           |> Repo.update!()
 
@@ -485,10 +551,11 @@ defmodule Colloq.Sofascore do
   # so "Marco Genaro Di Cesare" shows "Di Cesare", not "Cesare".
   defp roster_short(official), do: official[:short] || official.surname
 
-  # A stored row matches an official player when their surnames agree; ties
-  # (two Rodríguez) break on the first given name. The full surname is tried
-  # first, then its last token, so a compound "Luis Rodríguez" still finds a
-  # row Sofascore stored as plain "Rodríguez".
+  # Second-pass fallback: surnames agree and the given name did not (a rename,
+  # or Sofascore carrying a nickname). Ties break on the given name, then on the
+  # shirt number, before giving up and taking the first. The full surname is
+  # tried first, then its last token, so a compound "Luis Rodríguez" still finds
+  # a row Sofascore stored as plain "Rodríguez".
   defp best_match(official, pool) do
     surname = normalize(official.surname)
     last = surname |> String.split() |> List.last()
@@ -503,8 +570,30 @@ defmodule Colloq.Sofascore do
     case candidates do
       [] -> nil
       [only] -> only
-      many -> Enum.find(many, &String.contains?(normalize(&1.name), first)) || List.first(many)
+      many ->
+        Enum.find(many, &String.contains?(normalize(&1.name), first)) ||
+          Enum.find(many, &(&1.jersey_number == official.number)) ||
+          List.first(many)
     end
+  end
+
+  # Cross-team lookup is deliberately stricter than `best_match/2`: surname and
+  # first given name must both agree before a row is pulled off another club.
+  defp strict_match(official, pool) do
+    surname = normalize(official.surname)
+    first = official.name |> String.split() |> List.first() |> normalize()
+
+    Enum.find(pool, fn row ->
+      name = normalize(row.name)
+      String.contains?(name, surname) and String.contains?(name, first)
+    end)
+  end
+
+  # Every stored player that is not on the given team.
+  defp list_outside_team(team_id) do
+    SofascorePlayer
+    |> where([p], p.team_id != ^team_id)
+    |> Repo.all()
   end
 
   # Lowercase, accent-stripped, for tolerant name comparison.

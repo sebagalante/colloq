@@ -75,6 +75,11 @@ config :colloq, Oban,
        {"* * * * *", Colloq.Workers.AutomationSchedulerWorker},
        # Composer drafts untouched for a week. The worker existed but was never
        # scheduled, so nothing ever expired.
+       # 04:00 Argentina (UTC-3) = 07:00 UTC: re-scrape Racing's official squad
+       # page and reconcile the board. Sofascore's feed lags transfers by weeks
+       # and can even hand a signed player back to his old club, so the club's
+       # own page is what keeps the squad honest without anyone clicking.
+       {"0 7 * * *", Colloq.Workers.SofascoreWorker, args: %{action: "sync_racing_roster"}},
        {"30 3 * * *", Colloq.Workers.PruneDraftsWorker},
        # Soft-deleted posts: 30 days for moderation hides, 7 for author
        # self-deletions. Nothing purged them before, so every post ever hidden
