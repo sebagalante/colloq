@@ -54,7 +54,7 @@ invalidated and every user is logged out once.
 
 ## High
 
-### 3. SSRF via link unfurling / validation
+### 3. SSRF via link unfurling / validation — ✅ FIXED 2026-09-19
 
 **Files:** `lib/colloq/workers/embed_worker.ex:217`, `lib/colloq/workers/link_validator_worker.ex:63`
 
@@ -62,50 +62,52 @@ invalidated and every user is logged out once.
 - `http://169.254.169.254/latest/meta-data/…` (cloud metadata), `http://localhost:4000/admin/…`, `http://10.0.0.1/` are all reachable. Response content (title/description) is stored and shown, so it's **semi-blind** — internal responses can leak into embed cards.
 - The embed worker also runs per post, so any poster triggers it.
 
-**Fix:** Resolve the host, reject private/loopback/link-local ranges (RFC 1918, 169.254/16, 127/8, ::1, fc00::/7), and reject non-http(s) schemes.
+**Fix applied:** new `Colloq.HttpGuard` (`lib/colloq/http_guard.ex`) — rejects non-http(s) schemes, blocked hostnames (localhost/.local/.internal), and any host that resolves to a private/loopback/link-local/CGNAT/multicast/reserved address (IPv4 and IPv6, including IPv4-mapped). DNS is resolved up front so hostnames pointing at internal IPs are caught. Wired into `EmbedWorker.fetch_og/1` (unsafe URL → no preview card) and `LinkValidatorWorker.validate_url/1` (unsafe URL → reported dead, never fetched). Known residual risk (documented in the module): redirects followed by `Req` are not re-checked.
 
-### 4. Open redirect
+### 4. Open redirect — ✅ FIXED 2026-09-19
 
 **File:** `lib/colloq_web/controllers/link_controller.ex:8-13`
 
 - `@allowed_domains` is `[]`, and the code treats empty as "allow all http/https" → `/go?url=https://attacker.com` is a clean redirector for phishing, and it's on your domain so it passes reputation checks.
 
-**Fix:** Maintain an explicit allow-list, or drop the feature.
+**Fix applied:** fail-closed — an empty effective allow-list disables `/go` entirely (`host in []` is always false; the old `Enum.empty?` special case is gone). The allow-list is now read per request from the `allowed_redirect_domains` site setting (comma-separated, exact host match, replaces the module default) so admins can re-enable the feature deliberately.
 
-### 5. Weak CSP
+### 5. Weak CSP — ✅ FIXED 2026-09-19
 
 **File:** `lib/colloq_web/router.ex:24`
 
 - `script-src 'self' 'unsafe-inline' 'unsafe-eval'`. `unsafe-inline` + `unsafe-eval` defeats most XSS mitigations and pairs badly with the SVG vector above.
 
-**Fix:** Use nonces (`csp_nonce_assign_key`) and drop both `unsafe-*`.
+**Fix applied:** `ColloqWeb.Plugs.SecureHeaders` (`lib/colloq_web/plugs/secure_headers.ex`) now sets browser security headers with a **per-request nonce** in prod: `script-src 'self' 'nonce-…' <twitter hosts>` — both `unsafe-*` dropped. The nonce reaches LiveView via `csp_nonce_assign_key: {:conn, :csp_nonce}` on the `/live` socket (endpoint.ex) and the root layout script tag gets `nonce={@csp_nonce}`. Dev/test keep the previous permissive policy (live-reload injects unsigned inline scripts). Deploy note: any new inline script in prod needs the nonce attribute or the browser blocks it (fails loudly in console).
 
 ## Medium
 
-### 6. Unauthenticated `/api/v1` endpoints
+### 6. Unauthenticated `/api/v1` endpoints — ✅ FIXED 2026-09-19
 
 **File:** `lib/colloq_web/router.ex:139-145`
 
 - The `:api` pipeline is `accepts + fetch_session` only — no `fetch_current_user`, no CSRF, no API key. `POST /api/v1/automations/:id/trigger` is reachable by anyone (currently a stub, but the docstring says "used by webhook integrations" — it'll get implemented without auth unless gated now).
 - `POST /api/v1/push/subscribe` likewise.
 
-**Fix:** Require a bearer/API token (and CSRF the session-bearing JSON routes, or exclude them from the cookie session).
+**Fix applied:** the `:api` pipeline now requires `Authorization: Bearer <API_V1_TOKEN>` via `ColloqWeb.Plugs.RequireApiToken` (constant-time compare, fail-closed when the token env var is unset). The session was removed from that pipeline on purpose — cookie-session JSON routes without CSRF are CSRF-able; nothing in the frontend calls these routes (push subscribe goes through the LiveView `push-subscribe` event, which no LiveView handles — dead code). Token documented in `.env.example`.
 
-### 7. Login rate limit is per-email only
+### 7. Login rate limit is per-email only — ✅ FIXED 2026-09-19
 
 **File:** `lib/colloq/accounts.ex:139-161`
 
 - `Cachex` key is `login_attempts:<email>`. Attacker rotates email or targets many accounts per IP. Cache is in-memory and resets on restart, also letting a crashed node clear limits.
 
-**Fix:** Add a per-IP bucket; use a persistent store (Oban/DB) for the lockout counter.
+**Fix applied:** `authenticate_user/3` (new optional `ip` argument, passed by the login LiveView, resolved through the same trusted-proxy chain as registration) now keeps a second bucket — max 20 failed attempts per IP per 15 minutes alongside the existing 5 per email. Both buckets bump on every failure; a successful login clears only the email bucket, so an attacker's IP budget isn't reset by one lucky guess. The in-memory persistence caveat stands (see below).
 
-### 8. Chat attachment upload accepts any type up to 15 MB
+### 8. Chat attachment upload accepts any type up to 15 MB — ✅ FIXED 2026-09-19 (with #2)
 
 **File:** `lib/colloq_web/controllers/upload_controller.ex:33-47`
 
 - `attachment/2` validates only size. Combined with the extension-from-filename behaviour, a `evil.html`/`evil.svg` attachment stored locally is served same-origin and executable.
 
 **Fix:** Same as #2 — magic-byte validation + sandbox origin/`Content-Disposition: attachment`.
+
+**Fixed together with #2:** the chat attachment path no longer exists; `UploadController` validates by magic bytes (`Colloq.Media.Sniff`) and uploads get sandbox CSP + `nosniff` + `Content-Disposition: attachment` (`ColloqWeb.Plugs.UploadHeaders`). See #2.
 
 ## Low / hygiene
 
@@ -115,7 +117,11 @@ invalidated and every user is logged out once.
 - **`erl_crash.dump` (7.6 MB) present in the repo root.** It's gitignored so not tracked, but crash dumps contain process memory — secrets included. Rotate any secrets that were live at crash time and delete the file.
 - **Password policy** is min 8, no complexity / breach-list check (`user.ex:146-150`). Consider `HaveIBeenPwned` or zxcvbn.
 - **`HtmlSanitizeEx.html5()` is applied in `render_body`** (good) but the post body is stored as rendered HTML, not sanitized at write time — any future renderer change or caching path that bypasses `render_body` re-exposes stored markup. Consider sanitizing on write as defense-in-depth.
-- **`core_components.ex:599` / `:848`** use `Phoenix.HTML.raw(html)` — verify those `html` inputs are static/builder-generated, not user-controlled (the few skimmed looked fine).
+- **`core_components.ex:599` / `:848`** use `Phoenix.HTML.raw(html)` — verify those `html` inputs are static/builder-generated, not user-controlled (the few skimmed looked fine; the `emoji_display` path at `:659` uses admin-validated emoji URLs).
+- **Session cookie lacked `Secure`/`HttpOnly`** — ✅ FIXED 2026-09-19. `Endpoint.session_options/0` now adds `secure: true` and `http_only: true` in prod (dev keeps defaults for plain http://localhost); the stale comment claiming runtime.exs set them is gone.
+- **AI topic summary scrubbed with `basic_html`** — ✅ FIXED 2026-09-19. `topic.html.heex:777` now uses the same `html5` scrubber as post bodies; the summary is LLM output distilled from user posts, so it's attacker-influenceable and gets the strict allowlist.
+- **Link validator attributed moderation flags to user id 1 when no "sistema" account exists** — ✅ FIXED 2026-09-19. `find_system_user_id/0` returns nil and the flag is skipped with a warning instead of pinning spam reports on an arbitrary account.
+- **Login/2FA tokens ride in GET query strings** (`/session?token=…`). Mitigated by the 120s `max_age`; converting to POST would be the cleaner shape. Not changed.
 
 ## Not actually exploitable
 
@@ -132,8 +138,11 @@ invalidated and every user is logged out once.
 ## Suggested fix order
 
 1. ~~**#1** — force-fail on missing prod secrets~~ ✅ done (see above).
-2. **#4** — open redirect: two-line fix, or delete the `/go` feature.
-3. **#2 / #3** — SVG XSS and SSRF (cheap to patch, high impact).
-3. **#4 / #5** — open redirect and CSP.
-4. **#6** — gate `/api/v1` before it grows real behaviour.
-5. Everything else as hygiene.
+2. ~~**#4** — open redirect~~ ✅ done (fail-closed; site setting `allowed_redirect_domains` re-enables).
+3. ~~**#2 / #3** — SVG XSS and SSRF~~ ✅ done (Sniff + UploadHeaders; HttpGuard).
+4. ~~**#5** — CSP nonces~~ ✅ done (prod only — see deploy note).
+5. ~~**#6** — gate `/api/v1`~~ ✅ done (bearer token, fail-closed).
+6. ~~**#7** — per-IP login bucket~~ ✅ done (in-memory caveat stands — move to a persistent store for multi-node).
+7. Remaining hygiene as listed above.
+
+Remaining known gaps (accepted/documented): SSRF redirect-following residual risk; rate-limit counters not persistent across node restarts; login tokens in GET query strings.

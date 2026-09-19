@@ -214,6 +214,17 @@ defmodule Colloq.Workers.EmbedWorker do
   end
 
   defp fetch_og(url) do
+    # SSRF guard: post bodies are user input, and this fetch runs from inside
+    # the app's network. Anything that isn't a public http(s) URL gets no
+    # preview instead of a fetch.
+    if Colloq.HttpGuard.safe_url?(url) do
+      do_fetch_og(url)
+    else
+      nil
+    end
+  end
+
+  defp do_fetch_og(url) do
     case Req.get(url,
            max_redirects: 3,
            receive_timeout: 6_000,

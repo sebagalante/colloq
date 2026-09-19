@@ -7,10 +7,11 @@ defmodule ColloqWeb.Endpoint do
   # evaluated at compile time, so reading the env var here would bake the build
   # machine's value into the release and silently ignore whatever prod exports.
   # It's fetched per request in session_options/0 instead.
+  # SameSite is set here; the Secure/HttpOnly flags are applied per environment
+  # in session_options/0 (prod only).
   @session_options [
     store: :cookie,
     key: "_colloq_session",
-    # Secure and SameSite are set per environment in runtime.exs
     same_site: "Lax"
   ]
 
@@ -23,7 +24,18 @@ defmodule ColloqWeb.Endpoint do
   """
   def session_options do
     salt = Application.fetch_env!(:colloq, __MODULE__)[:session_signing_salt]
-    Keyword.put(@session_options, :signing_salt, salt)
+
+    @session_options
+    |> Keyword.put(:signing_salt, salt)
+    |> prod_cookie_flags()
+  end
+
+  # The session cookie rides with every authenticated request, so it must never
+  # travel over plain HTTP: `secure` keeps it on TLS connections only (Plug
+  # defaults it to false), and `http_only` is pinned explicitly so the flag
+  # can't regress. Dev keeps the defaults so plain http://localhost still works.
+  defp prod_cookie_flags(opts) do
+    if Mix.env() == :prod, do: opts ++ [secure: true, http_only: true], else: opts
   end
 
   # Socket mount for LiveView.
@@ -39,7 +51,11 @@ defmodule ColloqWeb.Endpoint do
 
   socket "/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: @connect_info],
-    longpoll: [connect_info: @connect_info]
+    longpoll: [connect_info: @connect_info],
+    # Pass the per-request CSP nonce assigned by ColloqWeb.Plugs.SecureHeaders
+    # into LiveView, so its inline bootstrap scripts carry the nonce and keep
+    # running under the prod script-src 'nonce-…' policy.
+    csp_nonce_assign_key: {:conn, :csp_nonce}
 
   # Socket mount for channels (DMs, notifications, forum)
   socket "/socket", ColloqWeb.UserSocket,

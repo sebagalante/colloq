@@ -57,14 +57,21 @@ defmodule Colloq.Workers.LinkValidatorWorker do
     uri = URI.parse(url)
     domain = uri.host
 
-    if domain_blocked?(domain) do
-      {:blocked, url}
-    else
-      case Req.head(url, follow_redirects: true, max_redirects: 5, receive_timeout: 5000) do
-        {:ok, %{status: status}} when status in 200..399 -> {:ok, url}
-        {:ok, %{status: status}} -> {:dead, url}
-        {:error, _} -> {:dead, url}
-      end
+    cond do
+      domain_blocked?(domain) ->
+        {:blocked, url}
+
+      # SSRF guard: an unresolvable or internal URL is dead as far as readers
+      # are concerned, and it must never be fetched from inside our network.
+      not Colloq.HttpGuard.safe_url?(url) ->
+        {:dead, url}
+
+      true ->
+        case Req.head(url, follow_redirects: true, max_redirects: 5, receive_timeout: 5000) do
+          {:ok, %{status: status}} when status in 200..399 -> {:ok, url}
+          {:ok, %{status: status}} -> {:dead, url}
+          {:error, _} -> {:dead, url}
+        end
     end
   end
 
@@ -100,17 +107,24 @@ defmodule Colloq.Workers.LinkValidatorWorker do
   end
 
   defp flag_post(post, reason, links) do
-    system_user_id = find_system_user_id()
     link_list = Enum.map_join(links, "\n", fn {_, u} -> u end)
 
-    Moderation.flag_post(post.id, system_user_id, "spam")
+    case find_system_user_id() do
+      nil ->
+        # No "sistema" account (and never guess one): attributing the flag to
+        # an arbitrary user id would pin spam reports on the wrong account.
+        Logger.warning("[LinkValidator] No hay usuario 'sistema'; post ##{post.id} no se reportó (#{reason}: #{link_list})")
+
+      system_user_id ->
+        Moderation.flag_post(post.id, system_user_id, "spam")
+    end
 
     Logger.info("[LinkValidator] Post ##{post.id} reportado: #{reason} — #{link_list}")
   end
 
   defp find_system_user_id do
     case Colloq.Accounts.get_user_by_username("sistema") do
-      nil -> 1
+      nil -> nil
       user -> user.id
     end
   end

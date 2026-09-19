@@ -773,8 +773,11 @@
       </div>
 
       <%!-- Body --%>
+      <%!-- html5, not basic_html: the summary is LLM output distilled from user
+           posts, so it's attacker-influenceable and gets the same strict
+           scrubber as post bodies. --%>
       <div class="prose prose-sm max-w-none text-sm text-body px-4 py-3 overflow-y-auto">
-        <%= Phoenix.HTML.raw(HtmlSanitizeEx.basic_html(@summary)) %>
+        <%= Phoenix.HTML.raw(HtmlSanitizeEx.html5(@summary)) %>
       </div>
 
       <%!-- Footer --%>

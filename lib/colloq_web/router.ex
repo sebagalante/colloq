@@ -20,15 +20,18 @@ defmodule ColloqWeb.Router do
     plug :fetch_live_flash
     plug :put_root_layout, html: {ColloqWeb.Layouts, :root}
     plug :protect_from_forgery
-    plug :put_secure_browser_headers, %{
-      "content-security-policy" => "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://platform.twitter.com https://cdn.syndication.twimg.com; style-src 'self' 'unsafe-inline' https://platform.twitter.com https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ws: wss: https://syndication.twitter.com https://cdn.syndication.twimg.com; media-src 'self' https:; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://platform.twitter.com https://twitter.com https://x.com https://open.spotify.com https://w.soundcloud.com https://www.facebook.com https://web.facebook.com https://www.instagram.com;"
-    }
+    # Nonce-generating replacement for the static CSP in
+    # put_secure_browser_headers — see ColloqWeb.Plugs.SecureHeaders.
+    plug ColloqWeb.Plugs.SecureHeaders
     plug :fetch_current_user
   end
 
   pipeline :api do
     plug :accepts, ["json"]
-    plug :fetch_session
+    # No fetch_session here on purpose: these routes are for external callers
+    # only, and a cookie-session JSON route without CSRF protection would be
+    # CSRF-able. Anything session-aware goes through :browser_api instead.
+    plug ColloqWeb.Plugs.RequireApiToken
   end
 
   # JSON API that still needs the browser session (current_user) — e.g. the
@@ -37,6 +40,17 @@ defmodule ColloqWeb.Router do
     plug :accepts, ["json"]
     plug :fetch_session
     plug :fetch_current_user
+  end
+
+  # JSON API for state-changing browser calls (POST/DELETE from fetch). Unlike
+  # :browser_api this keeps CSRF protection, so callers must send the
+  # `x-csrf-token` header from the csrf-token meta tag.
+  pipeline :browser_api_write do
+    plug :accepts, ["json"]
+    plug :fetch_session
+    plug :protect_from_forgery
+    plug :fetch_current_user
+    plug :require_authenticated_user
   end
 
   # Admin base pipeline — auth + role check, NO IP restriction
@@ -140,12 +154,20 @@ defmodule ColloqWeb.Router do
     get "/api/emojis", MentionController, :emojis
   end
 
-  # --- API ---
+  # --- PUSH SUBSCRIPTIONS (JSON, called by the PWA from the browser) ---
+  # Not on the :api pipeline: these are browser calls tied to the session, so
+  # they need current_user and CSRF protection, not the external bearer token.
   scope "/api/v1", ColloqWeb do
-    pipe_through :api
+    pipe_through :browser_api_write
 
     post "/push/subscribe", PushController, :subscribe
     delete "/push/subscribe", PushController, :unsubscribe
+  end
+
+  # --- EXTERNAL API (bearer token, no session) ---
+  scope "/api/v1", ColloqWeb do
+    pipe_through :api
+
     post "/automations/:id/trigger", AutomationController, :trigger
   end
 

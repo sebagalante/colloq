@@ -197,6 +197,10 @@ config :colloq, :nitter_url, System.get_env("NITTER_URL", "https://nitter.net")
 # Storage & upload
 config :colloq, :imgbb_api_key, System.get_env("IMGBB_API_KEY")
 
+# External API (/api/v1): bearer token for webhook integrations. The routes are
+# fail-closed — with no token configured they reject everything.
+config :colloq, :api_v1_token, System.get_env("API_V1_TOKEN")
+
 # Base URL (for password reset links, etc.)
 config :colloq, :base_url, System.get_env("BASE_URL", "https://colloq.ar")
 

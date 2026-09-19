@@ -49,7 +49,9 @@ required — the app refuses to boot in prod without them, and dev will complain
 Generate each with `mix phx.gen.secret` (the key base needs at least 64 bytes).
 Everything else in `.env.example` is optional and degrades gracefully: no
 `MAXMIND_LICENSE_KEY` simply means no IP geolocation, no LLM key means the bot
-workers stay quiet, and so on.
+workers stay quiet, and so on. The one exception is `API_V1_TOKEN`: it is
+optional to boot, but the `/api/v1` routes are fail-closed, so leaving it unset
+turns them off entirely (every request gets a 401).
 
 Dev-only routes are mounted when `dev_routes` is enabled: `/dev/dashboard`
 (LiveDashboard) and `/dev/mailbox` (Swoosh preview).
@@ -103,6 +105,14 @@ The contexts are the map of the feature set: `forum`, `accounts`, `messaging`,
   mentions when a provider key is configured.
 - **Admin** lives under `/admin`, split across moderator, admin and super-admin
   pipelines; super-admin routes additionally require 2FA.
+- **External API** (`/api/v1`) is for webhook integrations — e.g. `POST
+  /api/v1/automations/:id/trigger`. It has no browser session and no CSRF
+  protection by design, so `ColloqWeb.Plugs.RequireApiToken` guards the whole
+  pipeline: callers send `Authorization: Bearer $API_V1_TOKEN` and the token is
+  compared in constant time. Generate it with `mix phx.gen.secret`. Session-aware
+  JSON belongs elsewhere: `:browser_api` for reads, `:browser_api_write` for
+  POST/DELETE (session + CSRF + auth), which is where the PWA push-subscription
+  routes live.
 
 ---
 

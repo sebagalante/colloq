@@ -187,31 +187,69 @@ defmodule Colloq.Accounts do
   @doc """
   Authenticate by email and password.
 
-  Includes rate limiting: max 5 attempts per email per 15 minutes.
+  Rate limited on two dimensions (both in the in-memory auth cache, 15-minute
+  windows):
+  - per email: max 5 attempts — stops password guessing on one account;
+  - per IP (`ip`, an `:inet` tuple or nil): max 20 attempts — stops an
+    attacker rotating emails or spraying many accounts from one address. nil
+    (unknown IP, e.g. tests) skips the IP bucket.
+
   Returns `{:ok, user}`, `{:error, :invalid_credentials}`, or `{:error, :too_many_attempts}`.
   """
-  def authenticate_user(email, password) do
-    key = "login_attempts:#{String.downcase(email)}"
+  @email_attempts 5
+  @ip_attempts 20
+  @attempt_window :timer.minutes(15)
 
+  def authenticate_user(email, password, ip \\ nil) do
+    email_key = "login_attempts:#{String.downcase(email)}"
+
+    with :ok <- check_attempts(ip_key(ip), @ip_attempts),
+         :ok <- check_attempts(email_key, @email_attempts) do
+      do_authenticate(email, password, email_key)
+    end
+  end
+
+  defp ip_key(nil), do: nil
+  defp ip_key(ip) when is_tuple(ip), do: :inet.ntoa(ip) |> to_string()
+  defp ip_key(ip) when is_binary(ip), do: String.downcase(String.trim(ip))
+  defp ip_key(_), do: nil
+
+  defp check_attempts(nil, _limit), do: :ok
+
+  defp check_attempts(key, limit) do
     case Cachex.get(:auth_cache, key) do
-      {:ok, attempts} when is_integer(attempts) and attempts >= 5 ->
+      {:ok, attempts} when is_integer(attempts) and attempts >= limit ->
         {:error, :too_many_attempts}
 
       _ ->
-        user = get_user_by_email(email)
-
-        cond do
-          user && Bcrypt.verify_pass(password, user.password_hash) ->
-            Cachex.del(:auth_cache, key)
-            {:ok, user}
-
-          true ->
-            Bcrypt.no_user_verify()
-            Cachex.incr(:auth_cache, key)
-            Cachex.expire(:auth_cache, key, :timer.minutes(15))
-            {:error, :invalid_credentials}
-        end
+        :ok
     end
+  end
+
+  defp do_authenticate(email, password, email_key) do
+    user = get_user_by_email(email)
+
+    cond do
+      user && Bcrypt.verify_pass(password, user.password_hash) ->
+        Cachex.del(:auth_cache, email_key)
+        {:ok, user}
+
+      true ->
+        Bcrypt.no_user_verify()
+        bump_attempts(email_key)
+        {:error, :invalid_credentials}
+    end
+  end
+
+  # Every failed login bumps both buckets: the email bucket (any source) and
+  # the IP bucket for the address it came from. Success clears the email
+  # bucket only — the IP bucket keeps counting, so a successful login after
+  # failures doesn't reset an attacker's IP budget.
+  defp bump_attempts(nil), do: :ok
+
+  defp bump_attempts(key) do
+    Cachex.incr(:auth_cache, key)
+    Cachex.expire(:auth_cache, key, @attempt_window)
   end
 
   @doc """

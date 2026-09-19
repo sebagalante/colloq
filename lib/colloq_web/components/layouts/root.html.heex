@@ -16,7 +16,7 @@
     <link rel="icon" href={branding(assigns).favicon || "/favicon.svg"} />
 
     <link phx-track-static rel="stylesheet" href={~p"/assets/app.css"} />
-    <script defer phx-track-static type="text/javascript" src={~p"/assets/app.js"}>
+    <script defer phx-track-static type="text/javascript" nonce={assigns[:csp_nonce]} src={~p"/assets/app.js"}>
     </script>
 
     <!-- PWA -->

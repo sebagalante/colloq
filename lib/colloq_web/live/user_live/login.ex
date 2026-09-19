@@ -15,7 +15,29 @@ defmodule ColloqWeb.UserLive.Login do
     {:ok,
      socket
      |> assign(form: form)
+     |> assign(:client_ip, client_ip(socket))
      |> assign(:suspended_notice, suspended_notice(params))}
+  end
+
+  # Login rate limiting includes a per-IP bucket (see
+  # Accounts.authenticate_user/3), so the real address is resolved here the
+  # same way Registration does: peer_data is Caddy on loopback in prod, so the
+  # forwarded chain is walked with the same trusted-proxy list the RemoteIp
+  # plug uses. nil on the disconnected mount — by the time "save" fires the
+  # socket is connected and the assign is set.
+  defp client_ip(socket) do
+    case get_connect_info(socket, :peer_data) do
+      %{address: address} ->
+        headers = get_connect_info(socket, :x_headers) || []
+
+        case RemoteIp.from(headers, proxies: ColloqWeb.Endpoint.trusted_proxies()) do
+          nil -> address
+          forwarded -> forwarded
+        end
+
+      _ ->
+        nil
+    end
   end
 
   # Spanish suspension/ban banner text, built from the query params set by
@@ -53,7 +75,7 @@ defmodule ColloqWeb.UserLive.Login do
   end
 
   def handle_event("save", %{"user" => %{"email" => email, "password" => password}}, socket) do
-    case Accounts.authenticate_user(email, password) do
+    case Accounts.authenticate_user(email, password, socket.assigns[:client_ip]) do
       {:ok, user} ->
         if Accounts.requires_2fa?(user) do
           {:noreply, UserAuth.log_in_user_pending_2fa(socket, user)}
