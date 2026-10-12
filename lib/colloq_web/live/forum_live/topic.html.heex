@@ -268,6 +268,20 @@
           <p :if={@match_fixtures == []} class="text-xs text-muted mt-1">
             <%= gettext("Could not load upcoming fixtures right now.") %>
           </p>
+          <%!-- Escape hatch for when Sofascore refuses the server: the id still
+                has to be Sofascore's (the banner and ResultaBot follow it), so
+                it's pasted from the match page in a browser. --%>
+          <div :if={@match_fixtures == []} class="mt-2">
+            <label class="block text-xs font-medium text-muted mb-1">
+              <%= gettext("Or paste the Sofascore match link or id") %>
+            </label>
+            <input
+              type="text"
+              name="match_id_manual"
+              placeholder="https://www.sofascore.com/…#id:12345678"
+              class="w-full rounded-lg border border-border bg-surface text-heading px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+            />
+          </div>
         </div>
       </div>
 

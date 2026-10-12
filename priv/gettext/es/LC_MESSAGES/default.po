@@ -8,17 +8,17 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: manually\n"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2648
+#: lib/colloq_web/live/forum_live/topic.ex:2668
 #, elixir-autogen, elixir-format
 msgid "%{first} and %{second} are typing..."
 msgstr "%{first} y %{second} están escribiendo..."
 
-#: lib/colloq_web/live/forum_live/topic.ex:2649
+#: lib/colloq_web/live/forum_live/topic.ex:2669
 #, elixir-autogen, elixir-format
 msgid "%{first}, %{second} and others are typing..."
 msgstr "%{first}, %{second} y otros están escribiendo..."
 
-#: lib/colloq_web/live/forum_live/topic.ex:2647
+#: lib/colloq_web/live/forum_live/topic.ex:2667
 #, elixir-autogen, elixir-format
 msgid "%{name} is typing..."
 msgstr "%{name} está escribiendo..."
@@ -110,12 +110,12 @@ msgstr "Activo"
 msgid "Add emoji"
 msgstr "Agregar emoji"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:614
+#: lib/colloq_web/live/forum_live/topic.html.heex:628
 #, elixir-autogen, elixir-format
 msgid "Add option"
 msgstr "Agregar opción"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:690
+#: lib/colloq_web/live/forum_live/topic.html.heex:704
 #, elixir-autogen, elixir-format
 msgid "Add poll"
 msgstr "Agregar encuesta"
@@ -247,7 +247,7 @@ msgstr "Insignias"
 
 #: lib/colloq_web/live/admin_live/users.html.heex:177
 #: lib/colloq_web/live/admin_live/users.html.heex:304
-#: lib/colloq_web/live/forum_live/topic.ex:3372
+#: lib/colloq_web/live/forum_live/topic.ex:3392
 #, elixir-autogen, elixir-format
 msgid "Ban"
 msgstr "Banear"
@@ -291,12 +291,12 @@ msgstr "Usuario bloqueado"
 msgid "Blocked users"
 msgstr "Usuarios bloqueados"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2931
+#: lib/colloq_web/live/forum_live/topic.ex:2951
 #, elixir-autogen, elixir-format
 msgid "Bookmark"
 msgstr "Guardar"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2931
+#: lib/colloq_web/live/forum_live/topic.ex:2951
 #, elixir-autogen, elixir-format
 msgid "Bookmarked"
 msgstr "Guardado"
@@ -332,13 +332,13 @@ msgstr "Bots"
 #: lib/colloq_web/live/admin_live/stickers.html.heex:94
 #: lib/colloq_web/live/admin_live/tags.html.heex:76
 #: lib/colloq_web/live/admin_live/users.html.heex:312
-#: lib/colloq_web/live/forum_live/topic.ex:3191
-#: lib/colloq_web/live/forum_live/topic.ex:3458
-#: lib/colloq_web/live/forum_live/topic.ex:3477
-#: lib/colloq_web/live/forum_live/topic.html.heex:277
-#: lib/colloq_web/live/forum_live/topic.html.heex:565
-#: lib/colloq_web/live/forum_live/topic.html.heex:636
-#: lib/colloq_web/live/forum_live/topic.html.heex:838
+#: lib/colloq_web/live/forum_live/topic.ex:3211
+#: lib/colloq_web/live/forum_live/topic.ex:3478
+#: lib/colloq_web/live/forum_live/topic.ex:3497
+#: lib/colloq_web/live/forum_live/topic.html.heex:291
+#: lib/colloq_web/live/forum_live/topic.html.heex:579
+#: lib/colloq_web/live/forum_live/topic.html.heex:650
+#: lib/colloq_web/live/forum_live/topic.html.heex:855
 #: lib/colloq_web/live/user_live/settings.html.heex:388
 #: lib/colloq_web/live/user_live/settings.html.heex:450
 #, elixir-autogen, elixir-format
@@ -401,7 +401,7 @@ msgid "Close Topic"
 msgstr "Cerrar Tema"
 
 #: lib/colloq_web/live/forum_live/index.html.heex:118
-#: lib/colloq_web/live/forum_live/topic.ex:3689
+#: lib/colloq_web/live/forum_live/topic.ex:3709
 #: lib/colloq_web/live/forum_live/topic.html.heex:107
 #, elixir-autogen, elixir-format
 msgid "Closed"
@@ -471,7 +471,7 @@ msgstr "Contenido"
 msgid "Conversations"
 msgstr "Conversaciones"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3403
+#: lib/colloq_web/live/forum_live/topic.ex:3423
 #, elixir-autogen, elixir-format
 msgid "Copy link"
 msgstr "Copiar enlace"
@@ -572,7 +572,7 @@ msgid "Create account"
 msgstr "Crear cuenta"
 
 ## Polls
-#: lib/colloq_web/live/forum_live/topic.html.heex:573
+#: lib/colloq_web/live/forum_live/topic.html.heex:587
 #, elixir-autogen, elixir-format
 msgid "Create poll"
 msgstr "Crear encuesta"
@@ -582,7 +582,7 @@ msgstr "Crear encuesta"
 msgid "Create topic"
 msgstr "Crear tema"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:283
+#: lib/colloq_web/live/forum_live/topic.html.heex:297
 #, elixir-autogen, elixir-format
 msgid "Created by"
 msgstr "Creado por"
@@ -611,7 +611,7 @@ msgstr "Panel de Control"
 #: lib/colloq_web/live/admin_live/emojis.html.heex:80
 #: lib/colloq_web/live/admin_live/stickers.html.heex:120
 #: lib/colloq_web/live/admin_live/tags.html.heex:53
-#: lib/colloq_web/live/forum_live/topic.ex:3308
+#: lib/colloq_web/live/forum_live/topic.ex:3328
 #: lib/colloq_web/live/user_live/messages.ex:588
 #, elixir-autogen, elixir-format
 msgid "Delete"
@@ -642,7 +642,7 @@ msgstr "¿Eliminar este bot?"
 msgid "Delete this category?"
 msgstr "¿Eliminar esta categoría?"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3305
+#: lib/colloq_web/live/forum_live/topic.ex:3325
 #, elixir-autogen, elixir-format
 msgid "Delete this comment? This can't be undone."
 msgstr "¿Eliminar este comentario? No se puede deshacer."
@@ -675,7 +675,7 @@ msgstr "Duración"
 #: lib/colloq_web/live/admin_live/bots.html.heex:52
 #: lib/colloq_web/live/admin_live/categories.html.heex:39
 #: lib/colloq_web/live/admin_live/tags.html.heex:45
-#: lib/colloq_web/live/forum_live/topic.ex:3298
+#: lib/colloq_web/live/forum_live/topic.ex:3318
 #: lib/colloq_web/live/forum_live/topic.html.heex:153
 #, elixir-autogen, elixir-format
 msgid "Edit"
@@ -701,7 +701,7 @@ msgstr "Editar Bot"
 msgid "Edit Category"
 msgstr "Editar Categoría"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3182
+#: lib/colloq_web/live/forum_live/topic.ex:3202
 #, elixir-autogen, elixir-format
 msgid "Edit your comment…"
 msgstr "Editá tu comentario…"
@@ -714,8 +714,8 @@ msgstr "Editá tu comentario…"
 msgid "Email"
 msgstr "Email"
 
-#: lib/colloq_web/live/user_live/login.ex:83
-#: lib/colloq_web/live/user_live/login.ex:98
+#: lib/colloq_web/live/user_live/login.ex:105
+#: lib/colloq_web/live/user_live/login.ex:120
 #, elixir-autogen, elixir-format
 msgid "Email is required"
 msgstr "El email es obligatorio"
@@ -783,7 +783,7 @@ msgstr "Flair"
 msgid "Forum"
 msgstr "Foro"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:728
+#: lib/colloq_web/live/forum_live/topic.html.heex:742
 #, elixir-autogen, elixir-format
 msgid "Generating summary with AI..."
 msgstr "Generando resumen con IA..."
@@ -804,7 +804,7 @@ msgid "Grant to user"
 msgstr "Otorgar a usuario"
 
 #: lib/colloq_web/live/admin_live/moderation.ex:244
-#: lib/colloq_web/live/forum_live/topic.ex:2675
+#: lib/colloq_web/live/forum_live/topic.ex:2695
 #, elixir-autogen, elixir-format
 msgid "Harassment"
 msgstr "Acoso"
@@ -836,20 +836,20 @@ msgid "Inactive"
 msgstr "Inactivo"
 
 #: lib/colloq_web/live/admin_live/moderation.ex:242
-#: lib/colloq_web/live/forum_live/topic.ex:2673
+#: lib/colloq_web/live/forum_live/topic.ex:2693
 #, elixir-autogen, elixir-format
 msgid "Inappropriate"
 msgstr "Inapropiado"
 
 ## Flash messages from LiveView .ex files
 ## Two-Factor Authentication
-#: lib/colloq_web/live/user_live/login.ex:67
+#: lib/colloq_web/live/user_live/login.ex:89
 #, elixir-autogen, elixir-format
 msgid "Incorrect email or password."
 msgstr "Email o contraseña incorrectos."
 
 #: lib/colloq_web/live/admin_live/users.html.heex:301
-#: lib/colloq_web/live/forum_live/topic.html.heex:832
+#: lib/colloq_web/live/forum_live/topic.html.heex:849
 #, elixir-autogen, elixir-format
 msgid "Issue warning"
 msgstr "Emitir advertencia"
@@ -925,9 +925,9 @@ msgid "Location"
 msgstr "Ubicación"
 
 #: lib/colloq_web/components/navigation.ex:192
-#: lib/colloq_web/live/forum_live/topic.ex:3778
-#: lib/colloq_web/live/forum_live/topic.html.heex:708
-#: lib/colloq_web/live/predictions_live.html.heex:134
+#: lib/colloq_web/live/forum_live/topic.ex:3798
+#: lib/colloq_web/live/forum_live/topic.html.heex:722
+#: lib/colloq_web/live/predictions_live.html.heex:141
 #: lib/colloq_web/live/user_live/registration.ex:106
 #: lib/colloq_web/live/user_live/registration.ex:158
 #: lib/colloq_web/live/voice_room_live.html.heex:45
@@ -935,7 +935,7 @@ msgstr "Ubicación"
 msgid "Log in"
 msgstr "Iniciá sesión"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:706
+#: lib/colloq_web/live/forum_live/topic.html.heex:720
 #, elixir-autogen, elixir-format
 msgid "Log in to join the conversation."
 msgstr "Iniciá sesión para participar en la conversación."
@@ -1141,7 +1141,7 @@ msgid "Notifications"
 msgstr "Notificaciones"
 
 #: lib/colloq_web/live/admin_live/moderation.ex:243
-#: lib/colloq_web/live/forum_live/topic.ex:2674
+#: lib/colloq_web/live/forum_live/topic.ex:2694
 #, elixir-autogen, elixir-format
 msgid "Off topic"
 msgstr "Fuera de tema"
@@ -1156,19 +1156,19 @@ msgstr "Solo se permite un archivo."
 msgid "Only one image at a time."
 msgstr "Solo una imagen a la vez."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:594
+#: lib/colloq_web/live/forum_live/topic.html.heex:608
 #, elixir-autogen, elixir-format
 msgid "Option %{n}"
 msgstr "Opción %{n}"
 
 #: lib/colloq_web/live/admin_live/moderation.ex:245
-#: lib/colloq_web/live/forum_live/topic.ex:2676
-#: lib/colloq_web/live/forum_live/topic.ex:2677
+#: lib/colloq_web/live/forum_live/topic.ex:2696
+#: lib/colloq_web/live/forum_live/topic.ex:2697
 #, elixir-autogen, elixir-format
 msgid "Other"
 msgstr "Otro"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2807
+#: lib/colloq_web/live/forum_live/topic.ex:2827
 #: lib/colloq_web/live/voice_room_live.html.heex:52
 #, elixir-autogen, elixir-format
 msgid "Participants"
@@ -1179,8 +1179,8 @@ msgstr "Participantes"
 msgid "Password"
 msgstr "Contraseña"
 
-#: lib/colloq_web/live/user_live/login.ex:90
-#: lib/colloq_web/live/user_live/login.ex:98
+#: lib/colloq_web/live/user_live/login.ex:112
+#: lib/colloq_web/live/user_live/login.ex:120
 #, elixir-autogen, elixir-format
 msgid "Password is required"
 msgstr "La contraseña es obligatoria"
@@ -1229,7 +1229,7 @@ msgstr "Punto en el Tiempo"
 msgid "Points"
 msgstr "Puntos"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:583
+#: lib/colloq_web/live/forum_live/topic.html.heex:597
 #, elixir-autogen, elixir-format
 msgid "Poll question"
 msgstr "Pregunta de la encuesta"
@@ -1245,13 +1245,13 @@ msgstr "Posición"
 msgid "Post Created"
 msgstr "Post Creado"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3475
-#: lib/colloq_web/live/forum_live/topic.html.heex:673
+#: lib/colloq_web/live/forum_live/topic.ex:3495
+#: lib/colloq_web/live/forum_live/topic.html.heex:687
 #, elixir-autogen, elixir-format
 msgid "Post reply"
 msgstr "Publicar respuesta"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:635
+#: lib/colloq_web/live/forum_live/topic.html.heex:649
 #, elixir-autogen, elixir-format
 msgid "Post with poll"
 msgstr "Publicar con encuesta"
@@ -1311,7 +1311,7 @@ msgid "Read restricted"
 msgstr "Lectura restringida"
 
 #: lib/colloq_web/live/admin_live/users.html.heex:257
-#: lib/colloq_web/live/forum_live/topic.html.heex:821
+#: lib/colloq_web/live/forum_live/topic.html.heex:838
 #, elixir-autogen, elixir-format
 msgid "Reason"
 msgstr "Razón"
@@ -1352,8 +1352,8 @@ msgstr "Eliminar foto"
 msgid "Repeat password"
 msgstr "Repetí la contraseña"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3272
-#: lib/colloq_web/live/forum_live/topic.html.heex:456
+#: lib/colloq_web/live/forum_live/topic.ex:3292
+#: lib/colloq_web/live/forum_live/topic.html.heex:470
 #: lib/colloq_web/live/user_live/messages.ex:577
 #, elixir-autogen, elixir-format
 msgid "Reply"
@@ -1370,7 +1370,7 @@ msgid "Reply with LLM"
 msgstr "Responder con LLM"
 
 ## Flagging
-#: lib/colloq_web/live/forum_live/topic.ex:3289
+#: lib/colloq_web/live/forum_live/topic.ex:3309
 #, elixir-autogen, elixir-format
 msgid "Report"
 msgstr "Reportar"
@@ -1408,8 +1408,8 @@ msgstr "Respuesta:"
 #: lib/colloq_web/live/admin_live/settings.html.heex:130
 #: lib/colloq_web/live/admin_live/tags.html.heex:75
 #: lib/colloq_web/live/admin_live/x_feed_settings.html.heex:39
-#: lib/colloq_web/live/forum_live/topic.ex:3189
-#: lib/colloq_web/live/forum_live/topic.html.heex:275
+#: lib/colloq_web/live/forum_live/topic.ex:3209
+#: lib/colloq_web/live/forum_live/topic.html.heex:289
 #, elixir-autogen, elixir-format
 msgid "Save"
 msgstr "Guardar"
@@ -1486,7 +1486,7 @@ msgid "Settings"
 msgstr "Configuración"
 
 ## Sharing
-#: lib/colloq_web/live/forum_live/topic.ex:3388
+#: lib/colloq_web/live/forum_live/topic.ex:3408
 #, elixir-autogen, elixir-format
 msgid "Share"
 msgstr "Compartir"
@@ -1526,7 +1526,7 @@ msgid "Site Settings"
 msgstr "Configuración del Sitio"
 
 #: lib/colloq_web/live/admin_live/moderation.ex:241
-#: lib/colloq_web/live/forum_live/topic.ex:2672
+#: lib/colloq_web/live/forum_live/topic.ex:2692
 #, elixir-autogen, elixir-format
 msgid "Spam"
 msgstr "Spam"
@@ -1546,7 +1546,7 @@ msgstr "Tema Estancado"
 msgid "Statistic"
 msgstr "Estadística"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2939
+#: lib/colloq_web/live/forum_live/topic.ex:2959
 #, elixir-autogen, elixir-format
 msgid "Summarize"
 msgstr "Resumir"
@@ -1568,7 +1568,7 @@ msgstr "Suspender usuario"
 msgid "Suspended"
 msgstr "Suspendido"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3121
+#: lib/colloq_web/live/forum_live/topic.ex:3141
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr "Sistema"
@@ -1626,7 +1626,7 @@ msgstr "Prompt de prueba"
 msgid "Testing..."
 msgstr "Probando..."
 
-#: lib/colloq_web/live/user_live/login.ex:105
+#: lib/colloq_web/live/user_live/login.ex:127
 #, elixir-autogen, elixir-format
 msgid "The Argentine football community"
 msgstr "La comunidad de fútbol argentino"
@@ -1750,7 +1750,7 @@ msgstr "Subí imágenes y usalas como :nombre: en publicaciones y reacciones."
 
 #: lib/colloq_web/live/admin_live/users.ex:251
 #: lib/colloq_web/live/admin_live/users.html.heex:252
-#: lib/colloq_web/live/forum_live/topic.html.heex:816
+#: lib/colloq_web/live/forum_live/topic.html.heex:833
 #: lib/colloq_web/live/predictions_leaderboard_live.ex:116
 #, elixir-autogen, elixir-format
 msgid "User"
@@ -1822,7 +1822,7 @@ msgstr "Nombre de usuario"
 msgid "Users"
 msgstr "Usuarios"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2342
+#: lib/colloq_web/live/forum_live/topic.ex:2362
 #, elixir-autogen, elixir-format
 msgid "View post on x.com"
 msgstr "Ver publicación en x.com"
@@ -1839,7 +1839,7 @@ msgid "Warn"
 msgstr "Advertir"
 
 #: lib/colloq_web/live/admin_live/users.html.heex:240
-#: lib/colloq_web/live/forum_live/topic.html.heex:814
+#: lib/colloq_web/live/forum_live/topic.html.heex:831
 #, elixir-autogen, elixir-format
 msgid "Warn user"
 msgstr "Advertir usuario"
@@ -1860,7 +1860,7 @@ msgid "Website"
 msgstr "Sitio web"
 
 ## login.ex inline render
-#: lib/colloq_web/live/user_live/login.ex:104
+#: lib/colloq_web/live/user_live/login.ex:126
 #, elixir-autogen, elixir-format
 msgid "Welcome"
 msgstr "Bienvenido"
@@ -1870,7 +1870,7 @@ msgstr "Bienvenido"
 msgid "Welcome!"
 msgstr "¡Bienvenido!"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3445
+#: lib/colloq_web/live/forum_live/topic.ex:3465
 #, elixir-autogen, elixir-format
 msgid "Why are you reporting this?"
 msgstr "¿Por qué estás reportando esto?"
@@ -1890,8 +1890,8 @@ msgstr "Escribí un mensaje..."
 msgid "Write a test message..."
 msgstr "Escribí un mensaje de prueba..."
 
-#: lib/colloq_web/live/forum_live/topic.ex:3468
-#: lib/colloq_web/live/forum_live/topic.html.heex:665
+#: lib/colloq_web/live/forum_live/topic.ex:3488
+#: lib/colloq_web/live/forum_live/topic.html.heex:679
 #, elixir-autogen, elixir-format
 msgid "Write here. Use the toolbar or Markdown to format."
 msgstr "Escribí acá. Usá la barra de herramientas o Markdown para dar formato."
@@ -1901,7 +1901,7 @@ msgstr "Escribí acá. Usá la barra de herramientas o Markdown para dar formato
 msgid "Write restricted"
 msgstr "Escritura restringida"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:554
+#: lib/colloq_web/live/forum_live/topic.html.heex:568
 #, elixir-autogen, elixir-format
 msgid "Write your reply..."
 msgstr "Escribí tu respuesta..."
@@ -1983,7 +1983,7 @@ msgstr "Tenés que iniciar sesión."
 msgid "You must log in to access this page."
 msgstr "Debes iniciar sesión para acceder a esta página."
 
-#: lib/colloq_web/live/predictions_live.ex:47
+#: lib/colloq_web/live/predictions_live.ex:53
 #, elixir-autogen, elixir-format
 msgid "You must log in to make predictions."
 msgstr "Debés iniciar sesión para hacer predicciones."
@@ -2083,13 +2083,13 @@ msgstr "las contraseñas no coinciden"
 msgid "posts"
 msgstr "posts"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3506
+#: lib/colloq_web/live/forum_live/topic.ex:3526
 #, elixir-autogen, elixir-format
 msgid "replies"
 msgstr "respuestas"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3506
-#: lib/colloq_web/live/forum_live/topic.html.heex:289
+#: lib/colloq_web/live/forum_live/topic.ex:3526
+#: lib/colloq_web/live/forum_live/topic.html.heex:303
 #, elixir-autogen, elixir-format
 msgid "reply"
 msgstr "respuesta"
@@ -2099,7 +2099,7 @@ msgstr "respuesta"
 msgid "to join the voice room."
 msgstr "para unirse a la sala de voz."
 
-#: lib/colloq_web/live/forum_live/topic.ex:3778
+#: lib/colloq_web/live/forum_live/topic.ex:3798
 #, elixir-autogen, elixir-format
 msgid "to vote."
 msgstr "para votar."
@@ -2110,7 +2110,7 @@ msgstr "para votar."
 msgid "topics"
 msgstr "temas"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3760
+#: lib/colloq_web/live/forum_live/topic.ex:3780
 #, elixir-autogen, elixir-format
 msgid "votes"
 msgstr "votos"
@@ -2154,7 +2154,7 @@ msgid "Trust Level"
 msgstr "Nivel de confianza"
 
 #: lib/colloq_web/live/forum_live/index.html.heex:63
-#: lib/colloq_web/live/forum_live/topic.ex:2791
+#: lib/colloq_web/live/forum_live/topic.ex:2811
 #: lib/colloq_web/live/user_live/profile.html.heex:150
 #: lib/colloq_web/live/user_live/profile.html.heex:207
 #, elixir-autogen, elixir-format
@@ -2264,13 +2264,13 @@ msgstr "oculto"
 msgid "unknown"
 msgstr "desconocido"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3158
-#: lib/colloq_web/live/forum_live/topic.ex:3281
+#: lib/colloq_web/live/forum_live/topic.ex:3178
+#: lib/colloq_web/live/forum_live/topic.ex:3301
 #, elixir-autogen, elixir-format
 msgid "Quote"
 msgstr "Citar"
 
-#: lib/colloq_web/live/forum_live/topic.ex:1965
+#: lib/colloq_web/live/forum_live/topic.ex:1985
 #, elixir-autogen, elixir-format
 msgid "someone"
 msgstr "alguien"
@@ -2285,8 +2285,8 @@ msgstr "Ir al final"
 msgid "Back to top"
 msgstr "Volver arriba"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3070
 #: lib/colloq_web/live/forum_live/topic.ex:3090
+#: lib/colloq_web/live/forum_live/topic.ex:3110
 #: lib/colloq_web/live/members_live.ex:38
 #: lib/colloq_web/live/user_live/messages.html.heex:86
 #: lib/colloq_web/live/user_live/messages.html.heex:89
@@ -2425,57 +2425,57 @@ msgstr "Dejás de ver sus publicaciones."
 msgid "This conversation no longer exists."
 msgstr "Esta conversación ya no existe."
 
-#: lib/colloq_web/live/forum_live/topic.ex:1748
+#: lib/colloq_web/live/forum_live/topic.ex:1768
 #, elixir-autogen, elixir-format
 msgid "Muted"
 msgstr "Silenciado"
 
-#: lib/colloq_web/live/forum_live/topic.ex:1749
+#: lib/colloq_web/live/forum_live/topic.ex:1769
 #, elixir-autogen, elixir-format
 msgid "Normal"
 msgstr "Normal"
 
-#: lib/colloq_web/live/forum_live/topic.ex:1747
+#: lib/colloq_web/live/forum_live/topic.ex:1767
 #, elixir-autogen, elixir-format
 msgid "Tracking"
 msgstr "En seguimiento"
 
-#: lib/colloq_web/live/forum_live/topic.ex:1746
+#: lib/colloq_web/live/forum_live/topic.ex:1766
 #, elixir-autogen, elixir-format
 msgid "Watching"
 msgstr "Siguiendo"
 
-#: lib/colloq_web/live/forum_live/topic.ex:1764
+#: lib/colloq_web/live/forum_live/topic.ex:1784
 #, elixir-autogen, elixir-format
 msgid "You'll be notified if someone mentions your @name or replies to you."
 msgstr "Se te notificará si alguien menciona tu @nombre o te responde."
 
-#: lib/colloq_web/live/forum_live/topic.ex:1756
+#: lib/colloq_web/live/forum_live/topic.ex:1776
 #, elixir-autogen, elixir-format
 msgid "You'll be notified if someone mentions your @name or replies to you. (A new-reply count is coming.)"
 msgstr "Se te notificará si alguien menciona tu @nombre o te responde. (Pronto: contador de respuestas nuevas.)"
 
-#: lib/colloq_web/live/forum_live/topic.ex:1752
+#: lib/colloq_web/live/forum_live/topic.ex:1772
 #, elixir-autogen, elixir-format
 msgid "You'll be notified of every new reply in this topic."
 msgstr "Se te notificará de cada nueva respuesta en este tema."
 
-#: lib/colloq_web/live/forum_live/topic.ex:1761
+#: lib/colloq_web/live/forum_live/topic.ex:1781
 #, elixir-autogen, elixir-format
 msgid "You'll never be notified, and this topic won't appear in Latest."
 msgstr "Nunca se te notificará, y este tema no aparecerá en Recientes."
 
-#: lib/colloq_web/live/forum_live/topic.ex:2656
+#: lib/colloq_web/live/forum_live/topic.ex:2676
 #, elixir-autogen, elixir-format
 msgid "@%{user} banned."
 msgstr "@%{user} baneado."
 
-#: lib/colloq_web/live/forum_live/topic.ex:2654
+#: lib/colloq_web/live/forum_live/topic.ex:2674
 #, elixir-autogen, elixir-format
 msgid "@%{user} silenced for 24 hours."
 msgstr "@%{user} silenciado por 24 horas."
 
-#: lib/colloq_web/live/forum_live/topic.ex:2655
+#: lib/colloq_web/live/forum_live/topic.ex:2675
 #, elixir-autogen, elixir-format
 msgid "@%{user} suspended for 3 days."
 msgstr "@%{user} suspendido por 3 días."
@@ -2485,12 +2485,12 @@ msgstr "@%{user} suspendido por 3 días."
 msgid "A silenced user can still log in and read, but cannot post or reply."
 msgstr "Un usuario silenciado puede iniciar sesión y leer, pero no puede publicar ni responder."
 
-#: lib/colloq_web/live/forum_live/topic.ex:3369
+#: lib/colloq_web/live/forum_live/topic.ex:3389
 #, elixir-autogen, elixir-format
 msgid "Ban this user permanently?"
 msgstr "¿Banear a este usuario de forma permanente?"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2657
+#: lib/colloq_web/live/forum_live/topic.ex:2677
 #, elixir-autogen, elixir-format
 msgid "Done."
 msgstr "Listo."
@@ -2508,7 +2508,7 @@ msgstr "Posts ocultos"
 msgid "Lift silence"
 msgstr "Quitar silencio"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3322
+#: lib/colloq_web/live/forum_live/topic.ex:3342
 #, elixir-autogen, elixir-format
 msgid "Mod"
 msgstr "Mod"
@@ -2562,7 +2562,7 @@ msgstr "¿Restaurar este post para que vuelva a ser visible?"
 msgid "Silence"
 msgstr "Silenciar"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3350
+#: lib/colloq_web/live/forum_live/topic.ex:3370
 #, elixir-autogen, elixir-format
 msgid "Silence 24h"
 msgstr "Silenciar 24h"
@@ -2573,7 +2573,7 @@ msgstr "Silenciar 24h"
 msgid "Silence lifted."
 msgstr "Silencio quitado."
 
-#: lib/colloq_web/live/forum_live/topic.ex:3347
+#: lib/colloq_web/live/forum_live/topic.ex:3367
 #, elixir-autogen, elixir-format
 msgid "Silence this user for 24 hours? They can read but not post."
 msgstr "¿Silenciar a este usuario por 24 horas? Puede leer pero no publicar."
@@ -2589,12 +2589,12 @@ msgstr "Silenciar usuario"
 msgid "Silenced"
 msgstr "Silenciado"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3361
+#: lib/colloq_web/live/forum_live/topic.ex:3381
 #, elixir-autogen, elixir-format
 msgid "Suspend 3d"
 msgstr "Suspender 3d"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3358
+#: lib/colloq_web/live/forum_live/topic.ex:3378
 #, elixir-autogen, elixir-format
 msgid "Suspend this user for 3 days? They can't log in."
 msgstr "¿Suspender a este usuario por 3 días? No podrá iniciar sesión."
@@ -2615,18 +2615,18 @@ msgstr "Usuario silenciado."
 msgid "View topic"
 msgstr "Ver tema"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3339
+#: lib/colloq_web/live/forum_live/topic.ex:3359
 #, elixir-autogen, elixir-format
 msgid "Warn author"
 msgstr "Advertir autor"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2653
+#: lib/colloq_web/live/forum_live/topic.ex:2673
 #, elixir-autogen, elixir-format
 msgid "Warning issued to @%{user}."
 msgstr "Advertencia emitida a @%{user}."
 
 #: lib/colloq_web/live/forum_live/index.ex:170
-#: lib/colloq_web/live/forum_live/topic.ex:2661
+#: lib/colloq_web/live/forum_live/topic.ex:2681
 #, elixir-autogen, elixir-format
 msgid "You are silenced and cannot post right now."
 msgstr "Estás silenciado y no podés publicar en este momento."
@@ -2637,13 +2637,13 @@ msgid "You don't have permission to moderate."
 msgstr "No tenés permiso para moderar."
 
 #: lib/colloq_web/live/forum_live/index.ex:176
-#: lib/colloq_web/live/forum_live/topic.ex:2667
+#: lib/colloq_web/live/forum_live/topic.ex:2687
 #, elixir-autogen, elixir-format
 msgid "Your account is banned."
 msgstr "Tu cuenta está baneada."
 
 #: lib/colloq_web/live/forum_live/index.ex:173
-#: lib/colloq_web/live/forum_live/topic.ex:2664
+#: lib/colloq_web/live/forum_live/topic.ex:2684
 #, elixir-autogen, elixir-format
 msgid "Your account is suspended and cannot post."
 msgstr "Tu cuenta está suspendida y no podés publicar."
@@ -2810,12 +2810,12 @@ msgstr "Tocá “+ Nuevo” arriba para empezar."
 msgid "Tap “+ New” to start one."
 msgstr "Tocá “+ Nuevo” para empezar."
 
-#: lib/colloq_web/live/forum_live/topic.ex:2275
+#: lib/colloq_web/live/forum_live/topic.ex:2295
 #, elixir-autogen, elixir-format
 msgid "Video on Facebook"
 msgstr "Video en Facebook"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2275
+#: lib/colloq_web/live/forum_live/topic.ex:2295
 #, elixir-autogen, elixir-format
 msgid "View post on Facebook"
 msgstr "Ver publicación en Facebook"
@@ -2890,7 +2890,7 @@ msgstr "Desfijar tema"
 msgid "%{count} sticker(s) added."
 msgstr "%{count} sticker(s) agregados."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:740
+#: lib/colloq_web/live/forum_live/topic.html.heex:754
 #, elixir-autogen, elixir-format
 msgid "AI summaries aren't set up yet"
 msgstr "Los resúmenes con IA no están configurados"
@@ -2900,7 +2900,7 @@ msgstr "Los resúmenes con IA no están configurados"
 msgid "API keys come from the environment (.env in dev, Infisical in prod) — not stored here. This page shows which providers are configured."
 msgstr "Las API keys vienen del entorno (.env en dev, Infisical en prod) — no se guardan acá. Esta página muestra qué proveedores están configurados."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:697
+#: lib/colloq_web/live/forum_live/topic.html.heex:711
 #, elixir-autogen, elixir-format
 msgid "Add lineup"
 msgstr "Agregar formación"
@@ -2910,7 +2910,7 @@ msgstr "Agregar formación"
 msgid "Add stickers"
 msgstr "Agregar stickers"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:742
+#: lib/colloq_web/live/forum_live/topic.html.heex:756
 #, elixir-autogen, elixir-format
 msgid "An admin needs to configure an AI provider and model in Admin ▸ LLM / IA."
 msgstr "Un admin tiene que configurar un proveedor de IA y un modelo en Admin ▸ LLM / IA."
@@ -2946,12 +2946,12 @@ msgstr "Anuncio — solo el staff puede responder acá."
 msgid "Announcing"
 msgstr "Anunciando"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3686
+#: lib/colloq_web/live/forum_live/topic.ex:3706
 #, elixir-autogen, elixir-format
 msgid "Anonymous"
 msgstr "Anónima"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:632
+#: lib/colloq_web/live/forum_live/topic.html.heex:646
 #, elixir-autogen, elixir-format
 msgid "Anonymous poll (hide who voted)"
 msgstr "Encuesta anónima (ocultar quién votó)"
@@ -2978,8 +2978,8 @@ msgid "Choose image"
 msgstr "Elegir imagen"
 
 #: lib/colloq_web/live/forum_live/topic.html.heex:132
-#: lib/colloq_web/live/forum_live/topic.html.heex:748
-#: lib/colloq_web/live/forum_live/topic.html.heex:768
+#: lib/colloq_web/live/forum_live/topic.html.heex:762
+#: lib/colloq_web/live/forum_live/topic.html.heex:782
 #, elixir-autogen, elixir-format
 msgid "Close"
 msgstr "Cerrar"
@@ -3064,14 +3064,14 @@ msgstr "Editar etiqueta"
 msgid "Enter a valid numeric season id."
 msgstr "Ingresá un id de temporada numérico válido."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:826
+#: lib/colloq_web/live/forum_live/topic.html.heex:843
 #, elixir-autogen, elixir-format
 msgid "Explain why this user is being warned..."
 msgstr "Explicá por qué se advierte a este usuario..."
 
 ## user_live/messages.html.heex
-#: lib/colloq_web/live/forum_live/topic.ex:3592
-#: lib/colloq_web/live/forum_live/topic.html.heex:493
+#: lib/colloq_web/live/forum_live/topic.ex:3612
+#: lib/colloq_web/live/forum_live/topic.html.heex:507
 #, elixir-autogen, elixir-format
 msgid "Formation"
 msgstr "Formación"
@@ -3173,7 +3173,7 @@ msgstr "Sin configurar — las posiciones y estadísticas necesitan un id de tem
 msgid "OpenRouter only — appends :online to the model"
 msgstr "Solo OpenRouter — agrega :online al modelo"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:792
+#: lib/colloq_web/live/forum_live/topic.html.heex:809
 #, elixir-autogen, elixir-format
 msgid "Outdated — new posts since this summary"
 msgstr "Desactualizado — hay posts nuevos desde este resumen"
@@ -3193,7 +3193,7 @@ msgstr "Pack eliminado."
 msgid "Please choose at least one image."
 msgstr "Elegí al menos una imagen."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:559
+#: lib/colloq_web/live/forum_live/topic.html.heex:573
 #, elixir-autogen, elixir-format
 msgid "Post with lineup"
 msgstr "Publicar con formación"
@@ -3230,7 +3230,7 @@ msgstr "Actualizar planteles"
 msgid "Refresh standings"
 msgstr "Actualizar posiciones"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:801
+#: lib/colloq_web/live/forum_live/topic.html.heex:818
 #, elixir-autogen, elixir-format
 msgid "Regenerate"
 msgstr "Regenerar"
@@ -3311,7 +3311,7 @@ msgstr "Sticker eliminado."
 msgid "Stickers"
 msgstr "Stickers"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:785
+#: lib/colloq_web/live/forum_live/topic.html.heex:802
 #, elixir-autogen, elixir-format
 msgid "Summarized with AI"
 msgstr "Resumido con IA"
@@ -3326,7 +3326,7 @@ msgstr "Bot de resumen"
 msgid "Summarizer settings saved."
 msgstr "Configuración del resumidor guardada."
 
-#: lib/colloq_web/live/forum_live/topic.ex:3702
+#: lib/colloq_web/live/forum_live/topic.ex:3722
 #, elixir-autogen, elixir-format
 msgid "Switch between votes and percentage"
 msgstr "Cambiar entre votos y porcentaje"
@@ -3346,14 +3346,14 @@ msgstr "Etiqueta eliminada."
 msgid "Tag updated."
 msgstr "Etiqueta actualizada."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:486
+#: lib/colloq_web/live/forum_live/topic.html.heex:500
 #: lib/colloq_web/live/player_card_live.ex:148
 #, elixir-autogen, elixir-format
 msgid "Team"
 msgstr "Equipo"
 
 #: lib/colloq_web/live/admin_live/users.html.heex:265
-#: lib/colloq_web/live/forum_live/topic.html.heex:829
+#: lib/colloq_web/live/forum_live/topic.html.heex:846
 #, elixir-autogen, elixir-format
 msgid "The user will be notified with this reason."
 msgstr "Se le va a notificar al usuario con este motivo."
@@ -3373,7 +3373,7 @@ msgstr "Tema cerrado."
 msgid "Topic reopened."
 msgstr "Tema reabierto."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:764
+#: lib/colloq_web/live/forum_live/topic.html.heex:778
 #, elixir-autogen, elixir-format
 msgid "Topic summary"
 msgstr "Resumen del tema"
@@ -3442,7 +3442,7 @@ msgstr "No podés bloquear al staff. Podés ignorarlos para no ver sus posts."
 msgid "You can't moderate a user of equal or higher rank."
 msgstr "No podés moderar a un usuario de rango igual o superior."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:477
+#: lib/colloq_web/live/forum_live/topic.html.heex:491
 #, elixir-autogen, elixir-format
 msgid "Your starting XI"
 msgstr "Tu once inicial"
@@ -3482,7 +3482,7 @@ msgstr "último ingreso"
 msgid "or Avatar URL"
 msgstr "o URL del avatar"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3720
+#: lib/colloq_web/live/forum_live/topic.ex:3740
 #, elixir-autogen, elixir-format
 msgid "vote"
 msgid_plural "votes"
@@ -3510,7 +3510,7 @@ msgstr "Temas"
 msgid "Username (@)"
 msgstr "Nombre de usuario (@)"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:346
+#: lib/colloq_web/live/forum_live/topic.html.heex:360
 #, elixir-autogen, elixir-format
 msgid "1 new reply"
 msgid_plural "%{count} new replies"
@@ -3532,7 +3532,7 @@ msgstr "Popular"
 msgid "Jump to the latest post"
 msgstr "Ir a la última publicación"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3044
+#: lib/colloq_web/live/forum_live/topic.ex:3064
 #, elixir-autogen, elixir-format
 msgid "New replies"
 msgstr "Respuestas nuevas"
@@ -3552,12 +3552,12 @@ msgstr "Enviado"
 msgid "Topics tagged"
 msgstr "Temas etiquetados"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2879
+#: lib/colloq_web/live/forum_live/topic.ex:2899
 #, elixir-autogen, elixir-format
 msgid "Top replies"
 msgstr "Mejores respuestas"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2871
+#: lib/colloq_web/live/forum_live/topic.ex:2891
 #, elixir-autogen, elixir-format
 msgid "Sort replies by reactions"
 msgstr "Ordenar respuestas por reacciones"
@@ -3752,7 +3752,7 @@ msgstr "Solo el staff puede verlo."
 msgid "Posted"
 msgstr "Publicó"
 
-#: lib/colloq_web/live/forum_live/topic.ex:1908
+#: lib/colloq_web/live/forum_live/topic.ex:1928
 #, elixir-autogen, elixir-format
 msgid "Quote from a user you've blocked — click to show"
 msgstr "Cita de un usuario que bloqueaste — hacé clic para mostrar"
@@ -3860,7 +3860,7 @@ msgstr "Año"
 msgid "Replied"
 msgstr "Respondió"
 
-#: lib/colloq_web/live/predictions_live.ex:230
+#: lib/colloq_web/live/predictions_live.ex:250
 #: lib/colloq_web/live/user_live/profile.html.heex:255
 #, elixir-autogen, elixir-format
 msgid "Started"
@@ -3931,28 +3931,28 @@ msgstr "Este tema duplica a"
 msgid "continue the conversation there."
 msgstr "seguí la conversación ahí."
 
-#: lib/colloq_web/live/forum_live/topic.ex:3792
+#: lib/colloq_web/live/forum_live/topic.ex:3812
 #, elixir-autogen, elixir-format
 msgid "it duplicates a topic you already had open."
 msgstr "duplica un tema que ya tenías abierto."
 
-#: lib/colloq_web/live/forum_live/topic.ex:3795
+#: lib/colloq_web/live/forum_live/topic.ex:3815
 #, elixir-autogen, elixir-format
 msgid "it reached the maximum number of comments. Continue in a new topic."
 msgstr "alcanzó el máximo de comentarios. Seguí en un tema nuevo."
 
-#: lib/colloq_web/live/forum_live/topic.ex:2670
+#: lib/colloq_web/live/forum_live/topic.ex:2690
 #, elixir-autogen, elixir-format
 msgid "You just posted that same message. Wait a moment or write something different."
 msgstr "Acabás de publicar ese mismo mensaje. Esperá un momento o escribí algo distinto."
 
-#: lib/colloq_web/live/forum_live/topic.ex:3139
+#: lib/colloq_web/live/forum_live/topic.ex:3159
 #, elixir-autogen, elixir-format
 msgid "Edited"
 msgstr "Editado"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3129
-#: lib/colloq_web/live/forum_live/topic.ex:3142
+#: lib/colloq_web/live/forum_live/topic.ex:3149
+#: lib/colloq_web/live/forum_live/topic.ex:3162
 #, elixir-autogen, elixir-format
 msgid "Edited %{when}"
 msgstr "Editado %{when}"
@@ -4031,7 +4031,7 @@ msgid "Half time"
 msgstr "Entretiempo"
 
 #: lib/colloq_web/components/core_components.ex:743
-#: lib/colloq_web/live/predictions_live.ex:229
+#: lib/colloq_web/live/predictions_live.ex:249
 #, elixir-autogen, elixir-format
 msgid "Live"
 msgstr "En vivo"
@@ -4490,12 +4490,12 @@ msgstr "Moderar usuario"
 msgid "This will reset the user's warnings and return them to good standing."
 msgstr "Esto reiniciará las advertencias del usuario y lo devolverá a buena reputación."
 
-#: lib/colloq_web/live/predictions_live.ex:69
+#: lib/colloq_web/live/predictions_live.ex:75
 #, elixir-autogen, elixir-format
 msgid "%{count} predictions saved!"
 msgstr "¡%{count} predicciones guardadas!"
 
-#: lib/colloq_web/live/predictions_live.ex:228
+#: lib/colloq_web/live/predictions_live.ex:248
 #, elixir-autogen, elixir-format
 msgid "Final"
 msgstr "Final"
@@ -4510,12 +4510,12 @@ msgstr "Fecha %{n}"
 msgid "Next"
 msgstr "Siguiente"
 
-#: lib/colloq_web/live/predictions_live.html.heex:42
+#: lib/colloq_web/live/predictions_live.html.heex:49
 #, elixir-autogen, elixir-format
 msgid "No matches for this matchday. Try another one."
 msgstr "Esta fecha todavía no está definida. Probá con otra."
 
-#: lib/colloq_web/live/predictions_live.ex:63
+#: lib/colloq_web/live/predictions_live.ex:69
 #, elixir-autogen, elixir-format
 msgid "No open matches to save. Kickoff has passed."
 msgstr "No hay partidos abiertos para guardar."
@@ -4526,7 +4526,7 @@ msgid "Prev"
 msgstr "Anterior"
 
 ## predictions_live.html.heex
-#: lib/colloq_web/live/predictions_live.html.heex:130
+#: lib/colloq_web/live/predictions_live.html.heex:137
 #, elixir-autogen, elixir-format
 msgid "Save Predictions"
 msgstr "Guardar predicciones"
@@ -4537,13 +4537,13 @@ msgstr "Guardar predicciones"
 msgid "The league isn't configured yet (missing season id). Ask an admin to set it in Settings ▸ Match Day."
 msgstr "La liga todavía no está configurada (falta el id de temporada). Pedile a un admin que lo configure en Configuración ▸ Match Day."
 
-#: lib/colloq_web/live/predictions_live.html.heex:109
-#: lib/colloq_web/live/predictions_live.html.heex:117
+#: lib/colloq_web/live/predictions_live.html.heex:116
+#: lib/colloq_web/live/predictions_live.html.heex:124
 #, elixir-autogen, elixir-format
 msgid "Your prediction"
 msgstr "Tu predicción"
 
-#: lib/colloq_web/live/predictions_live.html.heex:136
+#: lib/colloq_web/live/predictions_live.html.heex:143
 #, elixir-autogen, elixir-format
 msgid "to submit your predictions."
 msgstr "para enviar tus predicciones."
@@ -4558,32 +4558,32 @@ msgctxt "prode"
 msgid "Predictions"
 msgstr "Prode"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3104
+#: lib/colloq_web/live/forum_live/topic.ex:3124
 #, elixir-autogen, elixir-format
 msgid "↳ replying to %{name}"
 msgstr "↳ en respuesta a %{name}"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3490
+#: lib/colloq_web/live/forum_live/topic.ex:3510
 #, elixir-autogen, elixir-format
 msgid "Continue thread →"
 msgstr "Continuar hilo →"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3553
+#: lib/colloq_web/live/forum_live/topic.ex:3573
 #, elixir-autogen, elixir-format
 msgid "show %{count} more replies"
 msgstr "ver %{count} respuestas más"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:361
+#: lib/colloq_web/live/forum_live/topic.html.heex:375
 #, elixir-autogen, elixir-format
 msgid "Back"
 msgstr "Volver"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:399
+#: lib/colloq_web/live/forum_live/topic.html.heex:413
 #, elixir-autogen, elixir-format
 msgid "Show all %{count} comments"
 msgstr "Ver los %{count} comentarios"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2762
+#: lib/colloq_web/live/forum_live/topic.ex:2782
 #, elixir-autogen, elixir-format
 msgid "No reactions yet."
 msgstr "Todavía no hay reacciones."
@@ -4593,12 +4593,12 @@ msgstr "Todavía no hay reacciones."
 msgid "See who reacted"
 msgstr "Ver quién reaccionó"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2723
+#: lib/colloq_web/live/forum_live/topic.ex:2743
 #, elixir-autogen, elixir-format
 msgid "All"
 msgstr "Todas"
 
-#: lib/colloq_web/live/user_live/login.ex:147
+#: lib/colloq_web/live/user_live/login.ex:169
 #, elixir-autogen, elixir-format
 msgid "or continue with"
 msgstr "o continuá con"
@@ -4608,12 +4608,12 @@ msgstr "o continuá con"
 msgid "or sign up with"
 msgstr "o registrate con"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3160
+#: lib/colloq_web/live/forum_live/topic.ex:3180
 #, elixir-autogen, elixir-format
 msgid "Copied"
 msgstr "Copiado"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3159
+#: lib/colloq_web/live/forum_live/topic.ex:3179
 #, elixir-autogen, elixir-format
 msgid "Copy Quote"
 msgstr "Copiar cita"
@@ -4623,7 +4623,7 @@ msgstr "Copiar cita"
 msgid "Could not save the draft."
 msgstr "No se pudo publicar la respuesta."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:655
+#: lib/colloq_web/live/forum_live/topic.html.heex:669
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Discard"
 msgstr "Descartadas"
@@ -4638,12 +4638,12 @@ msgstr "Borrador descartado — no había nada para guardar."
 msgid "Draft saved. It'll be here when you come back."
 msgstr "Borrador guardado. Va a estar acá cuando vuelvas."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:683
+#: lib/colloq_web/live/forum_live/topic.html.heex:697
 #, elixir-autogen, elixir-format
 msgid "Save draft"
 msgstr "Guardar borrador"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:648
+#: lib/colloq_web/live/forum_live/topic.html.heex:662
 #, elixir-autogen, elixir-format
 msgid "We restored your saved draft."
 msgstr "Recuperamos tu borrador guardado."
@@ -4737,32 +4737,32 @@ msgstr "Configurá MAXMIND_LICENSE_KEY o GEOLITE2_CITY_PATH para resolver ubicac
 msgid "When"
 msgstr "Cuándo"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3643
+#: lib/colloq_web/live/forum_live/topic.ex:3663
 #, elixir-autogen, elixir-format
 msgid "Defender"
 msgstr "Defensor"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3645
+#: lib/colloq_web/live/forum_live/topic.ex:3665
 #, elixir-autogen, elixir-format
 msgid "Forward"
 msgstr "Delantero"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3642
+#: lib/colloq_web/live/forum_live/topic.ex:3662
 #, elixir-autogen, elixir-format
 msgid "Goalkeeper"
 msgstr "Arquero"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3644
+#: lib/colloq_web/live/forum_live/topic.ex:3664
 #, elixir-autogen, elixir-format
 msgid "Midfielder"
 msgstr "Mediocampista"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:480
+#: lib/colloq_web/live/forum_live/topic.html.heex:494
 #, elixir-autogen, elixir-format
 msgid "No squad loaded yet. An admin can refresh it from the Sofascore panel."
 msgstr "Todavía no hay plantel cargado. Un admin puede actualizarlo desde el panel de Sofascore."
 
-#: lib/colloq_web/live/forum_live/topic.ex:3635
+#: lib/colloq_web/live/forum_live/topic.ex:3655
 #, elixir-autogen, elixir-format
 msgid "The XI I'd play"
 msgstr "El once que yo pondría"
@@ -4821,7 +4821,7 @@ msgstr "Promedio"
 msgid "Ranked by total points across every scored match this season."
 msgstr "Ordenado por puntos totales en todos los partidos puntuados de la temporada."
 
-#: lib/colloq_web/live/predictions_live.html.heex:156
+#: lib/colloq_web/live/predictions_live.html.heex:163
 #, elixir-autogen, elixir-format
 msgid "See full table"
 msgstr "Ver tabla completa"
@@ -4833,7 +4833,7 @@ msgstr "Estás %{rank}º con %{points} puntos."
 
 #: lib/colloq_web/live/predictions_leaderboard_live.ex:25
 #: lib/colloq_web/live/predictions_leaderboard_live.ex:66
-#: lib/colloq_web/live/predictions_live.html.heex:153
+#: lib/colloq_web/live/predictions_live.html.heex:160
 #, elixir-autogen, elixir-format
 msgctxt "prode"
 msgid "Prode standings"
@@ -5080,12 +5080,12 @@ msgstr "No se encontró nada"
 msgid "See all results"
 msgstr "Ver todos los resultados"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3710
+#: lib/colloq_web/live/forum_live/topic.ex:3730
 #, elixir-autogen, elixir-format
 msgid "See %"
 msgstr "Ver %"
 
-#: lib/colloq_web/live/forum_live/topic.ex:3709
+#: lib/colloq_web/live/forum_live/topic.ex:3729
 #, elixir-autogen, elixir-format
 msgid "See votes"
 msgstr "Ver votos"
@@ -5111,7 +5111,7 @@ msgid "signed up from"
 msgstr "se registró desde"
 
 #: lib/colloq_web/live/admin_live/spam.ex:207
-#: lib/colloq_web/live/forum_live/topic.ex:1804
+#: lib/colloq_web/live/forum_live/topic.ex:1824
 #, elixir-autogen, elixir-format
 msgid "%{count} day"
 msgid_plural "%{count} days"
@@ -5368,75 +5368,75 @@ msgstr "Buscar en todo"
 msgid "in this topic"
 msgstr "en este tema"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2800
+#: lib/colloq_web/live/forum_live/topic.ex:2820
 #, elixir-autogen, elixir-format
 msgid "%{count} like"
 msgid_plural "%{count} likes"
 msgstr[0] "%{count} me gusta"
 msgstr[1] "%{count} me gusta"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2820
+#: lib/colloq_web/live/forum_live/topic.ex:2840
 #, elixir-autogen, elixir-format
 msgid "%{count} minute read"
 msgstr "%{count} minutos de lectura"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2809
+#: lib/colloq_web/live/forum_live/topic.ex:2829
 #, elixir-autogen, elixir-format
 msgid "%{count} participant"
 msgid_plural "%{count} participants"
 msgstr[0] "%{count} participante"
 msgstr[1] "%{count} participantes"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2792
-#: lib/colloq_web/live/forum_live/topic.html.heex:444
+#: lib/colloq_web/live/forum_live/topic.ex:2812
+#: lib/colloq_web/live/forum_live/topic.html.heex:458
 #, elixir-autogen, elixir-format
 msgid "%{count} view"
 msgid_plural "%{count} views"
 msgstr[0] "%{count} vista"
 msgstr[1] "%{count} vistas"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2799
+#: lib/colloq_web/live/forum_live/topic.ex:2819
 #, elixir-autogen, elixir-format
 msgid "Likes"
 msgstr "Me gusta"
 
-#: lib/colloq_web/live/forum_live/topic.ex:2819
+#: lib/colloq_web/live/forum_live/topic.ex:2839
 #, elixir-autogen, elixir-format
 msgid "Read time"
 msgstr "Tiempo de lectura"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:436
+#: lib/colloq_web/live/forum_live/topic.html.heex:450
 #, elixir-autogen, elixir-format
 msgid "%{count} reply"
 msgid_plural "%{count} replies"
 msgstr[0] "%{count} respuesta"
 msgstr[1] "%{count} respuestas"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:421
+#: lib/colloq_web/live/forum_live/topic.html.heex:435
 #, elixir-autogen, elixir-format
 msgid "Suggested topics"
 msgstr "Temas sugeridos"
 
-#: lib/colloq_web/live/forum_live/topic.ex:1800
+#: lib/colloq_web/live/forum_live/topic.ex:1820
 #, elixir-autogen, elixir-format
 msgid "%{count} month"
 msgid_plural "%{count} months"
 msgstr[0] "%{count} mes"
 msgstr[1] "%{count} meses"
 
-#: lib/colloq_web/live/forum_live/topic.ex:1795
+#: lib/colloq_web/live/forum_live/topic.ex:1815
 #, elixir-autogen, elixir-format
 msgid "%{count} year"
 msgid_plural "%{count} years"
 msgstr[0] "%{count} año"
 msgstr[1] "%{count} años"
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:469
+#: lib/colloq_web/live/forum_live/topic.html.heex:483
 #, elixir-autogen, elixir-format
 msgid "Make sure your reply still adds something before bumping it."
 msgstr "Asegurate de que tu respuesta aporte algo antes de revivirlo."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:467
+#: lib/colloq_web/live/forum_live/topic.html.heex:481
 #, elixir-autogen, elixir-format
 msgid "The last reply here was %{age} ago."
 msgstr "La última respuesta fue hace %{age}."
@@ -5558,7 +5558,7 @@ msgstr "Te avisamos cuando llegue un mensaje y esta pestaña no esté activa."
 msgid "A poll needs a question and at least two options."
 msgstr "La encuesta necesita una pregunta y al menos dos opciones."
 
-#: lib/colloq_web/live/forum_live/topic.html.heex:622
+#: lib/colloq_web/live/forum_live/topic.html.heex:636
 #, elixir-autogen, elixir-format
 msgid "Add a comment (optional)"
 msgstr "Agregá un comentario (opcional)"
@@ -5567,3 +5567,18 @@ msgstr "Agregá un comentario (opcional)"
 #, elixir-autogen, elixir-format
 msgid "Re-read Racing's official squad page and reconcile the stored squad to it (names, numbers, positions), without hitting Sofascore. Runs automatically every night."
 msgstr "Vuelve a leer la página oficial del plantel de Racing y sincroniza el plantel guardado con ella (nombres, números, posiciones), sin consultar a Sofascore. Se ejecuta automáticamente cada noche."
+
+#: lib/colloq_web/live/predictions_live.html.heex:41
+#, elixir-autogen, elixir-format
+msgid "Sofascore isn't responding right now. Showing the last saved schedule; scores may be out of date."
+msgstr "Sofascore no responde en este momento. Se muestra el último fixture guardado; los resultados pueden estar desactualizados."
+
+#: lib/colloq_web/live/predictions_live.html.heex:44
+#, elixir-autogen, elixir-format
+msgid "Sofascore isn't responding right now. Showing the schedule from FotMob; predictions are paused until Sofascore is back."
+msgstr "Sofascore no responde en este momento. Se muestra el fixture de FotMob; los pronósticos quedan pausados hasta que vuelva Sofascore."
+
+#: lib/colloq_web/live/forum_live/topic.html.heex:276
+#, elixir-autogen, elixir-format
+msgid "Or paste the Sofascore match link or id"
+msgstr "O pegá el link o el id del partido en Sofascore"

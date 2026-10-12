@@ -48,7 +48,7 @@ defmodule Colloq.Workers.ScoreBotWorker do
   end
 
   @impl Oban.Worker
-  def perform(%{args: %{"action" => "poll", "fixture_id" => fixture_id, "topic_id" => topic_id}}) do
+  def perform(%{args: %{"action" => "poll", "fixture_id" => fixture_id, "topic_id" => topic_id} = args}) do
     # topic_id comes back from Oban's JSON args as an integer (start_polling/2
     # passes topic.id), so String.to_integer/1 raised on every poll. to_int/1
     # accepts either shape.
@@ -90,8 +90,10 @@ defmodule Colloq.Workers.ScoreBotWorker do
         maybe_schedule_next_poll(fixture_id, topic_id)
         {:ok, :pending}
 
+      # Used to `{:snooze, 30}`, but a snooze never counts as an attempt, so a
+      # Sofascore block kept a week-old thread "live" and polling forever.
       {:error, _reason} ->
-        {:snooze, 30}
+        poll_without_sofascore(topic, fixture_id, args["failing_since"])
     end
   end
 
@@ -151,6 +153,46 @@ defmodule Colloq.Workers.ScoreBotWorker do
     end
   end
 
+  # How long a thread may go without Sofascore answering before coverage stops
+  # on its own. Covers a full match plus extra time and penalties.
+  @give_up_after_seconds 4 * 3600
+
+  # Sofascore is unreachable (usually a 403 block). FotMob keeps the banner's
+  # score moving and can close the match; with neither, coverage ends once
+  # Sofascore has been silent for @give_up_after_seconds.
+  defp poll_without_sofascore(topic, fixture_id, failing_since) do
+    now = System.system_time(:second)
+    failing_since = failing_since || now
+
+    case Sofascore.fotmob_match_for_title(topic.title) do
+      {:ok, event} ->
+        broadcast_score(topic.id, event)
+
+        if match_finished?(event) do
+          finalize_match(topic, fixture_id, event)
+          {:ok, :finished}
+        else
+          continue_or_give_up(topic, fixture_id, failing_since, now)
+        end
+
+      :error ->
+        continue_or_give_up(topic, fixture_id, failing_since, now)
+    end
+  end
+
+  defp continue_or_give_up(topic, fixture_id, failing_since, now) do
+    if now - failing_since >= @give_up_after_seconds do
+      Logger.warning("[ResultaBot] sin datos del partido #{fixture_id} hace 4h; corto la cobertura")
+
+      if topic.match_mode != "fulltime", do: post_coverage_ended(topic)
+      transition_to_fulltime(topic)
+      {:ok, :gave_up}
+    else
+      maybe_schedule_next_poll(fixture_id, topic.id, %{failing_since: failing_since})
+      {:ok, :unreachable}
+    end
+  end
+
   defp broadcast_score(topic_id, event) do
     ColloqWeb.Endpoint.broadcast("forum:topic:#{topic_id}", "match_score", %{
       match: Sofascore.match_summary(event)
@@ -177,10 +219,10 @@ defmodule Colloq.Workers.ScoreBotWorker do
   # Coverage is "on" while the topic is in prematch/live. `/resultabot stop`
   # and the full-time transition both move it to "fulltime", which is what
   # actually breaks the chain.
-  defp maybe_schedule_next_poll(fixture_id, topic_id) do
+  defp maybe_schedule_next_poll(fixture_id, topic_id, extra_args \\ %{}) do
     case Repo.get(Topic, topic_id) do
       %Topic{match_mode: mode} when mode in ["prematch", "live"] ->
-        schedule_next_poll(fixture_id, topic_id)
+        schedule_next_poll(fixture_id, topic_id, extra_args)
 
       _ ->
         Logger.info("[ResultaBot] cobertura detenida para el partido #{fixture_id}; no reprogramo")
@@ -188,8 +230,11 @@ defmodule Colloq.Workers.ScoreBotWorker do
     end
   end
 
-  defp schedule_next_poll(fixture_id, topic_id) do
+  # `extra_args` carries `failing_since` while Sofascore is unreachable; it is
+  # not part of the unique keys, so it never splits one chain into two.
+  defp schedule_next_poll(fixture_id, topic_id, extra_args) do
     %{action: "poll", fixture_id: fixture_id, topic_id: topic_id}
+    |> Map.merge(extra_args)
     |> new(
       schedule_in: poll_interval_seconds(),
       # Two overlapping loops for one fixture would double every alert; the
@@ -198,11 +243,7 @@ defmodule Colloq.Workers.ScoreBotWorker do
       # executing, so counting that state made every poll dedup against itself
       # and the loop died after a single tick. Guarding on the pending states
       # (:available/:scheduled) still collapses two parallel chains into one.
-      unique: [
-        period: poll_interval_seconds() * 2,
-        states: [:available, :scheduled],
-        keys: [:action, :fixture_id]
-      ]
+      unique: poll_unique([:available, :scheduled])
     )
     |> Oban.insert()
   end
@@ -210,11 +251,18 @@ defmodule Colloq.Workers.ScoreBotWorker do
   @doc """
   Starts the polling loop for a fixture. Call this when a match kicks off —
   nothing schedules the loop on its own.
+
+  A no-op while a chain for the fixture is already alive, including one that is
+  mid-poll — running `/resultabot` twice used to start a second loop.
   """
   def start_polling(fixture_id, topic_id) do
     %{action: "poll", fixture_id: fixture_id, topic_id: topic_id}
-    |> new()
+    |> new(unique: poll_unique([:available, :scheduled, :executing, :retryable]))
     |> Oban.insert()
+  end
+
+  defp poll_unique(states) do
+    [period: :infinity, states: states, keys: [:action, :fixture_id]]
   end
 
   # --- Event dedup ---

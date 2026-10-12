@@ -634,6 +634,8 @@ defmodule Colloq.Workers.SofascoreCommandWorker do
     freshness =
       case source do
         :cached -> "🗄️ cacheado (hasta 10 min)"
+        :stale -> "⚠️ Sofascore no responde — última copia guardada"
+        :fallback -> "⚠️ Sofascore no responde — datos de FotMob"
         _ -> "🔄 recién actualizado"
       end
 

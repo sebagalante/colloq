@@ -16,8 +16,86 @@ defmodule Colloq.Sofascore do
   alias Colloq.Repo
   alias Colloq.Sofascore.SofascorePlayer
   alias Colloq.Sofascore.OfficialRoster
+  alias Colloq.Sofascore.Snapshot
 
   @user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+  # --- Request guard ----------------------------------------------------------
+  #
+  # Sofascore blocks an IP outright (403 on every URL, homepage included) when it
+  # sees too much traffic. Every request goes through `http_get/1`, which:
+  #
+  #   * caps requests per minute, so a burst (a busy match thread, a cron fan-out)
+  #     can't run away;
+  #   * trips a breaker on 403/429 and sends nothing until the cooldown ends,
+  #     doubling on each consecutive trip. Hammering a block only extends it.
+  #
+  # Refused requests return `{:error, :circuit_open | :rate_limited}` without
+  # touching the network; calendar reads then fall back to their saved copy.
+  @breaker_key "sofascore:breaker"
+  @breaker_trips_key "sofascore:breaker_trips"
+  @breaker_base_cooldown :timer.minutes(10)
+  @breaker_max_cooldown :timer.hours(2)
+
+  defp max_requests_per_minute,
+    do: Application.get_env(:colloq, :sofascore_max_requests_per_minute, 20)
+
+  @doc "Whether requests are paused after Sofascore refused us; `{:open, ms_left}` or `:closed`."
+  def breaker_status do
+    case Cachex.ttl(:forum_cache, @breaker_key) do
+      {:ok, ms} when is_integer(ms) and ms > 0 -> {:open, ms}
+      _ -> :closed
+    end
+  end
+
+  defp http_get(path) do
+    cond do
+      match?({:open, _}, breaker_status()) ->
+        {:error, :circuit_open}
+
+      over_budget?() ->
+        Logger.warning("[Sofascore] request budget exhausted, skipping #{path}")
+        {:error, :rate_limited}
+
+      true ->
+        result =
+          Req.get("#{api_base()}#{path}",
+            headers: %{"user-agent" => @user_agent, "accept" => "application/json"},
+            receive_timeout: 15_000,
+            # Req retries transient errors by default; against a rate limit that
+            # is just more of the traffic that got us blocked.
+            retry: false
+          )
+
+        case result do
+          {:ok, %{status: status}} when status in [403, 429] -> trip_breaker(status, path)
+          {:ok, %{status: 200}} -> Cachex.del(:forum_cache, @breaker_trips_key)
+          _ -> :ok
+        end
+
+        result
+    end
+  end
+
+  defp over_budget? do
+    key = "sofascore:budget:#{div(System.system_time(:second), 60)}"
+    {_, count} = Cachex.incr(:forum_cache, key)
+    if count == 1, do: Cachex.expire(:forum_cache, key, :timer.minutes(2))
+    count > max_requests_per_minute()
+  end
+
+  defp trip_breaker(status, path) do
+    {_, trips} = Cachex.incr(:forum_cache, @breaker_trips_key)
+    Cachex.expire(:forum_cache, @breaker_trips_key, :timer.hours(12))
+
+    cooldown = min(@breaker_base_cooldown * Integer.pow(2, trips - 1), @breaker_max_cooldown)
+    Cachex.put(:forum_cache, @breaker_key, true, ttl: cooldown)
+
+    Logger.warning(
+      "[Sofascore] HTTP #{status} on #{path}; pausing all requests for " <>
+        "#{div(cooldown, 60_000)} min (trip #{trips})"
+    )
+  end
 
   defp api_base, do: Application.get_env(:colloq, :sofascore_api_url, "https://www.sofascore.com/api/v1")
 
@@ -264,13 +342,7 @@ defmodule Colloq.Sofascore do
   Returns {:ok, players} or {:error, reason}.
   """
   def fetch_team_players(team_id) when is_integer(team_id) do
-    case Req.get("#{api_base()}/team/#{team_id}/players",
-           headers: %{
-             "user-agent" => @user_agent,
-             "accept" => "application/json"
-           },
-           receive_timeout: 15_000
-         ) do
+    case http_get("/team/#{team_id}/players") do
       {:ok, %{status: 200, body: %{"players" => raw_players}}} ->
         players =
           raw_players
@@ -626,19 +698,24 @@ defmodule Colloq.Sofascore do
   # Prev/Next buttons reach any other fecha.
   @advance_lead_seconds 86_400
 
+  # League matches only: on a cup day (Copa Argentina, Libertadores) Racing's
+  # "relevant match" is the cup tie, whose round number has nothing to do with
+  # the fecha, so anchoring on it sent the Prode to the wrong round.
   def current_round do
-    case relevant_match(racing_team_id()) do
-      {:ok, event} ->
+    league = racing_team_id() |> recent_and_upcoming() |> Enum.filter(&league_event?/1)
+
+    case pick_relevant(league) do
+      %{} = event ->
         round = get_in(event, ["roundInfo", "round"]) || 1
 
         if get_in(event, ["status", "type"]) == "notstarted" and
              not within_lead_time?(event["startTimestamp"]) do
-          last_finished_round(racing_team_id()) || round
+          last_finished_round(league) || round
         else
           round
         end
 
-      _ ->
+      nil ->
         1
     end
   end
@@ -698,10 +775,10 @@ defmodule Colloq.Sofascore do
 
   defp within_lead_time?(_), do: true
 
-  defp last_finished_round(team_id) do
-    case last_finished_match(team_id) do
-      {:ok, event} -> get_in(event, ["roundInfo", "round"])
-      _ -> nil
+  defp last_finished_round(league_events) do
+    case most_recent_finished(league_events) do
+      %{} = event -> get_in(event, ["roundInfo", "round"])
+      nil -> nil
     end
   end
 
@@ -789,9 +866,13 @@ defmodule Colloq.Sofascore do
           evs
 
         _ ->
-          case api_get("/team/#{team_id}/events/next/0") do
+          case api_get_snapshotted("/team/#{team_id}/events/next/0") do
             {:ok, %{"events" => evs}} when is_list(evs) ->
               Cachex.put(:forum_cache, key, evs, ttl: :timer.hours(12))
+              evs
+
+            # Not cached: the next request should try Sofascore again.
+            {:stale, %{"events" => evs}} when is_list(evs) ->
               evs
 
             _ ->
@@ -824,9 +905,13 @@ defmodule Colloq.Sofascore do
           evs
 
         _ ->
-          case api_get("/team/#{team_id}/events/next/0") do
+          case api_get_snapshotted("/team/#{team_id}/events/next/0") do
             {:ok, %{"events" => evs}} when is_list(evs) ->
               Cachex.put(:forum_cache, key, evs, ttl: :timer.hours(12))
+              evs
+
+            # Not cached: the next request should try Sofascore again.
+            {:stale, %{"events" => evs}} when is_list(evs) ->
               evs
 
             _ ->
@@ -879,34 +964,61 @@ defmodule Colloq.Sofascore do
   cache so a live clock stays current without hammering the API.
   """
   def relevant_match(team_id) when is_integer(team_id) do
-    key = "sofascore:relevant:#{team_id}"
-
-    events =
-      case Cachex.get(:forum_cache, key) do
-        {:ok, evs} when is_list(evs) and evs != [] ->
-          evs
-
-        _ ->
-          evs = fetch_last_and_next(team_id)
-          if evs != [], do: Cachex.put(:forum_cache, key, evs, ttl: :timer.seconds(30))
-          evs
-      end
-
-    case pick_relevant(events) do
+    case pick_relevant(recent_and_upcoming(team_id)) do
       nil -> {:error, :no_fixtures}
       event -> {:ok, event}
+    end
+  end
+
+  defp recent_and_upcoming(team_id) do
+    key = "sofascore:relevant:#{team_id}"
+
+    case Cachex.get(:forum_cache, key) do
+      {:ok, evs} when is_list(evs) and evs != [] ->
+        evs
+
+      _ ->
+        evs = fetch_last_and_next(team_id)
+        if evs != [], do: Cachex.put(:forum_cache, key, evs, ttl: :timer.seconds(30))
+        evs
+    end
+  end
+
+  # League (unique-tournament 155) matches only. An event that doesn't say which
+  # tournament it belongs to is kept, as it was before this filter existed.
+  defp league_event?(event) do
+    case get_in(event, ["tournament", "uniqueTournament", "id"]) do
+      nil -> true
+      id -> id == 155
     end
   end
 
   defp fetch_last_and_next(team_id) do
     last = fetch_events("/team/#{team_id}/events/last/0")
     next = fetch_events("/team/#{team_id}/events/next/0")
-    (last ++ next) |> Enum.uniq_by(& &1["id"])
+
+    case (last ++ next) |> Enum.uniq_by(& &1["id"]) do
+      [] -> fotmob_team_events(team_id)
+      events -> events
+    end
+  end
+
+  # Sofascore gave nothing (blocked, and no saved copy): the team's fixtures
+  # from FotMob instead, all competitions, already in Sofascore's event shape.
+  defp fotmob_team_events(team_id) do
+    with key when not is_nil(key) <- team_key_by_id(team_id),
+         %{name: name} <- team_info(key),
+         {:ok, events} <- Colloq.FotMob.team_events(name) do
+      Logger.info("[Sofascore] team #{team_id}: using FotMob fixtures")
+      events
+    else
+      _ -> []
+    end
   end
 
   defp fetch_events(path) do
-    case api_get(path) do
-      {:ok, %{"events" => evs}} when is_list(evs) -> evs
+    case api_get_snapshotted(path) do
+      {ok, %{"events" => evs}} when ok in [:ok, :stale] and is_list(evs) -> evs
       _ -> []
     end
   end
@@ -958,9 +1070,15 @@ defmodule Colloq.Sofascore do
           evs
 
         _ ->
-          evs = fetch_events("/team/#{team_id}/events/last/0")
-          if evs != [], do: Cachex.put(:forum_cache, key, evs, ttl: :timer.minutes(10))
-          evs
+          case fetch_events("/team/#{team_id}/events/last/0") do
+            [] ->
+              # Not cached, so the next call tries Sofascore again.
+              fotmob_team_events(team_id)
+
+            evs ->
+              Cachex.put(:forum_cache, key, evs, ttl: :timer.minutes(10))
+              evs
+          end
       end
 
     case most_recent_finished(events) do
@@ -1438,7 +1556,10 @@ defmodule Colloq.Sofascore do
 
   @doc """
   Like `round_fixtures/1`, but also reports where the data came from:
-  `{:ok, events, :cached | :live}`.
+  `{:ok, events, :cached | :live | :stale | :fallback}`. `:stale` is the last
+  copy saved in the database, served because Sofascore couldn't be reached;
+  `:fallback` means there was no saved copy either and the fecha comes from
+  FotMob (event ids "fotmob:…", so not usable for predictions).
 
   Callers surface this so a reader can tell a freshly fetched round from one
   served out of the 10-minute cache — which matters when a match is in play and
@@ -1457,10 +1578,15 @@ defmodule Colloq.Sofascore do
             {:ok, evs, :cached}
 
           _ ->
-            case api_get("/unique-tournament/155/season/#{season}/events/round/#{round}") do
+            case api_get_snapshotted("/unique-tournament/155/season/#{season}/events/round/#{round}") do
               {:ok, %{"events" => evs}} when is_list(evs) ->
                 Cachex.put(:forum_cache, key, evs, ttl: :timer.minutes(10))
                 {:ok, evs, :live}
+
+              # Sofascore is failing; serve the last saved copy, uncached so the
+              # next request tries the API again.
+              {:stale, %{"events" => evs}} when is_list(evs) ->
+                {:ok, evs, :stale}
 
               {:ok, other} ->
                 require Logger
@@ -1470,9 +1596,34 @@ defmodule Colloq.Sofascore do
               err ->
                 require Logger
                 Logger.warning("[Sofascore] round #{round} (season #{season}) fetch failed: #{inspect(err)}")
-                err
+
+                # No saved copy either: rebuild the fecha from FotMob.
+                case Colloq.FotMob.league_round_events(round) do
+                  {:ok, [_ | _] = evs} -> {:ok, evs, :fallback}
+                  _ -> err
+                end
             end
         end
+    end
+  end
+
+  @doc """
+  `event/1` behind a short shared cache, for readers rather than pollers.
+
+  The match-thread banner fetched the event uncached on every mount — twice per
+  viewer, since a LiveView mounts once for the static render and again on
+  connect — so a busy match thread multiplied straight into Sofascore requests.
+  `Cachex.fetch/3` also collapses concurrent misses into a single request.
+  """
+  def cached_event(event_id) when is_integer(event_id) do
+    case Cachex.fetch(:forum_cache, "sofascore:event:#{event_id}", fn _key ->
+           case event(event_id) do
+             {:ok, event} -> {:commit, {:ok, event}, ttl: :timer.seconds(30)}
+             error -> {:ignore, error}
+           end
+         end) do
+      {status, result} when status in [:ok, :commit, :ignore] -> result
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -1582,10 +1733,13 @@ defmodule Colloq.Sofascore do
       away: get_in(event, ["awayTeam", "name"]),
       home_id: get_in(event, ["homeTeam", "id"]),
       away_id: get_in(event, ["awayTeam", "id"]),
+      # Only FotMob events carry these (see `Colloq.FotMob`); nil otherwise.
+      home_crest: get_in(event, ["homeTeam", "crest"]),
+      away_crest: get_in(event, ["awayTeam", "crest"]),
       home_score: get_in(event, ["homeScore", "current"]) || 0,
       away_score: get_in(event, ["awayScore", "current"]) || 0,
       status: banner_status(event),
-      minute: get_in(event, ["time", "currentPeriodStartTimestamp"]) && nil,
+      minute: event["liveMinute"],
       competition: competition_label(event),
       kickoff: kickoff_label(event["startTimestamp"])
     }
@@ -1608,11 +1762,62 @@ defmodule Colloq.Sofascore do
     name = get_in(event, ["tournament", "name"])
     round = get_in(event, ["roundInfo", "round"])
 
-    case {name, round} do
-      {nil, _} -> ""
-      {n, nil} -> n
-      {n, r} -> "#{n} · Fecha #{r}"
+    label =
+      case {name, round} do
+        {nil, _} -> ""
+        {n, nil} -> n
+        {n, r} -> "#{n} · Fecha #{r}"
+      end
+
+    if event["source"] == "fotmob", do: label <> " · vía FotMob", else: label
+  end
+
+  @doc """
+  FotMob's version of a match thread's game, for the banner while Sofascore
+  can't be reached. `{:ok, event}` or `:error`.
+
+  There is no mapping from a Sofascore event id to FotMob, so the match is found
+  among Racing's FotMob fixtures by what the thread itself says: kickoff within
+  a day of now, and both teams named in the title. The caller also limits this
+  to recent threads, so an old Racing–Boca thread can't pick up today's score.
+  """
+  def fotmob_match_for_title(title) when is_binary(title) do
+    now = System.system_time(:second)
+    title = normalize(title)
+
+    with %{name: name} <- team_info(:racing),
+         {:ok, events} <- Colloq.FotMob.team_events(name),
+         %{} = event <-
+           Enum.find(events, fn e ->
+             is_integer(e["startTimestamp"]) and abs(e["startTimestamp"] - now) <= 86_400 and
+               title_names?(title, get_in(e, ["homeTeam", "name"])) and
+               title_names?(title, get_in(e, ["awayTeam", "name"]))
+           end) do
+      # The team feed lags during a match; from kickoff on, take score and
+      # minute from FotMob's live match-details feed.
+      if event["startTimestamp"] <= now + 300,
+        do: {:ok, Colloq.FotMob.refresh_live(event)},
+        else: {:ok, event}
+    else
+      _ -> :error
     end
+  end
+
+  def fotmob_match_for_title(_), do: :error
+
+  # Words too generic to identify a club on their own.
+  @generic_team_words ~w(club atletico juniors central sport sporting deportivo united plate old boys)
+
+  # True when a distinctive word of the team name (e.g. "boca" for "Boca
+  # Juniors") appears in the already-normalised title.
+  defp title_names?(_title, nil), do: false
+
+  defp title_names?(title, team_name) do
+    team_name
+    |> normalize()
+    |> String.split(~r/[^a-z0-9]+/, trim: true)
+    |> Enum.reject(&(String.length(&1) < 4 or &1 in @generic_team_words))
+    |> Enum.any?(&String.contains?(title, &1))
   end
 
   defp kickoff_label(nil), do: "--:--"
@@ -1632,11 +1837,46 @@ defmodule Colloq.Sofascore do
   def live?(%{"status" => %{"type" => type}}), do: type == "inprogress"
   def live?(_), do: false
 
+  # Calendar endpoints go through here: every good response is saved to the
+  # database, and when Sofascore fails (e.g. it 403s our IP) the saved copy is
+  # returned as `{:stale, body}` instead of an error. Cachex alone lost the whole
+  # calendar on restart during a block, leaving the Prode empty on a match day.
+  defp api_get_snapshotted(path) do
+    case api_get(path) do
+      {:ok, body} = ok when is_map(body) ->
+        save_snapshot(path, body)
+        ok
+
+      error ->
+        case Repo.get_by(Snapshot, path: path) do
+          %Snapshot{body: body, fetched_at: at} ->
+            Logger.warning(
+              "[Sofascore] #{path} failed (#{inspect(error)}); serving copy from #{at}"
+            )
+
+            {:stale, body}
+
+          nil ->
+            error
+        end
+    end
+  end
+
+  defp save_snapshot(path, body) do
+    now = DateTime.utc_now()
+
+    Repo.insert(
+      %Snapshot{path: path, body: body, fetched_at: now, inserted_at: now, updated_at: now},
+      on_conflict: [set: [body: body, fetched_at: now, updated_at: now]],
+      conflict_target: :path
+    )
+  rescue
+    # A failed save must never break the live response it came from.
+    e -> Logger.warning("[Sofascore] snapshot save failed for #{path}: #{Exception.message(e)}")
+  end
+
   defp api_get(path) do
-    case Req.get("#{api_base()}#{path}",
-           headers: %{"user-agent" => @user_agent, "accept" => "application/json"},
-           receive_timeout: 15_000
-         ) do
+    case http_get(path) do
       {:ok, %{status: 200, body: body}} -> {:ok, body}
       {:ok, %{status: 404}} -> {:error, :not_found}
       {:ok, %{status: status}} -> {:error, {:http_error, status}}

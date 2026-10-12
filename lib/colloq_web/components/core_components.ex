@@ -698,7 +698,7 @@ defmodule ColloqWeb.CoreComponents do
 
         <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 py-3">
           <div class="flex items-center gap-2.5 min-w-0">
-            <img src={team_crest(@match.home_id)} alt="" class="w-10 h-10 object-contain flex-shrink-0" />
+            <img :if={banner_crest(@match, :home)} src={banner_crest(@match, :home)} alt="" class="w-10 h-10 object-contain flex-shrink-0" />
             <span class="font-bold text-heading text-sm leading-tight truncate"><%= @match.home %></span>
           </div>
 
@@ -724,7 +724,7 @@ defmodule ColloqWeb.CoreComponents do
           </div>
 
           <div class="flex flex-row-reverse items-center gap-2.5 min-w-0">
-            <img src={team_crest(@match.away_id)} alt="" class="w-10 h-10 object-contain flex-shrink-0" />
+            <img :if={banner_crest(@match, :away)} src={banner_crest(@match, :away)} alt="" class="w-10 h-10 object-contain flex-shrink-0" />
             <span class="font-bold text-heading text-sm leading-tight truncate text-right"><%= @match.away %></span>
           </div>
         </div>
@@ -734,6 +734,14 @@ defmodule ColloqWeb.CoreComponents do
   end
 
   defp team_crest(id), do: "https://api.sofascore.com/api/v1/team/#{id}/image"
+
+  # A FotMob-sourced banner carries its own crest URL and no Sofascore team id.
+  # `Map.get`: summaries pushed by an older ResultaBot job lack the crest keys.
+  defp banner_crest(match, :home),
+    do: Map.get(match, :home_crest) || (match.home_id && team_crest(match.home_id))
+
+  defp banner_crest(match, :away),
+    do: Map.get(match, :away_crest) || (match.away_id && team_crest(match.away_id))
 
   defp match_chip_class(:live), do: "text-danger bg-danger-soft border-danger"
   defp match_chip_class(:halftime), do: "text-warning bg-warning-soft border-warning"

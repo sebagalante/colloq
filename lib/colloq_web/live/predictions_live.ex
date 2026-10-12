@@ -28,7 +28,13 @@ defmodule ColloqWeb.PredictionsLive do
       if socket.assigns.season_id do
         load_round(socket, param_round(params) || Sofascore.current_prode_round())
       else
-        assign(socket, round: nil, matches: [], predictions: %{}, next_available?: false)
+        assign(socket,
+          round: nil,
+          matches: [],
+          predictions: %{},
+          next_available?: false,
+          source: :live
+        )
       end
 
     {:noreply, socket}
@@ -87,13 +93,13 @@ defmodule ColloqWeb.PredictionsLive do
   defp param_round(_), do: nil
 
   defp load_round(socket, round) do
-    matches = fetch_matches(round)
+    {matches, source} = fetch_matches(round)
 
     # Cap forward navigation at the last defined fecha: Sofascore only publishes
     # the Clausura a few rounds ahead, so without this "Siguiente" walks into a
     # dozen "no definida" pages and reads as broken. `fetch_matches/1` is
     # cache-backed (10 min), so this peek is cheap.
-    next_available? = fetch_matches(round + 1) != []
+    next_available? = elem(fetch_matches(round + 1), 0) != []
 
     predictions =
       case socket.assigns[:current_user] do
@@ -104,6 +110,7 @@ defmodule ColloqWeb.PredictionsLive do
     socket
     |> assign(:round, round)
     |> assign(:matches, matches)
+    |> assign(:source, source)
     |> assign(:next_available?, next_available?)
     |> assign(:predictions, predictions)
   end
@@ -113,18 +120,31 @@ defmodule ColloqWeb.PredictionsLive do
   # the nearest cluster, and the active-window filter drops a round whose only
   # matches belong to the previous tournament (so it reads as "not defined yet"
   # rather than showing months-old results). Sorted by kickoff.
+  #
+  # Returns `{matches, source}`. `:stale` means Sofascore couldn't be reached and
+  # this is the last copy saved in the database, so scores may be behind.
+  # `:fallback` means the fecha came from FotMob: its match ids aren't the
+  # Sofascore ids predictions are stored under, so every match is locked.
   defp fetch_matches(round) do
-    case Sofascore.round_fixtures(round) do
-      {:ok, events} ->
-        events
-        |> Sofascore.current_phase()
-        |> Enum.map(&to_match/1)
-        |> Enum.filter(&within_active_window?/1)
-        |> Enum.sort_by(& &1.kickoff_ts)
-        |> lock_from_first_kickoff()
+    case Sofascore.round_fixtures_cached(round) do
+      {:ok, events, source} ->
+        matches =
+          events
+          |> Sofascore.current_phase()
+          |> Enum.map(&to_match/1)
+          |> Enum.filter(&within_active_window?/1)
+          |> Enum.sort_by(& &1.kickoff_ts)
+          |> lock_from_first_kickoff()
+
+        matches =
+          if source == :fallback,
+            do: Enum.map(matches, &%{&1 | locked?: true}),
+            else: matches
+
+        {matches, source}
 
       _ ->
-        []
+        {[], :live}
     end
   end
 

@@ -1411,6 +1411,11 @@ defmodule ColloqWeb.ForumLive.Topic do
      |> assign(:reaction_data, Map.put(socket.assigns.reaction_data, post_id, counts))}
   end
 
+  # Only scheduled by `assign_fotmob_banner/2`, i.e. while Sofascore is out.
+  def handle_info(:refresh_match_banner, socket) do
+    {:noreply, assign_match_banner(socket, socket.assigns.topic)}
+  end
+
   # ResultaBot pushes the score with every poll, so the banner updates without
   # the page doing its own polling — and without a refresh.
   def handle_info(%{event: "match_score", payload: %{match: match}}, socket) do
@@ -1517,13 +1522,13 @@ defmodule ColloqWeb.ForumLive.Topic do
   # A failed fetch is not fatal — the thread still renders, just without the
   # score bar, which beats 500-ing a live match thread because an unofficial
   # API blipped.
-  defp assign_match_banner(socket, %{is_match_thread: true, match_id: match_id})
+  defp assign_match_banner(socket, %{is_match_thread: true, match_id: match_id} = topic)
        when is_binary(match_id) and match_id != "" do
     case Integer.parse(match_id) do
       {event_id, _} ->
-        case Colloq.Sofascore.event(event_id) do
+        case Colloq.Sofascore.cached_event(event_id) do
           {:ok, event} -> assign(socket, :match, Colloq.Sofascore.match_summary(event))
-          {:error, _} -> assign(socket, :match, nil)
+          {:error, _} -> assign_fotmob_banner(socket, topic)
         end
 
       :error ->
@@ -1532,6 +1537,31 @@ defmodule ColloqWeb.ForumLive.Topic do
   end
 
   defp assign_match_banner(socket, _topic), do: assign(socket, :match, nil)
+
+  # Sofascore couldn't give the match (e.g. it's blocking the server): show
+  # FotMob's score instead. ResultaBot can't push updates in that state, so the
+  # page refreshes the banner itself every minute until the match is over or
+  # Sofascore answers again. Only for recent threads, since the FotMob match is
+  # found by title and date rather than by id.
+  @fotmob_banner_max_age_days 7
+  @fotmob_banner_refresh :timer.minutes(1)
+
+  defp assign_fotmob_banner(socket, topic) do
+    recent? =
+      DateTime.diff(DateTime.utc_now(), topic.inserted_at, :day) <= @fotmob_banner_max_age_days
+
+    with true <- recent?,
+         {:ok, event} <- Colloq.Sofascore.fotmob_match_for_title(topic.title) do
+      match = Colloq.Sofascore.match_summary(event)
+
+      if connected?(socket) and match.status != :finished,
+        do: Process.send_after(self(), :refresh_match_banner, @fotmob_banner_refresh)
+
+      assign(socket, :match, match)
+    else
+      _ -> assign(socket, :match, nil)
+    end
+  end
 
   # Racing's upcoming fixtures for the picker. Only fetched for someone who can
   # actually use it, and never fatal: a Sofascore blip should leave the topic
@@ -1552,7 +1582,12 @@ defmodule ColloqWeb.ForumLive.Topic do
 
   defp maybe_update_match_thread(topic, params, true) do
     match? = params["is_match_thread"] == "on"
-    match_id = String.trim(params["match_id"] || "")
+
+    match_id =
+      case sofascore_event_id(params["match_id_manual"]) do
+        nil -> String.trim(params["match_id"] || "")
+        id -> id
+      end
 
     attrs =
       if match? and match_id != "" do
@@ -1567,6 +1602,21 @@ defmodule ColloqWeb.ForumLive.Topic do
 
     topic |> Ecto.Changeset.change(attrs) |> Repo.update()
   end
+
+  # A pasted Sofascore match link ("…/racing-club-boca-juniors/xyz#id:12345678")
+  # or a bare id → the event id as a string; anything else → nil, so a typo
+  # can't end up stored as the fixture.
+  defp sofascore_event_id(input) when is_binary(input) do
+    input = String.trim(input)
+
+    cond do
+      Regex.match?(~r/^\d{5,12}$/, input) -> input
+      match = Regex.run(~r/#id:(\d{5,12})\b/, input) -> Enum.at(match, 1)
+      true -> nil
+    end
+  end
+
+  defp sofascore_event_id(_), do: nil
 
   defp load_user(session) do
     case session["user_id"] do

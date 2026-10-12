@@ -37,6 +37,13 @@
         </button>
       </div>
 
+      <p :if={@source == :stale and @matches != []} class="text-xs text-muted mb-3">
+        <%= gettext("Sofascore isn't responding right now. Showing the last saved schedule; scores may be out of date.") %>
+      </p>
+      <p :if={@source == :fallback and @matches != []} class="text-xs text-muted mb-3">
+        <%= gettext("Sofascore isn't responding right now. Showing the schedule from FotMob; predictions are paused until Sofascore is back.") %>
+      </p>
+
       <%= if @matches == [] do %>
         <p class="text-sm text-muted">
           <%= gettext("No matches for this matchday. Try another one.") %>
