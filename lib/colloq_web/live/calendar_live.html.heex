@@ -1,0 +1,116 @@
+<section class="space-y-5">
+  <div>
+    <h1 class="text-2xl font-bold text-heading"><%= gettext("Calendar") %></h1>
+    <p class="mt-1 text-sm text-muted">
+      <%= gettext("Racing's and the national team's matches, plus the Liga Profesional. Turn on other competitions to see them on the same days.") %>
+    </p>
+  </div>
+
+  <div class="flex flex-col lg:flex-row gap-5 items-start">
+    <%!-- Filters: a sidebar on desktop, a row of chips on phones. --%>
+    <aside class="w-full lg:w-56 flex-shrink-0 rounded-xl border border-border bg-surface p-3">
+      <%= for {group, title} <- [teams: gettext("My teams"), competitions: gettext("Competitions")] do %>
+        <h2 class="px-1 mb-1.5 mt-1 first:mt-0 text-[11px] font-semibold uppercase tracking-wider text-muted">
+          <%= title %>
+        </h2>
+        <div class="flex flex-wrap lg:flex-col gap-1 mb-3 last:mb-0">
+          <%= for f <- Colloq.Calendar.filters(), f.group == group do %>
+            <% on? = f.key in @enabled %>
+            <button
+              type="button"
+              phx-click="toggle"
+              phx-value-key={f.key}
+              aria-pressed={to_string(on?)}
+              class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-sm text-left hover:bg-surface-alt transition-colors"
+            >
+              <span class={[
+                "w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border",
+                if(on?, do: [filter_color(f.key), "border-transparent"], else: "border-border bg-transparent")
+              ]}>
+                <.icon :if={on?} name="check" class="w-3 h-3 text-white" />
+              </span>
+              <span class={["flex-1 truncate", if(on?, do: "text-heading", else: "text-muted")]}>
+                <%= filter_label(f.key) %>
+              </span>
+              <span class="text-xs text-muted tabular-nums"><%= @counts[f.key] %></span>
+            </button>
+          <% end %>
+        </div>
+      <% end %>
+    </aside>
+
+    <div class="flex-1 min-w-0 w-full">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h2 class="text-lg font-bold text-heading"><%= week_title(@monday) %></h2>
+        <div class="flex items-center gap-1 text-sm flex-shrink-0">
+          <.link patch={week_path(Date.add(@monday, -7))} class="px-2.5 py-1 rounded-md text-body hover:text-heading hover:bg-surface-alt">
+            ‹ <%= gettext("Prev") %>
+          </.link>
+          <.link patch={~p"/calendario"} class="px-2.5 py-1 rounded-md text-body hover:text-heading hover:bg-surface-alt">
+            <%= gettext("Today") %>
+          </.link>
+          <.link patch={week_path(Date.add(@monday, 7))} class="px-2.5 py-1 rounded-md text-body hover:text-heading hover:bg-surface-alt">
+            <%= gettext("Next") %> ›
+          </.link>
+        </div>
+      </div>
+
+      <div :if={is_nil(@week)} class="rounded-xl border border-border bg-surface px-4 py-16 text-center text-sm text-muted">
+        <.icon name="refresh-cw" class="w-5 h-5 mx-auto mb-2 animate-spin" />
+        <%= gettext("Loading matches…") %>
+      </div>
+
+      <%= if @week do %>
+      <p :if={@week.stale?} class="text-xs text-muted mb-3">
+        <%= gettext("The match data provider isn't responding. Showing the last saved copy; scores may be out of date.") %>
+      </p>
+      <p :if={@week.failed? and not @week.stale?} class="text-xs text-muted mb-3">
+        <%= gettext("Some days couldn't be loaded right now. Try again in a few minutes.") %>
+      </p>
+
+      <% today = Colloq.Calendar.today() %>
+
+      <%!-- Desktop: week grid --%>
+      <div class="hidden lg:grid grid-cols-7 rounded-xl border border-border bg-surface overflow-hidden">
+        <%= for {date, matches} <- @days do %>
+          <% today? = date == today %>
+          <div class={["min-w-0 border-r border-border last:border-r-0", today? && "bg-surface-alt"]}>
+            <div class={[
+              "px-2.5 py-2 border-b border-border",
+              if(today?, do: "bg-accent text-white", else: "text-muted")
+            ]}>
+              <div class="text-[11px] font-semibold uppercase tracking-wide">
+                <%= if today?, do: gettext("Today"), else: day_name(date) %>
+              </div>
+              <div class={["text-lg font-bold tabular-nums leading-tight", !today? && "text-heading"]}>
+                <%= short_date(date) %>
+              </div>
+            </div>
+            <div class="p-1.5 space-y-1.5 min-h-[12rem]">
+              <p :if={matches == []} class="pt-3 text-center text-xs text-muted"><%= gettext("No matches") %></p>
+              <.calendar_card :for={m <- matches} match={m} thread={@threads[m.id]} />
+            </div>
+          </div>
+        <% end %>
+      </div>
+
+      <%!-- Phones and tablets: day list --%>
+      <div class="lg:hidden space-y-4">
+        <%= for {date, matches} <- @days do %>
+          <% today? = date == today %>
+          <div>
+            <h3 class={["flex items-baseline gap-2 mb-1.5 text-sm font-semibold", if(today?, do: "text-accent", else: "text-heading")]}>
+              <%= if today?, do: gettext("Today"), else: day_name(date) %>
+              <span class="text-xs font-normal text-muted tabular-nums"><%= short_date(date) %></span>
+            </h3>
+            <p :if={matches == []} class="text-xs text-muted"><%= gettext("No matches") %></p>
+            <div class="space-y-1.5">
+              <.calendar_card :for={m <- matches} match={m} thread={@threads[m.id]} />
+            </div>
+          </div>
+        <% end %>
+      </div>
+      <% end %>
+    </div>
+  </div>
+</section>

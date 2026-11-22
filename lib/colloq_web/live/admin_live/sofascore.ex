@@ -15,6 +15,8 @@ defmodule ColloqWeb.AdminLive.Sofascore do
       |> assign(:page_title, gettext("Sofascore"))
       |> assign(:season_id, Sofascore.current_season_id())
       |> assign(:last_runs, %{})
+      |> assign(:sources, Colloq.DataSource.all())
+      |> assign(:breaker, Sofascore.breaker_status())
 
     {:ok, socket}
   end
@@ -37,6 +39,25 @@ defmodule ColloqWeb.AdminLive.Sofascore do
       _ ->
         {:noreply, put_flash(socket, :error, gettext("Enter a valid numeric season id."))}
     end
+  end
+
+  # One select per area; the form sends every area on each change, so only the
+  # ones that differ from what's stored are written.
+  def handle_event("set-sources", %{"sources" => picked}, socket) do
+    current = socket.assigns.sources
+
+    results =
+      for area <- Colloq.DataSource.areas(),
+          value = picked[to_string(area)],
+          is_binary(value) and value != current[area] do
+        Colloq.DataSource.put(area, value)
+      end
+
+    socket = assign(socket, :sources, Colloq.DataSource.all())
+
+    if Enum.all?(results, &match?({:ok, _}, &1)),
+      do: {:noreply, put_flash(socket, :info, gettext("Data source saved."))},
+      else: {:noreply, put_flash(socket, :error, gettext("Could not save the data source."))}
   end
 
   def handle_event("refresh-racing-fixtures", _params, socket) do
@@ -99,6 +120,17 @@ defmodule ColloqWeb.AdminLive.Sofascore do
       dt -> Calendar.strftime(dt, "%H:%M:%S UTC")
     end
   end
+
+  def source_label(:prode), do: gettext("Prode and fechas")
+  def source_label(:standings), do: gettext("Standings")
+  def source_label(:matchday), do: gettext("Match day (live threads)")
+
+  def source_hint(:prode), do: gettext("Fixtures, current round, results and scoring.")
+  def source_hint(:standings), do: gettext("League table in commands and the full-time post.")
+  def source_hint(:matchday), do: gettext("Score banner, team sheet, goals, cards and subs.")
+
+  def provider_label("sofascore"), do: "Sofascore"
+  def provider_label("fotmob"), do: "FotMob"
 
   attr :title, :string, required: true
   attr :desc, :string, required: true

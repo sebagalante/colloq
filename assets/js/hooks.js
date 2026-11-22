@@ -2805,7 +2805,12 @@ Hooks.TiptapEditor = {
       { insert: "/sofascore plantel ", label: "/sofascore plantel", desc: "Plantel de Racing", key: "/sofascore plantel" },
       { insert: "/sofascore ", label: "/sofascore <jugador>", desc: "Estadísticas de un jugador", key: "/sofascore" },
       { insert: "/ca ", label: "/ca", desc: "Copa Argentina: fixture y resultados", key: "/ca" },
-      { insert: "/f1 ", label: "/f1", desc: "Fórmula 1: carreras y campeonato", key: "/f1" },
+      { insert: "/f1 pilotos ", label: "/f1 pilotos [año]", desc: "F1: campeonato de pilotos", key: "/f1 pilotos" },
+      { insert: "/f1 constructores ", label: "/f1 constructores [año]", desc: "F1: campeonato de constructores", key: "/f1 constructores" },
+      { insert: "/f1 resultado ", label: "/f1 resultado [año]", desc: "F1: resultado de la última carrera", key: "/f1 resultado" },
+      { insert: "/f1 calendario ", label: "/f1 calendario [año]", desc: "F1: carreras que vienen", key: "/f1 calendario" },
+      { insert: "/f1 proxima ", label: "/f1 proxima", desc: "F1: próxima carrera", key: "/f1 proxima" },
+      { insert: "/f1 ", label: "/f1 <piloto> [año]", desc: "F1: temporada de un piloto", key: "/f1" },
       { insert: "/clima ", label: "/clima", desc: "El clima", key: "/clima" },
       { insert: "/dolar ", label: "/dolar", desc: "Cotización del dólar", key: "/dolar" },
     ];

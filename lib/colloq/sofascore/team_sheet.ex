@@ -32,7 +32,8 @@ defmodule Colloq.Sofascore.TeamSheet do
 
     %{
       "name" => (team && team["name"]) || "?",
-      "crest" => team && team["id"] && crest(team["id"]),
+      # FotMob teams carry their own crest URL and no Sofascore id.
+      "crest" => team && (team["crest"] || (team["id"] && crest(team["id"]))),
       "formation" => side && side["formation"],
       "starters" => players |> Enum.reject(& &1["substitute"]) |> Enum.map(&player/1),
       "bench" => players |> Enum.filter(& &1["substitute"]) |> Enum.map(&player/1),

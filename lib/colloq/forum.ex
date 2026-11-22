@@ -122,6 +122,20 @@ defmodule Colloq.Forum do
   end
 
   @doc """
+  Usernames of everyone who has posted (non-deleted, non-system) in a topic.
+  Used to link participant names inside the AI summary.
+  """
+  def topic_poster_usernames(topic_id) do
+    from(p in Post,
+      join: u in assoc(p, :user),
+      where: p.topic_id == ^topic_id and is_nil(p.deleted_at) and p.is_system == false,
+      distinct: true,
+      select: u.username
+    )
+    |> Repo.all()
+  end
+
+  @doc """
   Top participants for each topic id — the most active posters, up to `limit`
   each. Returns `%{topic_id => [%{id, username, display_name, avatar_url}]}`,
   ordered by post count desc. One grouped query for the ids plus one for the
@@ -1307,6 +1321,46 @@ defmodule Colloq.Forum do
     |> Ecto.Changeset.change(match_mode: mode)
     |> Repo.update()
   end
+
+  @doc """
+  Stores `summary` (a `Sofascore.match_summary/1` map) as the topic's last-seen
+  score, so the banner stays up once the live sources stop answering.
+  """
+  def put_match_snapshot(topic_id, summary) when is_integer(topic_id) and is_map(summary) do
+    Topic
+    |> where([t], t.id == ^topic_id)
+    |> Repo.update_all(set: [match_snapshot: snapshot_map(summary)])
+
+    :ok
+  end
+
+  @doc """
+  The topic's stored banner summary with atom keys and status restored, or
+  `nil` when nothing has been saved.
+  """
+  def match_snapshot(%Topic{match_snapshot: snapshot}) when is_map(snapshot) and snapshot != %{} do
+    keys = ~w(home away home_id away_id home_crest away_crest home_score away_score status minute competition kickoff)
+
+    match = Map.new(keys, fn key -> {String.to_atom(key), snapshot[key]} end)
+
+    status =
+      case match.status do
+        s when s in ~w(live halftime prematch finished) -> String.to_atom(s)
+        _ -> :finished
+      end
+
+    %{match | status: status}
+  end
+
+  def match_snapshot(_topic), do: nil
+
+  # JSON-friendly form of a summary: string keys and a string status. Compared
+  # against the stored value to skip a write when nothing changed.
+  @doc false
+  def snapshot_map(summary), do: Map.new(summary, fn {k, v} -> {to_string(k), json_value(v)} end)
+
+  defp json_value(v) when is_atom(v) and not is_nil(v) and not is_boolean(v), do: Atom.to_string(v)
+  defp json_value(v), do: v
 
   # --- POSTS ---
 

@@ -219,6 +219,7 @@ defmodule ColloqWeb.Components.Navigation do
         <div class="space-y-1">
           <.nav_link navigate={~p"/"} icon="home" label={gettext("Forum")} />
           <.nav_link navigate={~p"/predicciones"} icon="trending-up" label={pgettext("prode", "Predictions")} />
+          <.nav_link navigate={~p"/calendario"} icon="calendar" label={gettext("Calendar")} />
           <.nav_link :if={@current_user} navigate={~p"/bookmarks"} icon="bookmark" label={gettext("Bookmarks")} />
           <.nav_link :if={@current_user} navigate={~p"/drafts"} icon="edit" label={gettext("My drafts")} />
 

@@ -41,6 +41,8 @@ defmodule Colloq.Forum.Topic do
     field :match_id, :string    # External API fixture ID
     field :home_team, :string
     field :away_team, :string
+    # Last banner summary seen (see `Forum.put_match_snapshot/2`).
+    field :match_snapshot, :map
 
     # Continuation chain (for 50k+ post threads)
     field :continuation_topic_id, :integer

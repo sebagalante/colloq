@@ -84,6 +84,7 @@ defmodule ColloqWeb.Router do
     live "/t/:id/:slug", ForumLive.Topic, :show
     live "/u/:username", UserLive.Profile, :show
 
+    live "/calendario", CalendarLive, :index
     live "/search", SearchLive, :index
     live "/members", MembersLive, :index
     live "/leaderboard", LeaderboardLive, :index

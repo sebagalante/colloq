@@ -11,6 +11,10 @@ defmodule Colloq.Predictions.Prediction do
 
   schema "predictions" do
     field :fixture_id, :string
+    # Team names as the provider listed them when the pick was made; how the
+    # prediction finds its match when the Prode's data source is switched.
+    field :home_team, :string
+    field :away_team, :string
     field :season_id, :integer
     field :round, :integer
     field :home_score, :integer
@@ -29,8 +33,8 @@ defmodule Colloq.Predictions.Prediction do
   def changeset(prediction, attrs) do
     prediction
     |> cast(attrs, [
-      :fixture_id, :season_id, :round, :home_score, :away_score, :first_scorer, :motm,
-      :points, :scored_at, :user_id
+      :fixture_id, :home_team, :away_team, :season_id, :round, :home_score, :away_score,
+      :first_scorer, :motm, :points, :scored_at, :user_id
     ])
     |> validate_required([:fixture_id, :home_score, :away_score, :user_id])
     |> validate_number(:home_score, greater_than_or_equal_to: 0)

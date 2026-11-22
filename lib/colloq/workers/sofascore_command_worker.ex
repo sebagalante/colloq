@@ -314,10 +314,10 @@ defmodule Colloq.Workers.SofascoreCommandWorker do
 
   # `/sofascore tabla` → both zones, stacked. `tabla a` / `tabla zona b` → one.
   #
-  # Sofascore is the source of truth; FotMob answers when it can't — whether
-  # that's a dead endpoint, a bad payload, or no season id configured. The
-  # fallback says so in the caption, so a table that disagrees with the primary
-  # is explainable rather than mysterious.
+  # The standings data source (`Colloq.DataSource`) answers first; the other
+  # provider answers when it can't — whether that's a dead endpoint, a bad
+  # payload, or no season id configured. A FotMob table says so in the caption,
+  # so one that disagrees with Sofascore is explainable rather than mysterious.
   defp standings_reply(group) do
     title =
       case group do
@@ -325,28 +325,28 @@ defmodule Colloq.Workers.SofascoreCommandWorker do
         letter -> "Tabla — Liga Profesional · Grupo #{String.upcase(letter)}"
       end
 
+    # The standings data source answers first; the other provider fills in.
+    Colloq.DataSource.order(:standings)
+    |> Enum.find_value(&standings_from(&1, title, group))
+    |> Kernel.||("<p>No pude obtener la tabla ahora mismo. Probá de nuevo en un rato.</p>")
+  end
+
+  defp standings_from(:sofascore, title, group) do
     with season_id when is_integer(season_id) <- Sofascore.current_season_id(),
          {:ok, data} <- Sofascore.standings(season_id),
          {:standings, _, _} = reply <- format_standings(data, title, {:torneo, group}) do
       reply
     else
-      _ -> fotmob_standings(title, group)
+      _ -> nil
     end
   end
 
-  defp fotmob_standings(title, group) do
-    case Colloq.FotMob.liga_standings() do
-      {:ok, groups} ->
-        case filter_group(groups, group) do
-          [] ->
-            "<p>No pude obtener la tabla ahora mismo. Probá de nuevo en un rato.</p>"
-
-          picked ->
-            {:standings, "#{title} · vía FotMob", picked}
-        end
-
-      {:error, _} ->
-        "<p>No pude obtener la tabla ahora mismo. Probá de nuevo en un rato.</p>"
+  defp standings_from(:fotmob, title, group) do
+    with {:ok, groups} <- Colloq.FotMob.liga_standings(),
+         [_ | _] = picked <- filter_group(groups, group) do
+      {:standings, "#{title} · vía FotMob", picked}
+    else
+      _ -> nil
     end
   end
 

@@ -14,7 +14,10 @@ defmodule Colloq.SiteSettings do
   # free-text box where a typo silently misconfigures the site.
   @allowed_values %{
     "registration_mode" => ~w(open invite closed),
-    "spam_ml_mode" => ~w(shadow enforce)
+    "spam_ml_mode" => ~w(shadow enforce),
+    "data_source_prode" => ~w(sofascore fotmob),
+    "data_source_standings" => ~w(sofascore fotmob),
+    "data_source_matchday" => ~w(sofascore fotmob)
   }
 
   @doc """
@@ -92,6 +95,7 @@ defmodule Colloq.SiteSettings do
 
   defp do_put(key, value, type, group, description) do
     clear_branding_cache()
+    Colloq.DataSource.clear_cache()
 
     case Repo.get_by(Setting, key: key) do
       nil ->
@@ -122,6 +126,7 @@ defmodule Colloq.SiteSettings do
   """
   def delete(key) do
     clear_branding_cache()
+    Colloq.DataSource.clear_cache()
 
     case Repo.get_by(Setting, key: key) do
       nil -> {:ok, :not_found}

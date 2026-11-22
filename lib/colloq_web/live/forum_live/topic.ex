@@ -163,6 +163,7 @@ defmodule ColloqWeb.ForumLive.Topic do
       |> assign(:summary_at, nil)
       |> assign(:summary_model, nil)
       |> assign(:summary_post_number, nil)
+      |> assign(:summary_usernames, [])
       |> assign(:summary_loading, false)
       |> assign(:summary_unavailable, false)
       # A stored summary is loaded on mount, but the panel only opens when the
@@ -1411,15 +1412,18 @@ defmodule ColloqWeb.ForumLive.Topic do
      |> assign(:reaction_data, Map.put(socket.assigns.reaction_data, post_id, counts))}
   end
 
-  # Only scheduled by `assign_fotmob_banner/2`, i.e. while Sofascore is out.
+  # Only scheduled by `banner_match(:fotmob, ...)`, i.e. while FotMob feeds the banner.
   def handle_info(:refresh_match_banner, socket) do
     {:noreply, assign_match_banner(socket, socket.assigns.topic)}
   end
 
   # ResultaBot pushes the score with every poll, so the banner updates without
   # the page doing its own polling — and without a refresh.
+  # ResultaBot already saved the snapshot; this keeps the in-memory topic in
+  # step so the next refresh doesn't write it again.
   def handle_info(%{event: "match_score", payload: %{match: match}}, socket) do
-    {:noreply, assign(socket, :match, match)}
+    topic = %{socket.assigns.topic | match_snapshot: Forum.snapshot_map(match)}
+    {:noreply, socket |> assign(:topic, topic) |> assign(:match, match)}
   end
 
   def handle_info(%{event: "match_event", payload: _payload}, socket) do
@@ -1478,6 +1482,7 @@ defmodule ColloqWeb.ForumLive.Topic do
      |> assign(:summary_at, Map.get(payload, :generated_at))
      |> assign(:summary_model, Map.get(payload, :model))
      |> assign(:summary_post_number, Map.get(payload, :post_number))
+     |> assign(:summary_usernames, Forum.topic_poster_usernames(socket.assigns.topic.id))
      |> assign(:summary_loading, false)}
   end
 
@@ -1519,47 +1524,72 @@ defmodule ColloqWeb.ForumLive.Topic do
   end
 
   # Match threads carry a Sofascore event id; anything else has no banner.
-  # A failed fetch is not fatal — the thread still renders, just without the
-  # score bar, which beats 500-ing a live match thread because an unofficial
-  # API blipped.
+  # The match-day data source (`Colloq.DataSource`) is asked first and the other
+  # provider fills in. A failed fetch is not fatal — the thread still renders,
+  # just without the score bar, which beats 500-ing a live match thread because
+  # an unofficial API blipped.
   defp assign_match_banner(socket, %{is_match_thread: true, match_id: match_id} = topic)
        when is_binary(match_id) and match_id != "" do
     case Integer.parse(match_id) do
       {event_id, _} ->
-        case Colloq.Sofascore.cached_event(event_id) do
-          {:ok, event} -> assign(socket, :match, Colloq.Sofascore.match_summary(event))
-          {:error, _} -> assign_fotmob_banner(socket, topic)
-        end
+        live =
+          Colloq.DataSource.order(:matchday)
+          |> Enum.find_value(&banner_match(&1, socket, topic, event_id))
+
+        # The banner is permanent: once a score has been seen it is saved on
+        # the topic, and shown whenever the live sources come back empty (an
+        # API blip, a fixture Sofascore no longer serves, FotMob's 7-day window).
+        topic = if live, do: save_match_snapshot(topic, live), else: topic
+        assign(socket, :match, live || Forum.match_snapshot(topic))
 
       :error ->
-        assign(socket, :match, nil)
+        assign(socket, :match, Forum.match_snapshot(topic))
     end
   end
 
   defp assign_match_banner(socket, _topic), do: assign(socket, :match, nil)
 
-  # Sofascore couldn't give the match (e.g. it's blocking the server): show
-  # FotMob's score instead. ResultaBot can't push updates in that state, so the
-  # page refreshes the banner itself every minute until the match is over or
-  # Sofascore answers again. Only for recent threads, since the FotMob match is
-  # found by title and date rather than by id.
+  # Writes only when the score actually changed, so viewers of a quiet thread
+  # don't each rewrite the same row on every page load.
+  defp save_match_snapshot(topic, match) do
+    snapshot = Forum.snapshot_map(match)
+
+    if topic.match_snapshot == snapshot do
+      topic
+    else
+      Forum.put_match_snapshot(topic.id, match)
+      %{topic | match_snapshot: snapshot}
+    end
+  end
+
+  defp banner_match(:sofascore, _socket, _topic, event_id) do
+    case Colloq.Sofascore.cached_event(event_id) do
+      {:ok, event} -> Colloq.Sofascore.match_summary(event)
+      {:error, _} -> nil
+    end
+  end
+
+  # FotMob's score. ResultaBot pushes updates only while it is polling, so the
+  # page refreshes the banner itself every minute until the match is over.
+  # Only for recent threads, since the FotMob match is found by title and date
+  # rather than by id.
   @fotmob_banner_max_age_days 7
   @fotmob_banner_refresh :timer.minutes(1)
 
-  defp assign_fotmob_banner(socket, topic) do
+  defp banner_match(:fotmob, socket, topic, _event_id) do
     recent? =
       DateTime.diff(DateTime.utc_now(), topic.inserted_at, :day) <= @fotmob_banner_max_age_days
 
     with true <- recent?,
-         {:ok, event} <- Colloq.Sofascore.fotmob_match_for_title(topic.title) do
+         {:ok, event} <- Colloq.Sofascore.fotmob_match_for_title(topic.title, topic.inserted_at) do
       match = Colloq.Sofascore.match_summary(event)
 
       if connected?(socket) and match.status != :finished,
         do: Process.send_after(self(), :refresh_match_banner, @fotmob_banner_refresh)
 
-      assign(socket, :match, match)
+      match
     else
-      _ -> assign(socket, :match, nil)
+      _ -> nil
     end
   end
 
@@ -1596,8 +1626,10 @@ defmodule ColloqWeb.ForumLive.Topic do
           match_id: match_id,
           match_mode: topic.match_mode || "prematch"
         }
+        # A different fixture makes the saved score someone else's match.
+        |> then(&if(match_id != topic.match_id, do: Map.put(&1, :match_snapshot, nil), else: &1))
       else
-        %{is_match_thread: false, match_id: nil, match_mode: nil}
+        %{is_match_thread: false, match_id: nil, match_mode: nil, match_snapshot: nil}
       end
 
     topic |> Ecto.Changeset.change(attrs) |> Repo.update()
@@ -1633,6 +1665,7 @@ defmodule ColloqWeb.ForumLive.Topic do
       |> assign(:summary_at, topic.summary_generated_at)
       |> assign(:summary_model, topic.summary_model)
       |> assign(:summary_post_number, topic.summary_post_number)
+      |> assign(:summary_usernames, Forum.topic_poster_usernames(topic.id))
     else
       socket
     end
@@ -1682,6 +1715,40 @@ defmodule ColloqWeb.ForumLive.Topic do
   defp mark_topic_read(socket, topic, user) do
     Reads.mark_read(user.id, topic.id, Forum.max_post_number(topic.id))
     socket
+  end
+
+  @doc """
+  Sanitized summary HTML with participant usernames turned into profile links.
+  Only text between tags is touched, so names never get rewritten inside
+  attributes. Matching is case-insensitive (the LLM often capitalizes names at
+  the start of a sentence) and longest-first so `user1234` beats `user123`.
+  """
+  def render_summary(summary, usernames) do
+    html = HtmlSanitizeEx.html5(summary)
+
+    case usernames |> Enum.reject(&(&1 in [nil, ""])) |> Enum.sort_by(&String.length/1, :desc) do
+      [] ->
+        html
+
+      names ->
+        by_lower = Map.new(names, &{String.downcase(&1), &1})
+        alts = Enum.map_join(names, "|", &Regex.escape/1)
+        name_re = Regex.compile!("(?<![\\w@/])@?(#{alts})(?![\\w])", "iu")
+
+        ~r/(<[^>]*>)/
+        |> Regex.split(html, include_captures: true)
+        |> Enum.map_join(fn
+          "<" <> _ = tag ->
+            tag
+
+          text ->
+            Regex.replace(name_re, text, fn match, name ->
+              username = Map.get(by_lower, String.downcase(name), name)
+
+              ~s(<a href="/u/#{URI.encode(username)}" class="font-semibold text-accent no-underline hover:underline">#{match}</a>)
+            end)
+        end)
+    end
   end
 
   @doc "Whether the shown summary predates the topic's current posts."

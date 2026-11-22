@@ -702,7 +702,7 @@ defmodule Colloq.Sofascore do
   # "relevant match" is the cup tie, whose round number has nothing to do with
   # the fecha, so anchoring on it sent the Prode to the wrong round.
   def current_round do
-    league = racing_team_id() |> recent_and_upcoming() |> Enum.filter(&league_event?/1)
+    league = racing_team_id() |> prode_team_events() |> Enum.filter(&league_event?/1)
 
     case pick_relevant(league) do
       %{} = event ->
@@ -967,6 +967,36 @@ defmodule Colloq.Sofascore do
     case pick_relevant(recent_and_upcoming(team_id)) do
       nil -> {:error, :no_fixtures}
       event -> {:ok, event}
+    end
+  end
+
+  # Racing's fixtures from the Prode's data source, so the current fecha is
+  # worked out from the same provider that lists it. Either way the other
+  # provider fills in when the first gives nothing.
+  defp prode_team_events(team_id) do
+    case Colloq.DataSource.get(:prode) do
+      :sofascore ->
+        recent_and_upcoming(team_id)
+
+      :fotmob ->
+        case cached_fotmob_team_events(team_id) do
+          [] -> recent_and_upcoming(team_id)
+          events -> events
+        end
+    end
+  end
+
+  defp cached_fotmob_team_events(team_id) do
+    key = "fotmob:relevant:#{team_id}"
+
+    case Cachex.get(:forum_cache, key) do
+      {:ok, evs} when is_list(evs) and evs != [] ->
+        evs
+
+      _ ->
+        evs = fotmob_team_events(team_id)
+        if evs != [], do: Cachex.put(:forum_cache, key, evs, ttl: :timer.seconds(30))
+        evs
     end
   end
 
@@ -1556,10 +1586,14 @@ defmodule Colloq.Sofascore do
 
   @doc """
   Like `round_fixtures/1`, but also reports where the data came from:
-  `{:ok, events, :cached | :live | :stale | :fallback}`. `:stale` is the last
-  copy saved in the database, served because Sofascore couldn't be reached;
-  `:fallback` means there was no saved copy either and the fecha comes from
-  FotMob (event ids "fotmob:…", so not usable for predictions).
+  `{:ok, events, :cached | :live | :stale | :fallback}`.
+
+  The provider asked first is the Prode's data source (`Colloq.DataSource`);
+  `:fallback` means it couldn't answer and the fecha comes from the other one.
+  `:stale` is the last Sofascore copy saved in the database, served because
+  Sofascore couldn't be reached. FotMob events carry "fotmob:…" ids; the Prode
+  matches predictions across providers by team names
+  (`Colloq.Predictions.FixtureMatch`), so either source can be predicted on.
 
   Callers surface this so a reader can tell a freshly fetched round from one
   served out of the 10-minute cache — which matters when a match is in play and
@@ -1571,38 +1605,69 @@ defmodule Colloq.Sofascore do
         {:error, :no_season}
 
       season ->
-        key = "sofascore:round:#{season}:#{round}"
-
-        case Cachex.get(:forum_cache, key) do
-          {:ok, evs} when is_list(evs) and evs != [] ->
-            {:ok, evs, :cached}
-
-          _ ->
-            case api_get_snapshotted("/unique-tournament/155/season/#{season}/events/round/#{round}") do
-              {:ok, %{"events" => evs}} when is_list(evs) ->
-                Cachex.put(:forum_cache, key, evs, ttl: :timer.minutes(10))
+        case Colloq.DataSource.get(:prode) do
+          :fotmob ->
+            case fotmob_round(round) do
+              {:ok, evs} ->
                 {:ok, evs, :live}
 
-              # Sofascore is failing; serve the last saved copy, uncached so the
-              # next request tries the API again.
-              {:stale, %{"events" => evs}} when is_list(evs) ->
-                {:ok, evs, :stale}
-
-              {:ok, other} ->
-                require Logger
-                Logger.warning("[Sofascore] round #{round}: unexpected body shape: #{inspect(other) |> String.slice(0, 200)}")
-                {:error, :no_fixtures}
-
               err ->
-                require Logger
-                Logger.warning("[Sofascore] round #{round} (season #{season}) fetch failed: #{inspect(err)}")
-
-                # No saved copy either: rebuild the fecha from FotMob.
-                case Colloq.FotMob.league_round_events(round) do
-                  {:ok, [_ | _] = evs} -> {:ok, evs, :fallback}
+                case sofascore_round(season, round) do
+                  {:ok, evs, _source} -> {:ok, evs, :fallback}
                   _ -> err
                 end
             end
+
+          :sofascore ->
+            case sofascore_round(season, round) do
+              {:ok, _evs, _source} = ok ->
+                ok
+
+              err ->
+                # No saved copy either: rebuild the fecha from FotMob.
+                case fotmob_round(round) do
+                  {:ok, evs} -> {:ok, evs, :fallback}
+                  _ -> err
+                end
+            end
+        end
+    end
+  end
+
+  # FotMob caches its whole league payload for 30 minutes, so no extra cache.
+  defp fotmob_round(round) do
+    case Colloq.FotMob.league_round_events(round) do
+      {:ok, [_ | _] = evs} -> {:ok, evs}
+      {:ok, []} -> {:error, :no_fixtures}
+      err -> err
+    end
+  end
+
+  defp sofascore_round(season, round) do
+    key = "sofascore:round:#{season}:#{round}"
+
+    case Cachex.get(:forum_cache, key) do
+      {:ok, evs} when is_list(evs) and evs != [] ->
+        {:ok, evs, :cached}
+
+      _ ->
+        case api_get_snapshotted("/unique-tournament/155/season/#{season}/events/round/#{round}") do
+          {:ok, %{"events" => evs}} when is_list(evs) ->
+            Cachex.put(:forum_cache, key, evs, ttl: :timer.minutes(10))
+            {:ok, evs, :live}
+
+          # Sofascore is failing; serve the last saved copy, uncached so the
+          # next request tries the API again.
+          {:stale, %{"events" => evs}} when is_list(evs) ->
+            {:ok, evs, :stale}
+
+          {:ok, other} ->
+            Logger.warning("[Sofascore] round #{round}: unexpected body shape: #{inspect(other) |> String.slice(0, 200)}")
+            {:error, :no_fixtures}
+
+          err ->
+            Logger.warning("[Sofascore] round #{round} (season #{season}) fetch failed: #{inspect(err)}")
+            err
         end
     end
   end
@@ -1781,17 +1846,26 @@ defmodule Colloq.Sofascore do
   a day of now, and both teams named in the title. The caller also limits this
   to recent threads, so an old Racing–Boca thread can't pick up today's score.
   """
-  def fotmob_match_for_title(title) when is_binary(title) do
+  #
+  # Titles often nickname the rival ("ribergay" for River), so with
+  # `created_at` (the thread's inserted_at) a title naming only Racing is enough
+  # when the thread was opened within a day of kickoff: such a thread is about
+  # that match, while an older one still has to name both teams.
+  def fotmob_match_for_title(title, created_at \\ nil)
+
+  def fotmob_match_for_title(title, created_at) when is_binary(title) do
     now = System.system_time(:second)
     title = normalize(title)
+    created_at = created_at && created_at |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix()
 
     with %{name: name} <- team_info(:racing),
          {:ok, events} <- Colloq.FotMob.team_events(name),
          %{} = event <-
            Enum.find(events, fn e ->
              is_integer(e["startTimestamp"]) and abs(e["startTimestamp"] - now) <= 86_400 and
-               title_names?(title, get_in(e, ["homeTeam", "name"])) and
-               title_names?(title, get_in(e, ["awayTeam", "name"]))
+               (both_teams_named?(title, e) or
+                  (title_names?(title, name) and is_integer(created_at) and
+                     abs(e["startTimestamp"] - created_at) <= 86_400))
            end) do
       # The team feed lags during a match; from kickoff on, take score and
       # minute from FotMob's live match-details feed.
@@ -1803,7 +1877,12 @@ defmodule Colloq.Sofascore do
     end
   end
 
-  def fotmob_match_for_title(_), do: :error
+  def fotmob_match_for_title(_, _), do: :error
+
+  defp both_teams_named?(title, event) do
+    title_names?(title, get_in(event, ["homeTeam", "name"])) and
+      title_names?(title, get_in(event, ["awayTeam", "name"]))
+  end
 
   # Words too generic to identify a club on their own.
   @generic_team_words ~w(club atletico juniors central sport sporting deportivo united plate old boys)

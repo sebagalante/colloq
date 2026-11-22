@@ -104,7 +104,7 @@ defmodule ColloqWeb.PredictionsLive do
     predictions =
       case socket.assigns[:current_user] do
         nil -> %{}
-        user -> Predictions.for_user_round(user.id, socket.assigns.season_id, round)
+        user -> Predictions.for_user_round(user.id, socket.assigns.season_id, round, matches)
       end
 
     socket
@@ -123,8 +123,8 @@ defmodule ColloqWeb.PredictionsLive do
   #
   # Returns `{matches, source}`. `:stale` means Sofascore couldn't be reached and
   # this is the last copy saved in the database, so scores may be behind.
-  # `:fallback` means the fecha came from FotMob: its match ids aren't the
-  # Sofascore ids predictions are stored under, so every match is locked.
+  # `:fallback` means the selected data source failed and the other provider
+  # listed the fecha; predictions still pair with it by teams.
   defp fetch_matches(round) do
     case Sofascore.round_fixtures_cached(round) do
       {:ok, events, source} ->
@@ -135,11 +135,6 @@ defmodule ColloqWeb.PredictionsLive do
           |> Enum.filter(&within_active_window?/1)
           |> Enum.sort_by(& &1.kickoff_ts)
           |> lock_from_first_kickoff()
-
-        matches =
-          if source == :fallback,
-            do: Enum.map(matches, &%{&1 | locked?: true}),
-            else: matches
 
         {matches, source}
 
@@ -181,8 +176,8 @@ defmodule ColloqWeb.PredictionsLive do
       fixture_id: to_string(event["id"]),
       home: get_in(event, ["homeTeam", "name"]) || "?",
       away: get_in(event, ["awayTeam", "name"]) || "?",
-      home_id: get_in(event, ["homeTeam", "id"]),
-      away_id: get_in(event, ["awayTeam", "id"]),
+      home_crest: crest(event["homeTeam"]),
+      away_crest: crest(event["awayTeam"]),
       kickoff_ts: ts || 0,
       kickoff_label: kickoff_label(ts),
       status: status,
@@ -215,7 +210,7 @@ defmodule ColloqWeb.PredictionsLive do
     |> Enum.flat_map(fn m ->
       with {:ok, home} <- parse_score(params["home_#{m.fixture_id}"]),
            {:ok, away} <- parse_score(params["away_#{m.fixture_id}"]) do
-        [%{fixture_id: m.fixture_id, home_score: home, away_score: away}]
+        [%{fixture_id: m.fixture_id, home: m.home, away: m.away, home_score: home, away_score: away}]
       else
         _ -> []
       end
@@ -239,10 +234,11 @@ defmodule ColloqWeb.PredictionsLive do
   def score_cell(nil), do: "–"
   def score_cell(n), do: n
 
-  @doc false
-  # Sofascore team crest. Nil id → nil src so the <img> is skipped entirely.
-  def crest(nil), do: nil
-  def crest(team_id), do: "https://api.sofascore.com/api/v1/team/#{team_id}/image"
+  # Team crest: FotMob events carry their own image URL, Sofascore ones a team
+  # id. Neither → nil, so the template skips the <img> entirely.
+  defp crest(%{"crest" => url}) when is_binary(url), do: url
+  defp crest(%{"id" => id}) when is_integer(id), do: "https://api.sofascore.com/api/v1/team/#{id}/image"
+  defp crest(_), do: nil
 
   @doc false
   def match_state_label("finished"), do: gettext("Final")

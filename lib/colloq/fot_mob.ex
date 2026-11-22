@@ -55,8 +55,9 @@ defmodule Colloq.FotMob do
     end
   end
 
-  # Tables are named "<Tournament> - Group <X>"; keep the ones belonging to the
-  # tournament that appears first.
+  # Tables are named "<Tournament> Group <X>" (older payloads used
+  # "<Tournament> - Group <X>"); keep the ones belonging to the tournament that
+  # appears first.
   defp current_tournament(tables) do
     case tables do
       [] ->
@@ -69,7 +70,10 @@ defmodule Colloq.FotMob do
   end
 
   defp tournament_of(table) do
-    (table["leagueName"] || "") |> String.split(" - ") |> List.first() |> to_string()
+    (table["leagueName"] || "")
+    |> String.split(~r/\s*(-\s*)?\bgroup\b/i)
+    |> List.first()
+    |> String.trim()
   end
 
   # "Clausura - Group A" → "Clausura · Grupo A"
@@ -214,6 +218,216 @@ defmodule Colloq.FotMob do
   end
 
   def refresh_live(event), do: event
+
+  # ===========================================================================
+  # Match day
+  #
+  # The live match thread's data from the match-details feed, converted into
+  # the Sofascore shapes ResultaBot already reads: the event (with referee),
+  # its incidents and its lineups. `match_id` is FotMob's numeric id, the part
+  # after "fotmob:" in a converted event's id.
+  # ===========================================================================
+
+  @doc "FotMob's match id from a converted event (`\"fotmob:<id>\"`), or nil."
+  def match_id(%{"id" => "fotmob:" <> id}), do: id
+  def match_id(_), do: nil
+
+  @doc """
+  The match as a Sofascore-shaped event, up to the minute: teams, score,
+  status, live minute and referee. `{:ok, event}` or `{:error, reason}`.
+  """
+  def match_event(match_id) do
+    with {:ok, %{"header" => %{"status" => %{} = status, "teams" => [home, away | _]}} = p} <-
+           match_details(match_id) do
+      type = status_type(status)
+      started? = type != "notstarted"
+      general = p["general"] || %{}
+
+      {:ok,
+       %{
+         "id" => "fotmob:#{match_id}",
+         "source" => "fotmob",
+         "homeTeam" => header_team(home),
+         "awayTeam" => header_team(away),
+         "homeScore" => %{"current" => if(started?, do: home["score"])},
+         "awayScore" => %{"current" => if(started?, do: away["score"])},
+         "liveMinute" => if(type == "inprogress", do: live_minute(status)),
+         "startTimestamp" => timestamp(general["matchTimeUTCDate"]),
+         "status" => %{"type" => type, "description" => if(halftime?(status), do: "Halftime")},
+         "roundInfo" =>
+           case league_round(%{"round" => general["matchRound"]}) do
+             nil -> nil
+             round -> %{"round" => round}
+           end,
+         "referee" => referee(get_in(p, ["content", "matchFacts", "infoBox", "Referee"]))
+       }}
+    else
+      {:ok, _} -> {:error, :unexpected_payload}
+      err -> err
+    end
+  end
+
+  defp header_team(team) do
+    %{
+      "name" => team["name"],
+      "id" => nil,
+      "crest" => team["id"] && "https://images.fotmob.com/image_resources/logo/teamlogo/#{team["id"]}.png"
+    }
+  end
+
+  # Sofascore's referee shape, so `Colloq.Sofascore.referee/1` reads either.
+  defp referee(%{"text" => name} = ref) when is_binary(name) do
+    stats = Map.new(List.wrap(ref["stats"]), &{&1["type"], &1})
+
+    %{
+      "name" => name,
+      "country" => %{"alpha3" => ref["countryCode"]},
+      "games" => get_in(stats, ["matches", "value"]),
+      "yellowCards" => get_in(stats, ["yellowCards", "total"]),
+      "redCards" => get_in(stats, ["redCards", "value"])
+    }
+  end
+
+  defp referee(_), do: nil
+
+  @doc """
+  The match's goals, cards and substitutions as Sofascore incidents
+  (`incidentType`, `time`, `isHome`, `player`, ...). `{:ok, [incident]}`.
+
+  FotMob's own event ids are all 0, so each incident's `id` is built from what
+  identifies it: type, minute, added time and the players involved. That keeps
+  ResultaBot's de-duplication exact across polls.
+  """
+  def incidents(match_id) do
+    with {:ok, p} <- match_details(match_id) do
+      {:ok,
+       p
+       |> get_in(["content", "matchFacts", "events", "events"])
+       |> List.wrap()
+       |> Enum.reject(&(&1["isPenaltyShootoutEvent"] == true))
+       |> Enum.map(&incident/1)
+       |> Enum.reject(&is_nil/1)}
+    end
+  end
+
+  defp incident(%{"type" => "Goal"} = e) do
+    {home_score, away_score} =
+      case e["newScore"] do
+        [h, a] -> {h, a}
+        _ -> {nil, nil}
+      end
+
+    class =
+      cond do
+        e["ownGoal"] == true -> "ownGoal"
+        e["goalDescriptionKey"] == "penalty" -> "penalty"
+        true -> "regular"
+      end
+
+    e
+    |> incident_base("goal", [e["playerId"]])
+    |> Map.merge(%{
+      "player" => %{"name" => get_in(e, ["player", "name"])},
+      "incidentClass" => class,
+      "homeScore" => home_score,
+      "awayScore" => away_score
+    })
+  end
+
+  defp incident(%{"type" => "Card"} = e) do
+    class =
+      case e["card"] do
+        "Yellow" -> "yellow"
+        "YellowRed" -> "yellowRed"
+        _ -> "red"
+      end
+
+    e
+    |> incident_base("card", [e["playerId"], class])
+    |> Map.merge(%{"player" => %{"name" => get_in(e, ["player", "name"])}, "incidentClass" => class})
+  end
+
+  # `swap` lists the player coming on first, then the one going off.
+  defp incident(%{"type" => "Substitution", "swap" => [player_in, player_out | _]} = e) do
+    e
+    |> incident_base("substitution", [player_in["id"], player_out["id"]])
+    |> Map.merge(%{
+      "playerIn" => %{"name" => player_in["name"]},
+      "playerOut" => %{"name" => player_out["name"]},
+      "injury" => e["injuredPlayerOut"] == true
+    })
+  end
+
+  defp incident(_), do: nil
+
+  defp incident_base(e, type, ids) do
+    %{
+      "id" => Enum.join(["fotmob", type, e["time"], e["overloadTime"] || 0 | ids], ":"),
+      "incidentType" => type,
+      "time" => e["time"],
+      "addedTime" => e["overloadTime"],
+      "isHome" => e["isHome"] == true
+    }
+  end
+
+  @doc """
+  The match's lineups in Sofascore's `/lineups` shape (`confirmed`, and per side
+  `formation`, `players` with `substitute`, and `missingPlayers`), so
+  `Colloq.Sofascore.TeamSheet` builds the card from either provider.
+  `{:ok, lineups}` or `{:error, :no_lineups}` while FotMob has none.
+  """
+  def lineups(match_id) do
+    with {:ok, p} <- match_details(match_id),
+         %{"homeTeam" => %{"starters" => [_ | _]} = home, "awayTeam" => %{} = away} = lineup <-
+           get_in(p, ["content", "lineup"]) do
+      {:ok,
+       %{
+         # FotMob marks the official XI "standard"; anything else is a forecast.
+         "confirmed" => lineup["lineupType"] == "standard",
+         "home" => lineup_side(home),
+         "away" => lineup_side(away)
+       }}
+    else
+      {:error, _} = err -> err
+      _ -> {:error, :no_lineups}
+    end
+  end
+
+  defp lineup_side(team) do
+    %{
+      "formation" => team["formation"],
+      "players" =>
+        Enum.map(List.wrap(team["starters"]), &lineup_player(&1, false)) ++
+          Enum.map(List.wrap(team["subs"]), &lineup_player(&1, true)),
+      "missingPlayers" =>
+        Enum.map(List.wrap(team["unavailable"]), fn p ->
+          %{
+            "player" => %{"name" => p["name"], "shortName" => short_name(p)},
+            "description" => get_in(p, ["unavailability", "type"])
+          }
+        end)
+    }
+  end
+
+  # positionId 11 is the keeper's slot in the XI; on the bench only the
+  # player's usual position says it (0 = goalkeeper).
+  defp lineup_player(p, substitute?) do
+    gk? = p["positionId"] == 11 or (substitute? and p["usualPlayingPositionId"] == 0)
+
+    %{
+      "player" => %{"name" => p["name"], "shortName" => short_name(p)},
+      "shirtNumber" => p["shirtNumber"],
+      "substitute" => substitute?,
+      "position" => if(gk?, do: "G")
+    }
+  end
+
+  # "Facundo Cambeses" → "F. Cambeses", the way Sofascore's shortName reads.
+  defp short_name(%{"firstName" => first, "lastName" => last})
+       when is_binary(first) and first != "" and is_binary(last) and last != "",
+       do: "#{String.first(first)}. #{last}"
+
+  defp short_name(p), do: p["name"]
 
   defp match_details(match_id) do
     key = "fotmob:match:#{match_id}"

@@ -54,19 +54,18 @@ defmodule Colloq.Workers.ScoreBotWorker do
     # accepts either shape.
     topic = Forum.get_topic!(to_int(topic_id))
 
-    case fetch_live_events(fixture_id, topic.id) do
-      {:ok, events, event} ->
-        maybe_post_team_sheet(topic, fixture_id, event, true)
+    case fetch_live(topic, fixture_id, args) do
+      {:live, live, events} ->
+        maybe_post_team_sheet(topic, fixture_id, live, true)
 
         # Every poll returns the fixture's FULL event list, so without this the
         # same goal is re-posted on each tick for the rest of the match. Events
         # already posted are identified by a stable key stored in event_data.
-        already_posted = posted_event_keys(topic.id)
-
-        new_events = Enum.reject(events, &MapSet.member?(already_posted, event_key(&1)))
+        posted = posted_events(topic.id)
+        new_events = Enum.reject(events, &already_posted?(&1, live.source, posted))
 
         Enum.each(new_events, fn event ->
-          create_event_post(topic, event)
+          create_event_post(topic, event, live.source)
           broadcast_event(topic.id, event)
         end)
 
@@ -74,26 +73,27 @@ defmodule Colloq.Workers.ScoreBotWorker do
         # first: cancelling the queued job is not enough to stop coverage,
         # because a poll already executing would just schedule its own
         # successor and the loop would survive the stop.
-        maybe_schedule_next_poll(fixture_id, topic_id)
+        maybe_schedule_next_poll(fixture_id, topic.id, live.args)
 
         {:ok, length(new_events)}
 
-      {:finished, event} ->
-        finalize_match(topic, fixture_id, event)
+      {:finished, live} ->
+        finalize_match(topic, fixture_id, live.event)
         {:ok, :finished}
 
-      {:pending, event} ->
+      {:pending, live} ->
         # Match not live yet — keep polling until it kicks off. Lineups usually
         # land during this window, which is the whole point of posting them from
         # here rather than at kickoff.
-        maybe_post_team_sheet(topic, fixture_id, event, false)
-        maybe_schedule_next_poll(fixture_id, topic_id)
+        maybe_post_team_sheet(topic, fixture_id, live, false)
+        maybe_schedule_next_poll(fixture_id, topic.id, live.args)
         {:ok, :pending}
 
-      # Used to `{:snooze, 30}`, but a snooze never counts as an attempt, so a
-      # Sofascore block kept a week-old thread "live" and polling forever.
-      {:error, _reason} ->
-        poll_without_sofascore(topic, fixture_id, args["failing_since"])
+      # Neither provider answered. Used to `{:snooze, 30}`, but a snooze never
+      # counts as an attempt, so a block kept a week-old thread "live" and
+      # polling forever.
+      :unreachable ->
+        continue_or_give_up(topic, fixture_id, args)
     end
   end
 
@@ -118,69 +118,102 @@ defmodule Colloq.Workers.ScoreBotWorker do
 
   # --- API call ---
 
-  # Source is Sofascore, not API-Football: the free API-Football plan can only
-  # read seasons 2022-2024 ("Free plans do not have access to this season"), so
-  # it cannot follow a current Racing match at all. Sofascore needs no key, has
-  # no quota, is already the source for the fixture digest, and its incidents
-  # carry stable ids that make de-duplication exact.
-  defp fetch_live_events(event_id, topic_id) do
-    event_id = to_int(event_id)
+  # The match-day data source (`Colloq.DataSource`) is asked first and the
+  # other provider fills in when it can't answer, so a Sofascore block (usually
+  # a 403) no longer reduces coverage to the score banner.
+  #
+  # Not API-Football: the free plan can only read seasons 2022-2024 ("Free
+  # plans do not have access to this season"), so it cannot follow a current
+  # Racing match at all.
+  #
+  # Returns `{:live, live, events}`, `{:finished, live}`, `{:pending, live}` or
+  # `:unreachable`, where `live` is `%{source, event, ref, args}`: the provider
+  # that answered, its event, the id to ask it for lineups with, and the job
+  # args to carry to the next poll.
+  defp fetch_live(topic, fixture_id, args) do
+    Colloq.DataSource.order(:matchday)
+    |> Enum.find_value(:unreachable, &fetch_from(&1, topic, fixture_id, args))
+  end
+
+  defp fetch_from(:sofascore, topic, fixture_id, args) do
+    event_id = to_int(fixture_id)
 
     case Sofascore.event(event_id) do
       {:ok, event} ->
-        # Push the score to every open thread on each poll, live or not: the
-        # banner should also settle on the final result rather than freeze on
-        # the last in-play score.
-        broadcast_score(topic_id, event)
-
-        cond do
-          Sofascore.live?(event) ->
-            {:ok, event_id |> Sofascore.incidents() |> parse_events(event), event}
-
-          match_finished?(event) ->
-            {:finished, event}
-
-          # Not "inprogress" and not finished: the match hasn't kicked off yet
-          # (coverage armed before kickoff) or a transient status. Keep the loop
-          # alive rather than declaring full time on a match that never started.
-          true ->
-            {:pending, event}
-        end
+        live = %{source: :sofascore, event: event, ref: event_id, args: carried_args(args)}
+        classify(topic, live, fn -> event_id |> Sofascore.incidents() |> parse_events(event) end)
 
       {:error, reason} ->
         Logger.error("[ResultaBot] no se pudo leer el evento #{event_id}: #{inspect(reason)}")
-        {:error, reason}
+        nil
     end
   end
 
-  # How long a thread may go without Sofascore answering before coverage stops
-  # on its own. Covers a full match plus extra time and penalties.
+  # FotMob has no mapping from the thread's Sofascore id, so the match is found
+  # by the thread's title once and its id carried in the job args after that.
+  defp fetch_from(:fotmob, topic, _fixture_id, args) do
+    with match_id when is_binary(match_id) <- args["fotmob_id"] || find_fotmob_match(topic),
+         {:ok, event} <- Colloq.FotMob.match_event(match_id) do
+      live = %{
+        source: :fotmob,
+        event: event,
+        ref: match_id,
+        args: Map.put(carried_args(args), "fotmob_id", match_id)
+      }
+
+      classify(topic, live, fn ->
+        case Colloq.FotMob.incidents(match_id) do
+          {:ok, incidents} -> parse_events(incidents, event)
+          _ -> []
+        end
+      end)
+    else
+      _ ->
+        Logger.warning("[ResultaBot] FotMob no tiene el partido del topic #{topic.id}")
+        nil
+    end
+  end
+
+  defp find_fotmob_match(topic) do
+    case Sofascore.fotmob_match_for_title(topic.title, topic.inserted_at) do
+      {:ok, event} -> Colloq.FotMob.match_id(event)
+      :error -> nil
+    end
+  end
+
+  # Only what must survive between polls. `failing_since` is dropped on purpose:
+  # a provider answered, so the outage clock starts over.
+  defp carried_args(args), do: Map.take(args, ["fotmob_id"])
+
+  defp classify(topic, live, events_fun) do
+    # Push the score to every open thread on each poll, live or not: the
+    # banner should also settle on the final result rather than freeze on
+    # the last in-play score.
+    broadcast_score(topic.id, live.event)
+
+    cond do
+      Sofascore.live?(live.event) ->
+        {:live, live, events_fun.()}
+
+      match_finished?(live.event) ->
+        {:finished, live}
+
+      # Not "inprogress" and not finished: the match hasn't kicked off yet
+      # (coverage armed before kickoff) or a transient status. Keep the loop
+      # alive rather than declaring full time on a match that never started.
+      true ->
+        {:pending, live}
+    end
+  end
+
+  # How long a thread may go without either provider answering before coverage
+  # stops on its own. Covers a full match plus extra time and penalties.
   @give_up_after_seconds 4 * 3600
 
-  # Sofascore is unreachable (usually a 403 block). FotMob keeps the banner's
-  # score moving and can close the match; with neither, coverage ends once
-  # Sofascore has been silent for @give_up_after_seconds.
-  defp poll_without_sofascore(topic, fixture_id, failing_since) do
+  defp continue_or_give_up(topic, fixture_id, args) do
     now = System.system_time(:second)
-    failing_since = failing_since || now
+    failing_since = args["failing_since"] || now
 
-    case Sofascore.fotmob_match_for_title(topic.title) do
-      {:ok, event} ->
-        broadcast_score(topic.id, event)
-
-        if match_finished?(event) do
-          finalize_match(topic, fixture_id, event)
-          {:ok, :finished}
-        else
-          continue_or_give_up(topic, fixture_id, failing_since, now)
-        end
-
-      :error ->
-        continue_or_give_up(topic, fixture_id, failing_since, now)
-    end
-  end
-
-  defp continue_or_give_up(topic, fixture_id, failing_since, now) do
     if now - failing_since >= @give_up_after_seconds do
       Logger.warning("[ResultaBot] sin datos del partido #{fixture_id} hace 4h; corto la cobertura")
 
@@ -188,15 +221,17 @@ defmodule Colloq.Workers.ScoreBotWorker do
       transition_to_fulltime(topic)
       {:ok, :gave_up}
     else
-      maybe_schedule_next_poll(fixture_id, topic.id, %{failing_since: failing_since})
+      extra = Map.put(carried_args(args), "failing_since", failing_since)
+      maybe_schedule_next_poll(fixture_id, topic.id, extra)
       {:ok, :unreachable}
     end
   end
 
   defp broadcast_score(topic_id, event) do
-    ColloqWeb.Endpoint.broadcast("forum:topic:#{topic_id}", "match_score", %{
-      match: Sofascore.match_summary(event)
-    })
+    match = Sofascore.match_summary(event)
+    # Saved so the thread keeps its banner after coverage ends.
+    Colloq.Forum.put_match_snapshot(topic_id, match)
+    ColloqWeb.Endpoint.broadcast("forum:topic:#{topic_id}", "match_score", %{match: match})
   end
 
   # A match is over (not merely "not live") only for these terminal statuses;
@@ -219,7 +254,7 @@ defmodule Colloq.Workers.ScoreBotWorker do
   # Coverage is "on" while the topic is in prematch/live. `/resultabot stop`
   # and the full-time transition both move it to "fulltime", which is what
   # actually breaks the chain.
-  defp maybe_schedule_next_poll(fixture_id, topic_id, extra_args \\ %{}) do
+  defp maybe_schedule_next_poll(fixture_id, topic_id, extra_args) do
     case Repo.get(Topic, topic_id) do
       %Topic{match_mode: mode} when mode in ["prematch", "live"] ->
         schedule_next_poll(fixture_id, topic_id, extra_args)
@@ -230,8 +265,9 @@ defmodule Colloq.Workers.ScoreBotWorker do
     end
   end
 
-  # `extra_args` carries `failing_since` while Sofascore is unreachable; it is
-  # not part of the unique keys, so it never splits one chain into two.
+  # `extra_args` carries `fotmob_id`, and `failing_since` while no provider
+  # answers; neither is part of the unique keys, so they never split one chain
+  # into two.
   defp schedule_next_poll(fixture_id, topic_id, extra_args) do
     %{action: "poll", fixture_id: fixture_id, topic_id: topic_id}
     |> Map.merge(extra_args)
@@ -281,15 +317,47 @@ defmodule Colloq.Workers.ScoreBotWorker do
   end
 
   defp posted_event_keys(topic_id) do
+    topic_id |> posted_events() |> Enum.map(& &1["key"]) |> Enum.reject(&is_nil/1) |> MapSet.new()
+  end
+
+  # event_data of every system post in the thread that has one, read back with
+  # string keys (it went through JSON).
+  defp posted_events(topic_id) do
     Repo.all(
       from(p in Colloq.Forum.Post,
         where: p.topic_id == ^topic_id and p.is_system == true and not is_nil(p.event_data),
-        select: fragment("? ->> 'key'", p.event_data)
+        select: p.event_data
       )
     )
-    |> Enum.reject(&is_nil/1)
-    |> MapSet.new()
   end
+
+  @doc false
+  # Posted already: same key, or — when the data source changed mid-match — the
+  # same moment as reported by the other provider. Keys don't carry over between
+  # providers, so a goal is recognised by the score it produced, and anything
+  # else by type, team and minute (±1, as the two clocks round differently).
+  # Posts from before sources were recorded came from Sofascore.
+  def already_posted?(event, source, posted) do
+    key = event_key(event)
+    source = to_string(source)
+
+    Enum.any?(posted, fn p ->
+      p["key"] == key or
+        ((p["source"] || "sofascore") != source and same_moment?(event, p))
+    end)
+  end
+
+  defp same_moment?(%{type: "goal"} = e, %{"type" => "goal"} = p) do
+    is_integer(e[:home_score]) and e[:home_score] == p["home_score"] and
+      e[:away_score] == p["away_score"]
+  end
+
+  defp same_moment?(%{type: type} = e, %{"type" => type} = p) do
+    is_integer(e[:minute]) and is_integer(p["minute"]) and abs(e[:minute] - p["minute"]) <= 1 and
+      Colloq.Predictions.FixtureMatch.team_similarity(e[:team], p["team"]) > 0
+  end
+
+  defp same_moment?(_event, _posted), do: false
 
   # --- Event parsing ---
 
@@ -400,26 +468,31 @@ defmodule Colloq.Workers.ScoreBotWorker do
   # A match that kicks off with no lineups published still gets a card with the
   # referee alone: coverage is often started at kickoff, and that is the last
   # moment the information is worth anything.
-  defp maybe_post_team_sheet(topic, event_id, event, live?) do
-    event_id = to_int(event_id)
-    key = team_sheet_key(event_id)
+  #
+  # The key is the thread's fixture id whichever provider supplied the lineups,
+  # so a switch of data source mid-coverage doesn't post a second card.
+  defp maybe_post_team_sheet(topic, fixture_id, live, live?) do
+    key = team_sheet_key(fixture_id)
 
     if MapSet.member?(posted_event_keys(topic.id), key) do
       :ok
     else
-      case Sofascore.lineups(event_id) do
+      case fetch_lineups(live) do
         {:ok, lineups} ->
           if lineups["confirmed"] || live? do
-            post_team_sheet(topic, event, lineups, key)
+            post_team_sheet(topic, live.event, lineups, key)
           else
             :ok
           end
 
         {:error, _reason} ->
-          if live?, do: post_team_sheet(topic, event, nil, key), else: :ok
+          if live?, do: post_team_sheet(topic, live.event, nil, key), else: :ok
       end
     end
   end
+
+  defp fetch_lineups(%{source: :sofascore, ref: event_id}), do: Sofascore.lineups(event_id)
+  defp fetch_lineups(%{source: :fotmob, ref: match_id}), do: Colloq.FotMob.lineups(match_id)
 
   defp post_team_sheet(topic, event, lineups, key) do
     referee = Sofascore.referee(event)
@@ -444,7 +517,7 @@ defmodule Colloq.Workers.ScoreBotWorker do
     end
   end
 
-  defp team_sheet_key(event_id), do: "teamsheet:#{event_id}"
+  defp team_sheet_key(fixture_id), do: "teamsheet:#{to_int(fixture_id)}"
 
   defp team_sheet_body(_event, nil, referee) do
     "🧑‍⚖️ <strong>Árbitro</strong> — dirige #{referee.name}. Sin formaciones publicadas todavía."
@@ -458,7 +531,7 @@ defmodule Colloq.Workers.ScoreBotWorker do
     "👥 <strong>#{label}</strong> — #{s.home} vs #{s.away}#{ref}"
   end
 
-  defp create_event_post(topic, event) do
+  defp create_event_post(topic, event, source) do
     system_user = get_or_create_scorebot_user()
 
     {type_label, body} = render_event(event)
@@ -467,9 +540,10 @@ defmodule Colloq.Workers.ScoreBotWorker do
       "body" => body,
       "is_system" => true,
       "system_type" => type_label,
-      # The key is what posted_event_keys/1 reads back to skip this event on
-      # the next poll; without it stored, dedup silently never matches.
-      "event_data" => Map.put(event, :key, event_key(event))
+      # The key is what already_posted?/3 reads back to skip this event on the
+      # next poll; without it stored, dedup silently never matches. The source
+      # lets it recognise the event if the other provider reports it later.
+      "event_data" => event |> Map.put(:key, event_key(event)) |> Map.put(:source, to_string(source))
     })
   end
 
@@ -533,9 +607,11 @@ defmodule Colloq.Workers.ScoreBotWorker do
   defp broadcast_event(topic_id, event) do
     ColloqWeb.Endpoint.broadcast("forum:topic:#{topic_id}", "match_event", %{
       type: event.type,
-      player: event.player,
+      # A substitution has player_in/player_out and no detail; reading the
+      # fields strictly raised and killed the poll right after posting a sub.
+      player: event[:player] || event[:player_in],
       minute: event.minute,
-      detail: event.detail,
+      detail: event[:detail],
       team: event.team
     })
   end
@@ -574,21 +650,51 @@ defmodule Colloq.Workers.ScoreBotWorker do
   end
 
   defp post_standings(topic, event) do
+    found =
+      Colloq.DataSource.order(:standings)
+      |> Enum.find_value(&racing_standings(&1, event))
+
+    case found do
+      {rows, season_id} ->
+        svg = Colloq.Sofascore.StandingsSvg.render(rows)
+
+        Forum.create_post(topic, get_or_create_scorebot_user(), %{
+          "body" => "📊 Tabla de Posiciones — Liga Profesional",
+          "is_system" => true,
+          "system_type" => "standings",
+          "event_data" => %{"season_id" => season_id, "svg" => svg}
+        })
+
+      nil ->
+        :ok
+    end
+  end
+
+  # Racing's group as `{rows, season_id}`, or nil when the provider can't say.
+  defp racing_standings(:sofascore, event) do
     season_id = get_in(event, ["season", "id"]) || Sofascore.current_season_id()
 
     with true <- is_integer(season_id),
          {:ok, data} <- Sofascore.standings(season_id),
          rows when rows != [] <- standings_rows(data) do
-      svg = Colloq.Sofascore.StandingsSvg.render(rows)
-
-      Forum.create_post(topic, get_or_create_scorebot_user(), %{
-        "body" => "📊 Tabla de Posiciones — Liga Profesional",
-        "is_system" => true,
-        "system_type" => "standings",
-        "event_data" => %{"season_id" => season_id, "svg" => svg}
-      })
+      {rows, season_id}
     else
-      _ -> :ok
+      _ -> nil
+    end
+  end
+
+  # FotMob team ids aren't Sofascore's, so Racing's group is found by name.
+  defp racing_standings(:fotmob, _event) do
+    racing = Sofascore.team_info(:racing).name
+
+    with {:ok, groups} <- Colloq.FotMob.liga_standings(),
+         {_label, rows} <-
+           Enum.find(groups, fn {_label, rows} ->
+             Enum.any?(rows, &(get_in(&1, ["team", "name"]) == racing))
+           end) do
+      {rows, Sofascore.current_season_id()}
+    else
+      _ -> nil
     end
   end
 
